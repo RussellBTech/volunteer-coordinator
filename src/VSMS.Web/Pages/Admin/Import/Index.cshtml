@@ -1,0 +1,116 @@
+@page
+@model VSMS.Web.Pages.Admin.Import.IndexModel
+@{
+    ViewData["Title"] = "Import Data";
+    Layout = "_AdminLayout";
+}
+
+<h2>Import Data</h2>
+<p class="text-muted">Import volunteers from a CSV file.</p>
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert-success">@TempData["Success"]</div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger">@TempData["Error"]</div>
+}
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">Upload CSV</div>
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label class="form-label">CSV File</label>
+                        <input type="file" name="file" class="form-control" accept=".csv" required />
+                        <div class="form-text">
+                            Expected columns: Name, Email, Phone, IsBackup<br />
+                            First row should be headers.
+                        </div>
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" name="skipDuplicates" class="form-check-input" id="skipDuplicates" checked />
+                        <label class="form-check-label" for="skipDuplicates">
+                            Skip existing volunteers (match by email)
+                        </label>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Upload & Import</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">CSV Format</div>
+            <div class="card-body">
+                <p>Your CSV file should have the following columns:</p>
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Column</th>
+                            <th>Required</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>Name</code></td>
+                            <td>Yes</td>
+                            <td>Volunteer's full name</td>
+                        </tr>
+                        <tr>
+                            <td><code>Email</code></td>
+                            <td>Yes</td>
+                            <td>Email address (unique)</td>
+                        </tr>
+                        <tr>
+                            <td><code>Phone</code></td>
+                            <td>No</td>
+                            <td>Phone number</td>
+                        </tr>
+                        <tr>
+                            <td><code>IsBackup</code></td>
+                            <td>No</td>
+                            <td>true/false or yes/no</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <h6>Example:</h6>
+                <pre class="bg-light p-2">Name,Email,Phone,IsBackup
+John Smith,john@example.com,555-1234,false
+Jane Doe,jane@example.com,555-5678,true</pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (Model.ImportResults != null)
+{
+    <div class="card mt-4">
+        <div class="card-header">Import Results</div>
+        <div class="card-body">
+            <p>
+                <strong>Processed:</strong> @Model.ImportResults.Total<br />
+                <strong>Imported:</strong> @Model.ImportResults.Imported<br />
+                <strong>Skipped (duplicates):</strong> @Model.ImportResults.Skipped<br />
+                <strong>Errors:</strong> @Model.ImportResults.Errors.Count
+            </p>
+
+            @if (Model.ImportResults.Errors.Any())
+            {
+                <h6>Errors:</h6>
+                <ul class="text-danger">
+                    @foreach (var error in Model.ImportResults.Errors)
+                    {
+                        <li>@error</li>
+                    }
+                </ul>
+            }
+        </div>
+    </div>
+}

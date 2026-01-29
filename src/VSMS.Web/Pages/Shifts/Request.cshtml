@@ -1,0 +1,86 @@
+@page "{shiftId:int}"
+@model VSMS.Web.Pages.Shifts.RequestModel
+@{
+    ViewData["Title"] = "Request Shift";
+    Layout = "_Layout";
+}
+
+@if (Model.Shift == null)
+{
+    <div class="alert alert-danger">
+        <h4>Shift Not Found</h4>
+        <p>This shift could not be found or is no longer available.</p>
+        <a href="/shifts/open" class="btn btn-primary">View Open Shifts</a>
+    </div>
+}
+else if (Model.Shift.Status != ShiftStatus.Open)
+{
+    <div class="alert alert-warning">
+        <h4>Shift No Longer Available</h4>
+        <p>This shift has already been filled.</p>
+        <a href="/shifts/open" class="btn btn-primary">View Other Open Shifts</a>
+    </div>
+}
+else if (Model.RequestSubmitted)
+{
+    <div class="alert alert-success">
+        <h4>Request Submitted</h4>
+        <p>Thank you for volunteering! Your request has been submitted and will be reviewed by an administrator.</p>
+        <p>You'll receive an email once your request is approved.</p>
+        <a href="/shifts/open" class="btn btn-primary">View Other Open Shifts</a>
+    </div>
+}
+else
+{
+    <h2>Request This Shift</h2>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">@Model.Shift.Date.ToString("dddd, MMMM d, yyyy")</h5>
+            <p class="card-text">
+                <strong>@Model.Shift.TimeSlot.Label</strong><br />
+                @Model.Shift.TimeSlot.StartTime.ToString("h:mm tt") -
+                @Model.Shift.TimeSlot.StartTime.AddMinutes(Model.Shift.TimeSlot.DurationMinutes).ToString("h:mm tt")
+            </p>
+            <span class="badge @(Model.Shift.Role == ShiftRole.Phone ? "bg-info" : "bg-primary")">
+                @Model.Shift.Role
+            </span>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <form method="post">
+                <input type="hidden" name="shiftId" value="@Model.Shift.Id" />
+
+                <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+
+                <div class="mb-3">
+                    <label asp-for="Input.Name" class="form-label">Your Name</label>
+                    <input asp-for="Input.Name" class="form-control" />
+                    <span asp-validation-for="Input.Name" class="text-danger"></span>
+                </div>
+
+                <div class="mb-3">
+                    <label asp-for="Input.Email" class="form-label">Email Address</label>
+                    <input asp-for="Input.Email" type="email" class="form-control" />
+                    <span asp-validation-for="Input.Email" class="text-danger"></span>
+                    <div class="form-text">We'll send confirmation and reminder emails to this address.</div>
+                </div>
+
+                <div class="mb-3">
+                    <label asp-for="Input.Phone" class="form-label">Phone Number (Optional)</label>
+                    <input asp-for="Input.Phone" type="tel" class="form-control" />
+                    <span asp-validation-for="Input.Phone" class="text-danger"></span>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Submit Request</button>
+                <a href="/shifts/open" class="btn btn-outline-secondary">Cancel</a>
+            </form>
+        </div>
+    </div>
+}
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

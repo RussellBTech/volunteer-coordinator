@@ -1,0 +1,29 @@
+@{
+    Layout = "_Layout";
+}
+
+<div class="row">
+    <div class="col-md-3 col-lg-2">
+        <nav class="nav flex-column nav-pills">
+            <a class="nav-link @(ViewContext.RouteData.Values["page"]?.ToString() == "/Admin/Index" ? "active" : "")" href="/admin">Dashboard</a>
+            <a class="nav-link @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Admin/Volunteers") == true ? "active" : "")" href="/admin/volunteers">Volunteers</a>
+            <a class="nav-link @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Admin/TimeSlots") == true ? "active" : "")" href="/admin/time-slots">Time Slots</a>
+            <a class="nav-link @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Admin/MasterSchedule") == true ? "active" : "")" href="/admin/master-schedule">Master Schedule</a>
+            <a class="nav-link @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Admin/Calendar") == true ? "active" : "")" href="/admin/calendar">Calendar</a>
+            <a class="nav-link @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Admin/Requests") == true ? "active" : "")" href="/admin/requests">Requests</a>
+            <hr />
+            <a class="nav-link @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Admin/Settings") == true ? "active" : "")" href="/admin/settings/admins">Settings</a>
+        </nav>
+    </div>
+    <div class="col-md-9 col-lg-10">
+        @RenderBody()
+    </div>
+</div>
+
+@section Styles {
+    @await RenderSectionAsync("Styles", required: false)
+}
+
+@section Scripts {
+    @await RenderSectionAsync("Scripts", required: false)
+}

@@ -1,0 +1,135 @@
+@page
+@model VSMS.Web.Pages.Shifts.MyShiftsModel
+@using VSMS.Core.Enums
+@{
+    ViewData["Title"] = "My Shifts";
+    Layout = "_Layout";
+}
+
+<h2>My Shifts</h2>
+<p class="lead">View your assigned and upcoming volunteer shifts.</p>
+
+<form method="post" class="row g-3 mb-4">
+    <div class="col-md-6">
+        <label for="email" class="form-label">Your Email Address</label>
+        <input type="email" class="form-control" id="email" name="email"
+               value="@Model.Email" placeholder="volunteer@example.com" required />
+    </div>
+    <div class="col-12">
+        <button type="submit" class="btn btn-primary">View My Shifts</button>
+    </div>
+</form>
+
+@if (!string.IsNullOrEmpty(Model.ErrorMessage))
+{
+    <div class="alert alert-warning">
+        @Model.ErrorMessage
+    </div>
+}
+
+@if (Model.ShowResults && Model.Volunteer != null)
+{
+    <div class="alert alert-info mb-4">
+        <strong>Welcome, @Model.Volunteer.Name!</strong>
+        @if (Model.Volunteer.IsBackup)
+        {
+            <span class="badge bg-secondary ms-2">Backup Volunteer</span>
+        }
+    </div>
+
+    <h3>Upcoming Shifts</h3>
+    @if (Model.UpcomingShifts.Any())
+    {
+        <div class="row mb-4">
+            @foreach (var shift in Model.UpcomingShifts)
+            {
+                var statusClass = shift.Status switch
+                {
+                    ShiftStatus.Confirmed => "shift-confirmed",
+                    ShiftStatus.Assigned => "shift-assigned",
+                    _ => "shift-open"
+                };
+                var statusBadge = shift.Status switch
+                {
+                    ShiftStatus.Confirmed => "bg-success",
+                    ShiftStatus.Assigned => "bg-warning text-dark",
+                    _ => "bg-secondary"
+                };
+                <div class="col-md-6 col-lg-4 mb-3">
+                    <div class="card h-100 @statusClass">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <h5 class="card-title">@shift.Date.ToString("dddd, MMMM d")</h5>
+                                <span class="badge @statusBadge">@shift.Status</span>
+                            </div>
+                            <p class="card-text">
+                                <strong>@shift.TimeSlot.Label</strong><br />
+                                @shift.TimeSlot.StartTime.ToString("h:mm tt") -
+                                @shift.TimeSlot.StartTime.AddMinutes(shift.TimeSlot.DurationMinutes).ToString("h:mm tt")
+                            </p>
+                            <span class="badge @(shift.Role == ShiftRole.Phone ? "bg-info" : "bg-primary") mb-2">
+                                @shift.Role
+                            </span>
+                            @if (shift.Status == ShiftStatus.Assigned)
+                            {
+                                <p class="small text-muted mt-2">
+                                    Please check your email for the confirmation link.
+                                </p>
+                            }
+                            else if (shift.Status == ShiftStatus.Confirmed && shift.ConfirmedAt.HasValue)
+                            {
+                                <p class="small text-muted mt-2">
+                                    Confirmed on @shift.ConfirmedAt.Value.ToString("MMM d 'at' h:mm tt")
+                                </p>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-secondary mb-4">
+            <p class="mb-0">You have no upcoming shifts scheduled.</p>
+            <a href="/shifts/open" class="btn btn-outline-primary btn-sm mt-2">Browse Open Shifts</a>
+        </div>
+    }
+
+    @if (Model.PastShifts.Any())
+    {
+        <h3>Recent Past Shifts</h3>
+        <div class="table-responsive">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Time</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var shift in Model.PastShifts)
+                    {
+                        <tr>
+                            <td>@shift.Date.ToString("MMM d, yyyy")</td>
+                            <td>@shift.TimeSlot.Label (@shift.TimeSlot.StartTime.ToString("h:mm tt"))</td>
+                            <td>@shift.Role</td>
+                            <td>
+                                @if (shift.Status == ShiftStatus.Confirmed)
+                                {
+                                    <span class="badge bg-success">Completed</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary">@shift.Status</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}

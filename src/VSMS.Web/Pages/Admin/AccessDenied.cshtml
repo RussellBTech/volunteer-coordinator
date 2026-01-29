@@ -1,0 +1,18 @@
+@page
+@model VSMS.Web.Pages.Admin.AccessDeniedModel
+@{
+    ViewData["Title"] = "Access Denied";
+    Layout = "_Layout";
+}
+
+<div class="row justify-content-center mt-5">
+    <div class="col-md-6">
+        <div class="alert alert-danger">
+            <h4 class="alert-heading">Access Denied</h4>
+            <p>You do not have permission to access this page.</p>
+            <hr>
+            <p class="mb-0">If you believe this is an error, please contact the administrator.</p>
+        </div>
+        <a href="/" class="btn btn-primary">Return to Home</a>
+    </div>
+</div>

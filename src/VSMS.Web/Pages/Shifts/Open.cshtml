@@ -1,0 +1,64 @@
+@page
+@model VSMS.Web.Pages.Shifts.OpenModel
+@{
+    ViewData["Title"] = "Open Shifts";
+    Layout = "_Layout";
+}
+
+<h2>Open Shifts</h2>
+<p class="lead">Browse available volunteer shifts and sign up to help.</p>
+
+<form method="get" class="row g-3 mb-4">
+    <div class="col-auto">
+        <select name="role" class="form-select">
+            <option value="">All Roles</option>
+            <option value="0" selected="@(Model.Role == 0)">In-Person</option>
+            <option value="1" selected="@(Model.Role == 1)">Phone</option>
+        </select>
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-outline-primary">Filter</button>
+    </div>
+</form>
+
+@if (Model.OpenShifts.Any())
+{
+    <div class="row">
+        @foreach (var shift in Model.OpenShifts)
+        {
+            <div class="col-md-6 col-lg-4 mb-3">
+                <div class="card h-100 shift-open">
+                    <div class="card-body">
+                        <h5 class="card-title">@shift.Date.ToString("dddd, MMMM d")</h5>
+                        <p class="card-text">
+                            <strong>@shift.TimeSlot.Label</strong><br />
+                            @shift.TimeSlot.StartTime.ToString("h:mm tt") -
+                            @shift.TimeSlot.StartTime.AddMinutes(shift.TimeSlot.DurationMinutes).ToString("h:mm tt")
+                        </p>
+                        <span class="badge @(shift.Role == ShiftRole.Phone ? "bg-info" : "bg-primary") mb-2">
+                            @shift.Role
+                        </span>
+                        @if (shift.Role == ShiftRole.Phone)
+                        {
+                            <p class="small text-muted">Calls will be forwarded to your phone.</p>
+                        }
+                        else
+                        {
+                            <p class="small text-muted">At the Intergroup office.</p>
+                        }
+                    </div>
+                    <div class="card-footer">
+                        <a href="/shifts/request/@shift.Id" class="btn btn-primary btn-sm">Request This Shift</a>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+else
+{
+    <div class="alert alert-info">
+        <h4>No Open Shifts</h4>
+        <p>All shifts are currently filled. Check back later or contact the office if you'd like to volunteer.</p>
+    </div>
+}

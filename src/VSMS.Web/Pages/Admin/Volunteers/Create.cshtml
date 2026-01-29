@@ -1,0 +1,49 @@
+@page
+@model VSMS.Web.Pages.Admin.Volunteers.CreateModel
+@{
+    ViewData["Title"] = "Add Volunteer";
+    Layout = "_AdminLayout";
+}
+
+<h2>Add Volunteer</h2>
+
+<div class="row">
+    <div class="col-md-6">
+        <form method="post">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+
+            <div class="mb-3">
+                <label asp-for="Input.Name" class="form-label"></label>
+                <input asp-for="Input.Name" class="form-control" />
+                <span asp-validation-for="Input.Name" class="text-danger"></span>
+            </div>
+
+            <div class="mb-3">
+                <label asp-for="Input.Email" class="form-label"></label>
+                <input asp-for="Input.Email" type="email" class="form-control" />
+                <span asp-validation-for="Input.Email" class="text-danger"></span>
+            </div>
+
+            <div class="mb-3">
+                <label asp-for="Input.Phone" class="form-label"></label>
+                <input asp-for="Input.Phone" type="tel" class="form-control" />
+                <span asp-validation-for="Input.Phone" class="text-danger"></span>
+            </div>
+
+            <div class="mb-3 form-check">
+                <input asp-for="Input.IsBackup" class="form-check-input" />
+                <label asp-for="Input.IsBackup" class="form-check-label">Backup Volunteer</label>
+                <div class="form-text">Backup volunteers are contacted when shifts can't be filled.</div>
+            </div>
+
+            <div class="mb-3">
+                <button type="submit" class="btn btn-primary">Add Volunteer</button>
+                <a href="/admin/volunteers" class="btn btn-outline-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

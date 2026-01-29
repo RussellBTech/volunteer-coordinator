@@ -1,0 +1,81 @@
+@page
+@model VSMS.Web.Pages.Admin.Settings.AdminsModel
+@{
+    ViewData["Title"] = "Admin Users";
+    Layout = "_AdminLayout";
+}
+
+<h2>Admin Users</h2>
+<p class="text-muted">Manage who can access the admin dashboard.</p>
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert-success">@TempData["Success"]</div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger">@TempData["Error"]</div>
+}
+
+<div class="row">
+    <div class="col-md-6">
+        <h4>Current Admins</h4>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var admin in Model.Admins)
+                {
+                    <tr>
+                        <td>@admin.Name</td>
+                        <td>@admin.Email</td>
+                        <td>
+                            @if (admin.Email != Model.CurrentUserEmail)
+                            {
+                                <form method="post" asp-page-handler="Remove" class="d-inline">
+                                    <input type="hidden" name="adminId" value="@admin.Id" />
+                                    <button type="submit" class="btn btn-sm btn-outline-danger"
+                                            onclick="return confirm('Remove this admin?');">
+                                        Remove
+                                    </button>
+                                </form>
+                            }
+                            else
+                            {
+                                <span class="badge bg-info">You</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">Add Admin</div>
+            <div class="card-body">
+                <form method="post" asp-page-handler="Add">
+                    <div class="mb-3">
+                        <label class="form-label">Email Address</label>
+                        <input type="email" name="email" class="form-control" required
+                               placeholder="admin@example.com" />
+                        <div class="form-text">
+                            The user must have a Google account with this email address.
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input type="text" name="name" class="form-control" required
+                               placeholder="Admin Name" />
+                    </div>
+                    <button type="submit" class="btn btn-primary">Add Admin</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>

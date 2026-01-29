@@ -1,0 +1,96 @@
+@page
+@model VSMS.Web.Pages.Admin.Requests.IndexModel
+@{
+    ViewData["Title"] = "Shift Requests";
+    Layout = "_AdminLayout";
+}
+
+<h2>Shift Requests</h2>
+
+<ul class="nav nav-tabs mb-3">
+    <li class="nav-item">
+        <a class="nav-link @(Model.Status == "pending" ? "active" : "")" href="/admin/requests?status=pending">
+            Pending (@Model.PendingCount)
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link @(Model.Status == "approved" ? "active" : "")" href="/admin/requests?status=approved">Approved</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link @(Model.Status == "rejected" ? "active" : "")" href="/admin/requests?status=rejected">Rejected</a>
+    </li>
+</ul>
+
+@if (Model.Requests.Any())
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Volunteer</th>
+                <th>Shift</th>
+                <th>Requested</th>
+                @if (Model.Status == "pending")
+                {
+                    <th>Actions</th>
+                }
+                else
+                {
+                    <th>Resolved</th>
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var request in Model.Requests)
+            {
+                <tr>
+                    <td>
+                        <strong>@request.Volunteer.Name</strong><br />
+                        <small class="text-muted">@request.Volunteer.Email</small>
+                    </td>
+                    <td>
+                        @request.Shift.Date.ToString("ddd, MMM d") at @request.Shift.TimeSlot.Label<br />
+                        <span class="badge @(request.Shift.Role == ShiftRole.Phone ? "bg-info" : "bg-primary")">
+                            @request.Shift.Role
+                        </span>
+                        @if (request.Shift.Status != ShiftStatus.Open)
+                        {
+                            <span class="badge bg-warning">Shift no longer open</span>
+                        }
+                    </td>
+                    <td>@request.RequestedAt.ToString("MMM d, h:mm tt")</td>
+                    @if (Model.Status == "pending")
+                    {
+                        <td>
+                            <form method="post" class="d-inline">
+                                <input type="hidden" name="requestId" value="@request.Id" />
+                                <button type="submit" name="action" value="approve" class="btn btn-sm btn-success"
+                                        @(request.Shift.Status != ShiftStatus.Open ? "disabled" : "")>
+                                    Approve
+                                </button>
+                                <button type="submit" name="action" value="reject" class="btn btn-sm btn-danger">
+                                    Reject
+                                </button>
+                            </form>
+                        </td>
+                    }
+                    else
+                    {
+                        <td>
+                            @request.ResolvedAt?.ToString("MMM d, h:mm tt")<br />
+                            @if (request.ResolvedByAdmin != null)
+                            {
+                                <small class="text-muted">by @request.ResolvedByAdmin.Name</small>
+                            }
+                        </td>
+                    }
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <div class="alert alert-info">
+        No @Model.Status requests.
+    </div>
+}

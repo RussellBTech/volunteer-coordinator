@@ -1,0 +1,53 @@
+@page "/admin/master-schedule/edit-entry"
+@model VSMS.Web.Pages.Admin.MasterSchedule.EditEntryModel
+@{
+    Layout = null;
+}
+
+<div class="modal-header">
+    <h5 class="modal-title">
+        @Model.DayName - @Model.TimeSlot?.Label - @Model.Role
+    </h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<form method="post" hx-post="/admin/master-schedule/edit-entry" hx-swap="none">
+    <div class="modal-body">
+        <input type="hidden" name="DayOfWeek" value="@((int)Model.DayOfWeek)" />
+        <input type="hidden" name="TimeSlotId" value="@Model.TimeSlotId" />
+        <input type="hidden" name="Role" value="@((int)Model.Role)" />
+
+        <div class="mb-3">
+            <label class="form-label">Default Volunteer</label>
+            <select name="VolunteerId" class="form-select">
+                <option value="">-- No Default --</option>
+                @foreach (var volunteer in Model.Volunteers)
+                {
+                    <option value="@volunteer.Id" selected="@(volunteer.Id == Model.Entry?.DefaultVolunteerId)">
+                        @volunteer.Name
+                    </option>
+                }
+            </select>
+        </div>
+
+        <div class="mb-3 form-check">
+            <input type="checkbox" name="IsClosed" value="true" class="form-check-input"
+                   checked="@(Model.Entry?.IsClosed == true)" id="isClosed" />
+            <label class="form-check-label" for="isClosed">Mark as Closed</label>
+            <div class="form-text">Closed slots won't have shifts generated for them.</div>
+        </div>
+    </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+</form>
+
+<script>
+    document.body.addEventListener('htmx:afterRequest', function(evt) {
+        if (evt.detail.successful && evt.detail.pathInfo.requestPath === '/admin/master-schedule/edit-entry') {
+            var modal = bootstrap.Modal.getInstance(document.getElementById('editModal'));
+            if (modal) modal.hide();
+            location.reload();
+        }
+    });
+</script>

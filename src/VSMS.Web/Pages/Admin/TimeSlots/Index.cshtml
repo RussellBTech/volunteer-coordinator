@@ -1,0 +1,59 @@
+@page "/admin/time-slots"
+@model VSMS.Web.Pages.Admin.TimeSlots.IndexModel
+@{
+    ViewData["Title"] = "Time Slots";
+    Layout = "_AdminLayout";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>Time Slots</h2>
+    <a href="/admin/time-slots/create" class="btn btn-primary">Add Time Slot</a>
+</div>
+
+<p class="text-muted">Time slots define the shift periods available for scheduling.</p>
+
+@if (Model.TimeSlots.Any())
+{
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <th>Order</th>
+                <th>Label</th>
+                <th>Start Time</th>
+                <th>Duration</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var slot in Model.TimeSlots)
+            {
+                <tr class="@(!slot.IsActive ? "table-secondary" : "")">
+                    <td>@slot.SortOrder</td>
+                    <td>@slot.Label</td>
+                    <td>@slot.StartTime.ToString("h:mm tt")</td>
+                    <td>@slot.DurationMinutes minutes</td>
+                    <td>
+                        @if (slot.IsActive)
+                        {
+                            <span class="badge bg-success">Active</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-secondary">Inactive</span>
+                        }
+                    </td>
+                    <td>
+                        <a href="/admin/time-slots/@slot.Id/edit" class="btn btn-sm btn-outline-primary">Edit</a>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <div class="alert alert-info">
+        No time slots configured. <a href="/admin/time-slots/create">Add the first time slot</a>.
+    </div>
+}

@@ -1,0 +1,56 @@
+@page "/admin/time-slots/{id:int}"
+@model VSMS.Web.Pages.Admin.TimeSlots.EditModel
+@{
+    ViewData["Title"] = "Edit Time Slot";
+    Layout = "_AdminLayout";
+}
+
+<h2>Edit Time Slot</h2>
+
+<div class="row">
+    <div class="col-md-6">
+        <form method="post">
+            <input type="hidden" asp-for="Id" />
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+
+            <div class="mb-3">
+                <label asp-for="Input.Label" class="form-label"></label>
+                <input asp-for="Input.Label" class="form-control" />
+                <span asp-validation-for="Input.Label" class="text-danger"></span>
+            </div>
+
+            <div class="mb-3">
+                <label asp-for="Input.StartTime" class="form-label"></label>
+                <input asp-for="Input.StartTime" type="time" class="form-control" />
+                <span asp-validation-for="Input.StartTime" class="text-danger"></span>
+            </div>
+
+            <div class="mb-3">
+                <label asp-for="Input.DurationMinutes" class="form-label"></label>
+                <input asp-for="Input.DurationMinutes" type="number" class="form-control" min="30" max="480" />
+                <span asp-validation-for="Input.DurationMinutes" class="text-danger"></span>
+            </div>
+
+            <div class="mb-3">
+                <label asp-for="Input.SortOrder" class="form-label"></label>
+                <input asp-for="Input.SortOrder" type="number" class="form-control" min="1" />
+                <span asp-validation-for="Input.SortOrder" class="text-danger"></span>
+            </div>
+
+            <div class="mb-3 form-check">
+                <input asp-for="Input.IsActive" class="form-check-input" />
+                <label asp-for="Input.IsActive" class="form-check-label">Active</label>
+                <div class="form-text">Inactive time slots won't appear in new schedules.</div>
+            </div>
+
+            <div class="mb-3">
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+                <a href="/admin/time-slots" class="btn btn-outline-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

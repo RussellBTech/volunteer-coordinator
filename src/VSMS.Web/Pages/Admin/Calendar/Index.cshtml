@@ -1,0 +1,127 @@
+@page
+@model VSMS.Web.Pages.Admin.Calendar.IndexModel
+@{
+    ViewData["Title"] = "Calendar";
+    Layout = "_AdminLayout";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>@Model.MonthYear</h2>
+    <div>
+        <a href="/admin/calendar?month=@Model.PreviousMonth.Month&year=@Model.PreviousMonth.Year" class="btn btn-outline-secondary">
+            &laquo; Previous
+        </a>
+        <a href="/admin/calendar?month=@Model.NextMonth.Month&year=@Model.NextMonth.Year" class="btn btn-outline-secondary">
+            Next &raquo;
+        </a>
+    </div>
+</div>
+
+<div class="mb-3">
+    @if (!Model.MonthGenerated)
+    {
+        <a href="/admin/calendar/generate?month=@Model.Month&year=@Model.Year" class="btn btn-primary">
+            Generate @Model.MonthYear
+        </a>
+    }
+    else if (!Model.MonthPublished)
+    {
+        <a href="/admin/calendar/publish?month=@Model.Month&year=@Model.Year" class="btn btn-success">
+            Publish @Model.MonthYear
+        </a>
+        <span class="text-muted ms-2">@Model.TotalShifts shifts generated</span>
+    }
+    else
+    {
+        <span class="badge bg-success">Published @Model.PublishedAt?.ToString("MMM d")</span>
+    }
+</div>
+
+<div class="mb-3">
+    <span class="badge shift-open p-2">Open</span>
+    <span class="badge shift-assigned p-2">Assigned</span>
+    <span class="badge shift-confirmed p-2">Confirmed</span>
+</div>
+
+<div class="table-responsive">
+    <table class="table table-bordered calendar-table">
+        <thead>
+            <tr>
+                <th>Sun</th>
+                <th>Mon</th>
+                <th>Tue</th>
+                <th>Wed</th>
+                <th>Thu</th>
+                <th>Fri</th>
+                <th>Sat</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var week in Model.Weeks)
+            {
+                <tr>
+                    @foreach (var day in week)
+                    {
+                        <td class="@(day == null ? "bg-light" : "") align-top p-1" style="min-width: 120px; height: 100px;">
+                            @if (day != null)
+                            {
+                                <div class="fw-bold mb-1">@day.Value.Day</div>
+                                @foreach (var shift in Model.GetShiftsForDate(day.Value))
+                                {
+                                    <div class="small p-1 mb-1 rounded @GetShiftClass(shift)"
+                                         hx-get="/admin/calendar/edit-shift?shiftId=@shift.Id"
+                                         hx-target="#shift-modal-content"
+                                         hx-trigger="click"
+                                         data-bs-toggle="modal"
+                                         data-bs-target="#shiftModal"
+                                         style="cursor: pointer; font-size: 0.75rem;">
+                                        <strong>@shift.TimeSlot.StartTime.ToString("h:mm")</strong>
+                                        @shift.Role.ToString()[0]
+                                        @if (shift.Volunteer != null)
+                                        {
+                                            <br />@shift.Volunteer.Name.Split(' ')[0]
+                                        }
+                                    </div>
+                                }
+                            }
+                        </td>
+                    }
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+<!-- Shift Edit Modal -->
+<div class="modal fade" id="shiftModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content" id="shift-modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Shift</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                Loading...
+            </div>
+        </div>
+    </div>
+</div>
+
+@functions {
+    string GetShiftClass(Shift shift)
+    {
+        return shift.Status switch
+        {
+            ShiftStatus.Open => "shift-open",
+            ShiftStatus.Assigned => "shift-assigned",
+            ShiftStatus.Confirmed => "shift-confirmed",
+            _ => ""
+        };
+    }
+}
+
+@section Styles {
+    <style>
+        .calendar-table td { vertical-align: top; }
+    </style>
+}

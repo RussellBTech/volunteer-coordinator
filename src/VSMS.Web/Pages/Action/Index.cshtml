@@ -1,0 +1,54 @@
+@page "{token}"
+@model VSMS.Web.Pages.Action.IndexModel
+@{
+    ViewData["Title"] = "Confirm Action";
+    Layout = "_Layout";
+}
+
+@if (Model.TokenError != null)
+{
+    <div class="alert alert-danger">
+        <h4>@Model.TokenError</h4>
+        <p>@Model.TokenErrorDetails</p>
+        <p>If you need assistance, please contact the office.</p>
+    </div>
+}
+else if (Model.ActionCompleted)
+{
+    <div class="alert alert-success">
+        <h4>@Model.CompletedTitle</h4>
+        <p>@Model.CompletedMessage</p>
+    </div>
+    <a href="/shifts/open" class="btn btn-primary">View Open Shifts</a>
+}
+else
+{
+    <div class="card">
+        <div class="card-header">
+            <h4>@Model.ActionTitle</h4>
+        </div>
+        <div class="card-body">
+            <p>@Model.ActionDescription</p>
+
+            <div class="card bg-light mb-3">
+                <div class="card-body">
+                    <h5>@Model.ActionToken!.Shift.Date.ToString("dddd, MMMM d, yyyy")</h5>
+                    <p>
+                        <strong>@Model.ActionToken.Shift.TimeSlot.Label</strong><br />
+                        @Model.ActionToken.Shift.TimeSlot.StartTime.ToString("h:mm tt") -
+                        @Model.ActionToken.Shift.TimeSlot.StartTime.AddMinutes(Model.ActionToken.Shift.TimeSlot.DurationMinutes).ToString("h:mm tt")
+                    </p>
+                    <span class="badge @(Model.ActionToken.Shift.Role == ShiftRole.Phone ? "bg-info" : "bg-primary")">
+                        @Model.ActionToken.Shift.Role
+                    </span>
+                </div>
+            </div>
+
+            <form method="post">
+                <input type="hidden" name="token" value="@Model.Token" />
+                <button type="submit" class="btn @Model.ButtonClass btn-lg">@Model.ButtonText</button>
+                <a href="/" class="btn btn-outline-secondary btn-lg">Cancel</a>
+            </form>
+        </div>
+    </div>
+}

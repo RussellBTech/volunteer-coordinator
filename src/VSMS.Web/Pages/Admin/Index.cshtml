@@ -1,0 +1,106 @@
+@page
+@model VSMS.Web.Pages.Admin.IndexModel
+@{
+    ViewData["Title"] = "Admin Dashboard";
+    Layout = "_AdminLayout";
+}
+
+<h2>Dashboard</h2>
+
+<div class="row mt-4">
+    <div class="col-md-4">
+        <div class="card text-bg-danger mb-3">
+            <div class="card-header">Open Shifts This Week</div>
+            <div class="card-body">
+                <h3 class="card-title">@Model.OpenShiftsThisWeek</h3>
+                <a href="/admin/calendar" class="btn btn-outline-light btn-sm">View Calendar</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-bg-warning mb-3">
+            <div class="card-header">Pending Requests</div>
+            <div class="card-body">
+                <h3 class="card-title">@Model.PendingRequests</h3>
+                <a href="/admin/requests" class="btn btn-outline-dark btn-sm">Review Requests</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-bg-info mb-3">
+            <div class="card-header">Unconfirmed Shifts</div>
+            <div class="card-body">
+                <h3 class="card-title">@Model.UnconfirmedShifts</h3>
+                <p class="card-text small">Assigned but not confirmed</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <h4>Upcoming Open Shifts</h4>
+        @if (Model.UpcomingOpenShifts.Any())
+        {
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Time</th>
+                        <th>Role</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var shift in Model.UpcomingOpenShifts)
+                    {
+                        <tr class="shift-open">
+                            <td>@shift.Date.ToString("ddd, MMM d")</td>
+                            <td>@shift.TimeSlot.Label</td>
+                            <td>@shift.Role</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <p class="text-muted">No open shifts in the next 7 days.</p>
+        }
+    </div>
+    <div class="col-md-6">
+        <h4>Recent Activity</h4>
+        @if (Model.RecentActivity.Any())
+        {
+            <ul class="list-group">
+                @foreach (var entry in Model.RecentActivity)
+                {
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>@entry.Action</strong>
+                            @if (!string.IsNullOrEmpty(entry.Details))
+                            {
+                                <br /><small class="text-muted">@entry.Details</small>
+                            }
+                        </div>
+                        <small class="text-muted">@entry.Timestamp.ToString("MMM d, h:mm tt")</small>
+                    </li>
+                }
+            </ul>
+        }
+        else
+        {
+            <p class="text-muted">No recent activity.</p>
+        }
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <h4>Quick Actions</h4>
+        <div class="btn-group">
+            <a href="/admin/calendar/generate" class="btn btn-primary">Generate Month</a>
+            <a href="/admin/volunteers/create" class="btn btn-outline-primary">Add Volunteer</a>
+            <a href="/admin/import" class="btn btn-outline-secondary">Import Data</a>
+        </div>
+    </div>
+</div>

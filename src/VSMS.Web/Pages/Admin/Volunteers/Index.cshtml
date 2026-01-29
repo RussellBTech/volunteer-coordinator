@@ -1,0 +1,78 @@
+@page
+@model VSMS.Web.Pages.Admin.Volunteers.IndexModel
+@{
+    ViewData["Title"] = "Volunteers";
+    Layout = "_AdminLayout";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>Volunteers</h2>
+    <a href="/admin/volunteers/create" class="btn btn-primary">Add Volunteer</a>
+</div>
+
+<form method="get" class="row g-3 mb-4">
+    <div class="col-auto">
+        <input type="text" name="search" class="form-control" placeholder="Search by name or email" value="@Model.Search" />
+    </div>
+    <div class="col-auto">
+        <select name="filter" class="form-select">
+            <option value="">All Volunteers</option>
+            <option value="active" selected="@(Model.Filter == "active")">Active Only</option>
+            <option value="backup" selected="@(Model.Filter == "backup")">Backup Only</option>
+            <option value="inactive" selected="@(Model.Filter == "inactive")">Inactive</option>
+        </select>
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-outline-secondary">Filter</button>
+    </div>
+</form>
+
+@if (Model.Volunteers.Any())
+{
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var volunteer in Model.Volunteers)
+            {
+                <tr class="@(!volunteer.IsActive ? "table-secondary" : "")">
+                    <td>
+                        @volunteer.Name
+                        @if (volunteer.IsBackup)
+                        {
+                            <span class="badge bg-info">Backup</span>
+                        }
+                    </td>
+                    <td>@volunteer.Email</td>
+                    <td>@(volunteer.Phone ?? "-")</td>
+                    <td>
+                        @if (volunteer.IsActive)
+                        {
+                            <span class="badge bg-success">Active</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-secondary">Inactive</span>
+                        }
+                    </td>
+                    <td>
+                        <a href="/admin/volunteers/@volunteer.Id/edit" class="btn btn-sm btn-outline-primary">Edit</a>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <div class="alert alert-info">
+        No volunteers found. <a href="/admin/volunteers/create">Add the first volunteer</a>.
+    </div>
+}
