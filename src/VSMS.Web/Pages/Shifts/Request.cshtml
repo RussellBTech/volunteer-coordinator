@@ -84,20 +84,20 @@ else
 
                 <div class="mb-3">
                     <label asp-for="Input.Name" class="form-label">Your Name</label>
-                    <input asp-for="Input.Name" class="form-control" />
+                    <input asp-for="Input.Name" class="form-control" autocomplete="name" />
                     <span asp-validation-for="Input.Name" class="text-danger"></span>
                 </div>
 
                 <div class="mb-3">
                     <label asp-for="Input.Email" class="form-label">Email Address</label>
-                    <input asp-for="Input.Email" type="email" class="form-control" />
+                    <input asp-for="Input.Email" type="email" class="form-control" autocomplete="email" />
                     <span asp-validation-for="Input.Email" class="text-danger"></span>
                     <div class="form-text">We'll send confirmation and reminder emails to this address.</div>
                 </div>
 
                 <div class="mb-3">
                     <label asp-for="Input.Phone" class="form-label">Phone Number (Optional)</label>
-                    <input asp-for="Input.Phone" type="tel" class="form-control" />
+                    <input asp-for="Input.Phone" type="tel" class="form-control" placeholder="(555) 123-4567" autocomplete="tel" />
                     <span asp-validation-for="Input.Phone" class="text-danger"></span>
                 </div>
 
