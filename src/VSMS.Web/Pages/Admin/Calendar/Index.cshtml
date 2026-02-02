@@ -58,8 +58,8 @@
                                         if (isSaturdaySlot != isSaturday) { continue; }
 
                                         var shift = Model.GetShiftForDateAndSlot(day.Value, timeSlot.Id);
-                                        @if (shift != null)
-                                    {
+                                        if (shift != null)
+                                        {
                                         var backupCount = (shift.Backup1VolunteerId != null ? 1 : 0) + (shift.Backup2VolunteerId != null ? 1 : 0);
                                         <div id="shift-cell-@shift.Id"
                                              class="small p-1 mb-1 rounded @GetShiftClass(shift)"
