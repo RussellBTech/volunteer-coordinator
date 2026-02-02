@@ -19,13 +19,15 @@ else
 {
     <div class="modal-header">
         <h5 class="modal-title">
-            @Model.Shift.Date.ToString("ddd, MMM d") - @Model.Shift.TimeSlot.Label
+            @(Model.IsNewShift ? "Create Shift" : "Edit Shift") - @Model.Shift.Date.ToString("ddd, MMM d") - @(Model.TimeSlot?.Label ?? Model.Shift.TimeSlot?.Label)
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
     </div>
     <form method="post" hx-post="/admin/calendar/edit-shift" hx-swap="none">
         <div class="modal-body">
             <input type="hidden" name="shiftId" value="@Model.Shift.Id" />
+            <input type="hidden" name="date" value="@Model.Shift.Date.ToString("yyyy-MM-dd")" />
+            <input type="hidden" name="timeSlotId" value="@Model.Shift.TimeSlotId" />
 
             <div class="mb-3">
                 <label class="form-label">Role</label>
@@ -118,13 +120,18 @@ else
 
             // Update the shift cell with the response HTML
             var shiftId = new FormData(evt.detail.elt).get('shiftId');
-            var cellElement = document.getElementById('shift-cell-' + shiftId);
-            if (cellElement && evt.detail.xhr.responseText) {
-                var temp = document.createElement('div');
-                temp.innerHTML = evt.detail.xhr.responseText;
-                var newCell = temp.firstElementChild;
-                cellElement.replaceWith(newCell);
-                htmx.process(newCell);
+            if (shiftId && shiftId !== '0') {
+                var cellElement = document.getElementById('shift-cell-' + shiftId);
+                if (cellElement && evt.detail.xhr.responseText) {
+                    var temp = document.createElement('div');
+                    temp.innerHTML = evt.detail.xhr.responseText;
+                    var newCell = temp.firstElementChild;
+                    cellElement.replaceWith(newCell);
+                    htmx.process(newCell);
+                }
+            } else {
+                // New shift created - reload page to show it
+                window.location.reload();
             }
         }
     });

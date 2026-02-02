@@ -46,28 +46,45 @@
                             @if (day != null)
                             {
                                 <div class="fw-bold mb-1">@day.Value.Day</div>
-                                @foreach (var shift in Model.GetShiftsForDate(day.Value))
+                                @foreach (var timeSlot in Model.TimeSlots)
                                 {
-                                    var backupCount = (shift.Backup1VolunteerId != null ? 1 : 0) + (shift.Backup2VolunteerId != null ? 1 : 0);
-                                    <div id="shift-cell-@shift.Id"
-                                         class="small p-1 mb-1 rounded @GetShiftClass(shift)"
-                                         hx-get="/admin/calendar/edit-shift?shiftId=@shift.Id"
-                                         hx-target="#shift-modal-content"
-                                         hx-trigger="click"
-                                         data-bs-toggle="modal"
-                                         data-bs-target="#shiftModal"
-                                         style="cursor: pointer; font-size: 0.75rem;">
-                                        <strong>@shift.TimeSlot.StartTime.ToString("h:mm")</strong>
-                                        @shift.Role.ToString()[0]
-                                        @if (backupCount > 0)
-                                        {
-                                            <span class="badge bg-secondary" style="font-size: 0.6rem;">+@backupCount</span>
-                                        }
-                                        @if (shift.Volunteer != null)
-                                        {
-                                            <br />@shift.Volunteer.Name.Split(' ')[0]
-                                        }
-                                    </div>
+                                    var shift = Model.GetShiftForDateAndSlot(day.Value, timeSlot.Id);
+                                    @if (shift != null)
+                                    {
+                                        var backupCount = (shift.Backup1VolunteerId != null ? 1 : 0) + (shift.Backup2VolunteerId != null ? 1 : 0);
+                                        <div id="shift-cell-@shift.Id"
+                                             class="small p-1 mb-1 rounded @GetShiftClass(shift)"
+                                             hx-get="/admin/calendar/edit-shift?shiftId=@shift.Id"
+                                             hx-target="#shift-modal-content"
+                                             hx-trigger="click"
+                                             data-bs-toggle="modal"
+                                             data-bs-target="#shiftModal"
+                                             style="cursor: pointer; font-size: 0.75rem;">
+                                            <strong>@timeSlot.StartTime.ToString("h:mm")</strong>
+                                            @shift.Role.ToString()[0]
+                                            @if (backupCount > 0)
+                                            {
+                                                <span class="badge bg-secondary" style="font-size: 0.6rem;">+@backupCount</span>
+                                            }
+                                            @if (shift.Volunteer != null)
+                                            {
+                                                <br />@shift.Volunteer.Name.Split(' ')[0]
+                                            }
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="small p-1 mb-1 rounded shift-open"
+                                             hx-get="/admin/calendar/edit-shift?date=@day.Value.ToString("yyyy-MM-dd")&timeSlotId=@timeSlot.Id"
+                                             hx-target="#shift-modal-content"
+                                             hx-trigger="click"
+                                             data-bs-toggle="modal"
+                                             data-bs-target="#shiftModal"
+                                             style="cursor: pointer; font-size: 0.75rem;">
+                                            <strong>@timeSlot.StartTime.ToString("h:mm")</strong>
+                                            <span class="text-muted">Open</span>
+                                        </div>
+                                    }
                                 }
                             }
                         </td>

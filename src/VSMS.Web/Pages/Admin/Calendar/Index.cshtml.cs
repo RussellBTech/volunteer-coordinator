@@ -27,6 +27,7 @@ public class IndexModel : PageModel
 
     public List<List<DateOnly?>> Weeks { get; set; } = new();
     public List<Shift> Shifts { get; set; } = new();
+    public List<TimeSlot> TimeSlots { get; set; } = new();
 
     public async Task OnGetAsync()
     {
@@ -53,7 +54,13 @@ public class IndexModel : PageModel
             Weeks.Add(week);
         }
 
-        // Load shifts for this month
+        // Load active time slots
+        TimeSlots = await _dbContext.TimeSlots
+            .Where(ts => ts.IsActive)
+            .OrderBy(ts => ts.SortOrder)
+            .ToListAsync();
+
+        // Load existing shifts for this month
         Shifts = await _dbContext.Shifts
             .Include(s => s.TimeSlot)
             .Include(s => s.Volunteer)
@@ -65,8 +72,8 @@ public class IndexModel : PageModel
             .ToListAsync();
     }
 
-    public List<Shift> GetShiftsForDate(DateOnly date)
+    public Shift? GetShiftForDateAndSlot(DateOnly date, int timeSlotId)
     {
-        return Shifts.Where(s => s.Date == date).ToList();
+        return Shifts.FirstOrDefault(s => s.Date == date && s.TimeSlotId == timeSlotId);
     }
 }
