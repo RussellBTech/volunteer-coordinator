@@ -15,8 +15,18 @@ public class OpenModel : PageModel
         _dbContext = dbContext;
     }
 
+    [BindProperty(SupportsGet = true)]
+    public string? Date { get; set; }
+
+    public DateOnly? SelectedDate { get; set; }
     public List<OpenShiftSlot> OpenShifts { get; set; } = new();
-    public List<List<DateOnly?>> Weeks { get; set; } = new();
+    public List<MonthCalendar> Months { get; set; } = new();
+
+    public class MonthCalendar
+    {
+        public string MonthYear { get; set; } = "";
+        public List<List<DateOnly?>> Weeks { get; set; } = new();
+    }
 
     public class OpenShiftSlot
     {
@@ -36,29 +46,47 @@ public class OpenModel : PageModel
     public async Task OnGetAsync()
     {
         var today = DateOnly.FromDateTime(DateTime.Today);
-        var twoWeeksOut = today.AddDays(13); // 14 days total including today
+        var threeMonthsOut = today.AddMonths(3);
 
-        // Build calendar weeks
-        var startOfWeek = today.AddDays(-(int)today.DayOfWeek);
-        var endDate = twoWeeksOut;
-
-        // Extend to end of that week
-        while (endDate.DayOfWeek != DayOfWeek.Saturday)
-            endDate = endDate.AddDays(1);
-
-        var currentDate = startOfWeek;
-        while (currentDate <= endDate)
+        // Check if viewing a specific date
+        if (!string.IsNullOrEmpty(Date) && DateOnly.TryParse(Date, out var parsedDate))
         {
-            var week = new List<DateOnly?>();
-            for (int i = 0; i < 7; i++)
+            if (parsedDate >= today && parsedDate <= threeMonthsOut)
             {
-                if (currentDate >= today && currentDate <= twoWeeksOut)
-                    week.Add(currentDate);
-                else
-                    week.Add(null);
-                currentDate = currentDate.AddDays(1);
+                SelectedDate = parsedDate;
             }
-            Weeks.Add(week);
+        }
+
+        // Build calendar for current month + next 2 months
+        var currentMonth = new DateOnly(today.Year, today.Month, 1);
+        for (int m = 0; m < 3; m++)
+        {
+            var month = currentMonth.AddMonths(m);
+            var firstDay = new DateOnly(month.Year, month.Month, 1);
+            var lastDay = firstDay.AddMonths(1).AddDays(-1);
+
+            var monthCal = new MonthCalendar
+            {
+                MonthYear = firstDay.ToString("MMMM yyyy")
+            };
+
+            // Build weeks for this month
+            var currentDate = firstDay.AddDays(-(int)firstDay.DayOfWeek);
+            while (currentDate <= lastDay || currentDate.DayOfWeek != DayOfWeek.Sunday)
+            {
+                var week = new List<DateOnly?>();
+                for (int i = 0; i < 7; i++)
+                {
+                    if (currentDate.Month == month.Month && currentDate >= today)
+                        week.Add(currentDate);
+                    else
+                        week.Add(null);
+                    currentDate = currentDate.AddDays(1);
+                }
+                monthCal.Weeks.Add(week);
+            }
+
+            Months.Add(monthCal);
         }
 
         // Load active time slots
@@ -67,18 +95,18 @@ public class OpenModel : PageModel
             .OrderBy(ts => ts.SortOrder)
             .ToListAsync();
 
-        // Load existing shifts for the next 2 weeks
+        // Load existing shifts for the next 3 months
         var existingShifts = await _dbContext.Shifts
             .Include(s => s.TimeSlot)
             .Include(s => s.Volunteer)
-            .Where(s => s.Date >= today && s.Date <= twoWeeksOut)
+            .Where(s => s.Date >= today && s.Date <= threeMonthsOut)
             .ToListAsync();
 
         var shiftLookup = existingShifts
             .ToDictionary(s => (s.Date, s.TimeSlotId));
 
         // Generate open slots for each day and time slot
-        for (var date = today; date <= twoWeeksOut; date = date.AddDays(1))
+        for (var date = today; date <= threeMonthsOut; date = date.AddDays(1))
         {
             foreach (var timeSlot in timeSlots)
             {

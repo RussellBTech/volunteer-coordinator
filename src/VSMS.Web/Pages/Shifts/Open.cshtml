@@ -1,4 +1,4 @@
-@page
+@page "{date?}"
 @model VSMS.Web.Pages.Shifts.OpenModel
 @using VSMS.Core.Enums
 @{
@@ -6,72 +6,127 @@
     Layout = "_Layout";
 }
 
+@if (Model.SelectedDate.HasValue)
+{
+    var selectedSlots = Model.GetSlotsForDate(Model.SelectedDate.Value);
+    <div class="mb-3">
+        <a href="/shifts/open" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> Back to Calendar
+        </a>
+    </div>
+
+    <h2>@Model.SelectedDate.Value.ToString("dddd, MMMM d, yyyy")</h2>
+    <p class="lead">Select a time slot to volunteer.</p>
+
+    @if (selectedSlots.Any())
+    {
+        <div class="row">
+            @foreach (var slot in selectedSlots)
+            {
+                var isPrimary = slot.AvailableSlot == "Primary";
+                var slotLabel = slot.AvailableSlot == "Backup1" ? "Backup 1" : slot.AvailableSlot == "Backup2" ? "Backup 2" : "Primary";
+                var requestUrl = slot.ShiftId.HasValue
+                    ? $"/shifts/request/{slot.ShiftId}?slot={slot.AvailableSlot}"
+                    : $"/shifts/request/0?date={slot.Date:yyyy-MM-dd}&timeSlotId={slot.TimeSlot.Id}&slot={slot.AvailableSlot}";
+                var cardClass = isPrimary ? "shift-open" : "shift-assigned";
+                <div class="col-md-6 col-lg-4 mb-3">
+                    <div class="card h-100 @cardClass">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <h5 class="card-title mb-1">@slot.TimeSlot.Label</h5>
+                                <span class="badge @(isPrimary ? "bg-primary" : "bg-secondary")">@slotLabel</span>
+                            </div>
+                            <p class="card-text">
+                                @slot.TimeSlot.StartTime.ToString("h:mm tt") -
+                                @slot.TimeSlot.StartTime.AddMinutes(slot.TimeSlot.DurationMinutes).ToString("h:mm tt")
+                            </p>
+                            @if (!isPrimary)
+                            {
+                                <p class="small text-muted">Primary: @(slot.PrimaryVolunteerName ?? "Assigned")</p>
+                            }
+                        </div>
+                        <div class="card-footer">
+                            <a href="@requestUrl" class="btn @(isPrimary ? "btn-primary" : "btn-outline-secondary")">
+                                Sign Up as @slotLabel
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-success">
+            <i class="bi bi-check-circle"></i> All shifts are filled for this date!
+        </div>
+    }
+}
+else
+{
 <h2>Open Shifts</h2>
-<p class="lead">Browse available volunteer shifts and sign up to help.</p>
+<p class="lead">Click any date to see available time slots.</p>
 
 <div class="mb-3">
-    <span class="badge shift-open p-2">Open - needs volunteer</span>
-    <span class="badge shift-assigned p-2">Assigned - backup needed</span>
-    <span class="badge shift-confirmed p-2">Filled</span>
+    <span class="badge shift-open p-2"><i class="bi bi-circle"></i> Open</span>
+    <span class="badge shift-assigned p-2"><i class="bi bi-clock"></i> Backup needed</span>
+    <span class="badge shift-confirmed p-2"><i class="bi bi-check-circle"></i> Filled</span>
 </div>
 
-@if (Model.Weeks.Any())
+@if (Model.Months.Any())
 {
-    <div class="table-responsive">
-        <table class="table table-bordered">
-            <thead class="table-light">
-                <tr>
-                    <th style="width: 14.28%">Sun</th>
-                    <th style="width: 14.28%">Mon</th>
-                    <th style="width: 14.28%">Tue</th>
-                    <th style="width: 14.28%">Wed</th>
-                    <th style="width: 14.28%">Thu</th>
-                    <th style="width: 14.28%">Fri</th>
-                    <th style="width: 14.28%">Sat</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var week in Model.Weeks)
-                {
-                    <tr>
-                        @foreach (var day in week)
-                        {
-                            <td class="align-top p-1" style="min-height: 120px; vertical-align: top;">
-                                @if (day != null)
-                                {
-                                    var isToday = day.Value == DateOnly.FromDateTime(DateTime.Today);
-                                    <div class="fw-bold mb-1 @(isToday ? "text-primary" : "")">
-                                        @day.Value.ToString("MMM d")
-                                        @if (isToday)
-                                        {
-                                            <span class="badge bg-primary">Today</span>
-                                        }
-                                    </div>
-                                    @foreach (var slot in Model.GetSlotsForDate(day.Value))
+    <div class="row">
+        @foreach (var month in Model.Months)
+        {
+            <div class="col-lg-4 mb-4">
+                <h4 class="text-center mb-2">@month.MonthYear</h4>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-sm">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="text-center p-1">S</th>
+                                <th class="text-center p-1">M</th>
+                                <th class="text-center p-1">T</th>
+                                <th class="text-center p-1">W</th>
+                                <th class="text-center p-1">T</th>
+                                <th class="text-center p-1">F</th>
+                                <th class="text-center p-1">S</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var week in month.Weeks)
+                            {
+                                <tr>
+                                    @foreach (var day in week)
                                     {
-                                        var isPrimary = slot.AvailableSlot == "Primary";
-                                        var slotLabel = slot.AvailableSlot == "Backup1" ? "B1" : slot.AvailableSlot == "Backup2" ? "B2" : "";
-                                        var requestUrl = slot.ShiftId.HasValue
-                                            ? $"/shifts/request/{slot.ShiftId}?slot={slot.AvailableSlot}"
-                                            : $"/shifts/request/0?date={slot.Date:yyyy-MM-dd}&timeSlotId={slot.TimeSlot.Id}&slot={slot.AvailableSlot}";
-                                        var bgClass = isPrimary ? "shift-open" : "shift-assigned";
-                                        <a href="@requestUrl" class="d-block text-decoration-none mb-1">
-                                            <div class="small p-1 rounded @bgClass" style="font-size: 0.75rem;">
-                                                <strong>@slot.TimeSlot.StartTime.ToString("h:mm")</strong>
-                                                @if (!isPrimary)
+                                        <td class="align-top p-1 @(day == null ? "bg-light" : "")" style="min-width: 50px; height: 80px; vertical-align: top;">
+                                            @if (day != null)
+                                            {
+                                                var isToday = day.Value == DateOnly.FromDateTime(DateTime.Today);
+                                                var slots = Model.GetSlotsForDate(day.Value);
+                                                var openCount = slots.Count(s => s.AvailableSlot == "Primary");
+                                                <div class="@(isToday ? "fw-bold text-primary" : "") text-center" style="font-size: 0.8rem;">
+                                                    @day.Value.Day
+                                                </div>
+                                                @if (slots.Any())
                                                 {
-                                                    <span class="badge bg-secondary" style="font-size: 0.6rem;">@slotLabel</span>
+                                                    <a href="/shifts/open/@day.Value.ToString("yyyy-MM-dd")"
+                                                       class="d-block text-center text-decoration-none">
+                                                        <span class="badge shift-open" style="font-size: 0.65rem;">
+                                                            @openCount open
+                                                        </span>
+                                                    </a>
                                                 }
-                                            </div>
-                                        </a>
+                                            }
+                                        </td>
                                     }
-                                }
-                            </td>
-                        }
-                    </tr>
-                }
-            </tbody>
-        </table>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
     </div>
 }
 else
@@ -80,4 +135,5 @@ else
         <h4>No Open Shifts</h4>
         <p>All shifts are currently filled. Check back later or contact the office if you'd like to volunteer.</p>
     </div>
+}
 }
