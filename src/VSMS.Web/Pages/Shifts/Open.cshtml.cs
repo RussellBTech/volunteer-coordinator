@@ -16,6 +16,7 @@ public class OpenModel : PageModel
     }
 
     public List<OpenShiftSlot> OpenShifts { get; set; } = new();
+    public List<List<DateOnly?>> Weeks { get; set; } = new();
 
     public class OpenShiftSlot
     {
@@ -27,10 +28,38 @@ public class OpenModel : PageModel
         public string? PrimaryVolunteerName { get; set; }
     }
 
+    public List<OpenShiftSlot> GetSlotsForDate(DateOnly date)
+    {
+        return OpenShifts.Where(s => s.Date == date).ToList();
+    }
+
     public async Task OnGetAsync()
     {
         var today = DateOnly.FromDateTime(DateTime.Today);
-        var twoWeeksOut = today.AddDays(14);
+        var twoWeeksOut = today.AddDays(13); // 14 days total including today
+
+        // Build calendar weeks
+        var startOfWeek = today.AddDays(-(int)today.DayOfWeek);
+        var endDate = twoWeeksOut;
+
+        // Extend to end of that week
+        while (endDate.DayOfWeek != DayOfWeek.Saturday)
+            endDate = endDate.AddDays(1);
+
+        var currentDate = startOfWeek;
+        while (currentDate <= endDate)
+        {
+            var week = new List<DateOnly?>();
+            for (int i = 0; i < 7; i++)
+            {
+                if (currentDate >= today && currentDate <= twoWeeksOut)
+                    week.Add(currentDate);
+                else
+                    week.Add(null);
+                currentDate = currentDate.AddDays(1);
+            }
+            Weeks.Add(week);
+        }
 
         // Load active time slots
         var timeSlots = await _dbContext.TimeSlots

@@ -8,57 +8,70 @@
 
 <h2>Open Shifts</h2>
 <p class="lead">Browse available volunteer shifts and sign up to help.</p>
-<p class="text-muted small">Showing shifts for the next 2 weeks.</p>
 
-@if (Model.OpenShifts.Any())
+<div class="mb-3">
+    <span class="badge shift-open p-2">Open - needs volunteer</span>
+    <span class="badge shift-assigned p-2">Assigned - backup needed</span>
+    <span class="badge shift-confirmed p-2">Filled</span>
+</div>
+
+@if (Model.Weeks.Any())
 {
-    <div class="row">
-        @foreach (var slot in Model.OpenShifts)
-        {
-            var isPrimary = slot.AvailableSlot == "Primary";
-            var slotLabel = slot.AvailableSlot == "Backup1" ? "Backup 1" : slot.AvailableSlot == "Backup2" ? "Backup 2" : "Primary";
-            var cardClass = isPrimary ? "shift-open" : "border-secondary";
-            var badgeClass = isPrimary ? "bg-primary" : "bg-secondary";
-            var requestUrl = slot.ShiftId.HasValue
-                ? $"/shifts/request/{slot.ShiftId}?slot={slot.AvailableSlot}"
-                : $"/shifts/request/0?date={slot.Date:yyyy-MM-dd}&timeSlotId={slot.TimeSlot.Id}&slot={slot.AvailableSlot}";
-            <div class="col-md-6 col-lg-4 mb-3">
-                <div class="card h-100 @cardClass">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-start">
-                            <h5 class="card-title mb-1">@slot.Date.ToString("dddd, MMMM d")</h5>
-                            <span class="badge @badgeClass">@slotLabel</span>
-                        </div>
-                        <p class="card-text">
-                            <strong>@slot.TimeSlot.Label</strong><br />
-                            @slot.TimeSlot.StartTime.ToString("h:mm tt") -
-                            @slot.TimeSlot.StartTime.AddMinutes(slot.TimeSlot.DurationMinutes).ToString("h:mm tt")
-                        </p>
-                        <div class="mb-2">
-                            <span class="badge @(slot.Role == ShiftRole.Phone ? "bg-info" : "bg-dark")">
-                                <i class="bi @(slot.Role == ShiftRole.Phone ? "bi-telephone" : "bi-person")"></i>
-                                @slot.Role
-                            </span>
-                        </div>
-                        @if (isPrimary)
+    <div class="table-responsive">
+        <table class="table table-bordered">
+            <thead class="table-light">
+                <tr>
+                    <th style="width: 14.28%">Sun</th>
+                    <th style="width: 14.28%">Mon</th>
+                    <th style="width: 14.28%">Tue</th>
+                    <th style="width: 14.28%">Wed</th>
+                    <th style="width: 14.28%">Thu</th>
+                    <th style="width: 14.28%">Fri</th>
+                    <th style="width: 14.28%">Sat</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var week in Model.Weeks)
+                {
+                    <tr>
+                        @foreach (var day in week)
                         {
-                            <p class="small text-muted">Primary volunteer needed for this shift.</p>
+                            <td class="align-top p-1" style="min-height: 120px; vertical-align: top;">
+                                @if (day != null)
+                                {
+                                    var isToday = day.Value == DateOnly.FromDateTime(DateTime.Today);
+                                    <div class="fw-bold mb-1 @(isToday ? "text-primary" : "")">
+                                        @day.Value.ToString("MMM d")
+                                        @if (isToday)
+                                        {
+                                            <span class="badge bg-primary">Today</span>
+                                        }
+                                    </div>
+                                    @foreach (var slot in Model.GetSlotsForDate(day.Value))
+                                    {
+                                        var isPrimary = slot.AvailableSlot == "Primary";
+                                        var slotLabel = slot.AvailableSlot == "Backup1" ? "B1" : slot.AvailableSlot == "Backup2" ? "B2" : "";
+                                        var requestUrl = slot.ShiftId.HasValue
+                                            ? $"/shifts/request/{slot.ShiftId}?slot={slot.AvailableSlot}"
+                                            : $"/shifts/request/0?date={slot.Date:yyyy-MM-dd}&timeSlotId={slot.TimeSlot.Id}&slot={slot.AvailableSlot}";
+                                        var bgClass = isPrimary ? "shift-open" : "shift-assigned";
+                                        <a href="@requestUrl" class="d-block text-decoration-none mb-1">
+                                            <div class="small p-1 rounded @bgClass" style="font-size: 0.75rem;">
+                                                <strong>@slot.TimeSlot.StartTime.ToString("h:mm")</strong>
+                                                @if (!isPrimary)
+                                                {
+                                                    <span class="badge bg-secondary" style="font-size: 0.6rem;">@slotLabel</span>
+                                                }
+                                            </div>
+                                        </a>
+                                    }
+                                }
+                            </td>
                         }
-                        else
-                        {
-                            <p class="small text-muted">
-                                Backup slot available. Primary: @(slot.PrimaryVolunteerName ?? "TBD")
-                            </p>
-                        }
-                    </div>
-                    <div class="card-footer">
-                        <a href="@requestUrl" class="btn @(isPrimary ? "btn-primary" : "btn-outline-secondary") btn-sm">
-                            Request as @slotLabel
-                        </a>
-                    </div>
-                </div>
-            </div>
-        }
+                    </tr>
+                }
+            </tbody>
+        </table>
     </div>
 }
 else
