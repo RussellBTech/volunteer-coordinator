@@ -1,4 +1,4 @@
-@page "{shiftId:int}"
+@page "{shiftId:int?}"
 @model VSMS.Web.Pages.Shifts.RequestModel
 @using VSMS.Core.Enums
 @{
@@ -78,6 +78,8 @@ else
         <div class="col-md-6">
             <form method="post">
                 <input type="hidden" name="shiftId" value="@Model.Shift.Id" />
+                <input type="hidden" name="date" value="@Model.Shift.Date.ToString("yyyy-MM-dd")" />
+                <input type="hidden" name="timeSlotId" value="@Model.Shift.TimeSlotId" />
                 <input type="hidden" name="slot" value="@Model.Slot" />
 
                 <div asp-validation-summary="ModelOnly" class="text-danger"></div>

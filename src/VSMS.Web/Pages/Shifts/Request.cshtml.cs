@@ -21,6 +21,12 @@ public class RequestModel : PageModel
     public int ShiftId { get; set; }
 
     [BindProperty(SupportsGet = true)]
+    public DateOnly? Date { get; set; }
+
+    [BindProperty(SupportsGet = true)]
+    public int? TimeSlotId { get; set; }
+
+    [BindProperty(SupportsGet = true)]
     public string Slot { get; set; } = "Primary";
 
     public SlotType SlotType => Slot switch
@@ -31,6 +37,7 @@ public class RequestModel : PageModel
     };
 
     public Shift? Shift { get; set; }
+    public bool IsVirtualShift { get; set; }
     public bool RequestSubmitted { get; set; }
     public bool SlotUnavailable { get; set; }
     public bool AlreadyRequested { get; set; }
@@ -56,12 +63,42 @@ public class RequestModel : PageModel
 
     public async Task OnGetAsync()
     {
-        Shift = await _dbContext.Shifts
-            .Include(s => s.TimeSlot)
-            .Include(s => s.Volunteer)
-            .FirstOrDefaultAsync(s => s.Id == ShiftId);
+        if (ShiftId > 0)
+        {
+            // Existing shift in database
+            Shift = await _dbContext.Shifts
+                .Include(s => s.TimeSlot)
+                .Include(s => s.Volunteer)
+                .FirstOrDefaultAsync(s => s.Id == ShiftId);
+        }
+        else if (Date.HasValue && TimeSlotId.HasValue)
+        {
+            // Virtual shift - check if one exists for this date/timeslot
+            Shift = await _dbContext.Shifts
+                .Include(s => s.TimeSlot)
+                .Include(s => s.Volunteer)
+                .FirstOrDefaultAsync(s => s.Date == Date.Value && s.TimeSlotId == TimeSlotId.Value);
 
-        if (Shift != null)
+            if (Shift == null)
+            {
+                // Create virtual shift for display
+                var timeSlot = await _dbContext.TimeSlots.FindAsync(TimeSlotId.Value);
+                if (timeSlot != null)
+                {
+                    Shift = new Shift
+                    {
+                        Date = Date.Value,
+                        TimeSlotId = TimeSlotId.Value,
+                        TimeSlot = timeSlot,
+                        Status = ShiftStatus.Open,
+                        Role = ShiftRole.InPerson
+                    };
+                    IsVirtualShift = true;
+                }
+            }
+        }
+
+        if (Shift != null && !IsVirtualShift)
         {
             SlotUnavailable = !IsSlotAvailable(Shift, SlotType);
 
@@ -78,11 +115,31 @@ public class RequestModel : PageModel
                     Input.Name = volunteer.Name;
                     Input.Phone = volunteer.Phone;
 
-                    AlreadyRequested = await _dbContext.ShiftRequests
-                        .AnyAsync(r => r.ShiftId == ShiftId &&
-                                      r.VolunteerId == volunteer.Id &&
-                                      r.RequestedSlot == SlotType &&
-                                      r.Status == RequestStatus.Pending);
+                    if (Shift.Id > 0)
+                    {
+                        AlreadyRequested = await _dbContext.ShiftRequests
+                            .AnyAsync(r => r.ShiftId == ShiftId &&
+                                          r.VolunteerId == volunteer.Id &&
+                                          r.RequestedSlot == SlotType &&
+                                          r.Status == RequestStatus.Pending);
+                    }
+                }
+            }
+        }
+        else if (Shift != null)
+        {
+            // Virtual shift - still try to prefill from cookie
+            var savedEmail = Request.Cookies[EmailCookieName];
+            if (!string.IsNullOrEmpty(savedEmail))
+            {
+                Input.Email = savedEmail;
+                var volunteer = await _dbContext.Volunteers
+                    .FirstOrDefaultAsync(v => v.Email.ToLower() == savedEmail.ToLower());
+
+                if (volunteer != null)
+                {
+                    Input.Name = volunteer.Name;
+                    Input.Phone = volunteer.Phone;
                 }
             }
         }
@@ -96,14 +153,47 @@ public class RequestModel : PageModel
         _ => false
     };
 
-    public async Task<IActionResult> OnPostAsync(int shiftId, string slot)
+    public async Task<IActionResult> OnPostAsync(int shiftId, DateOnly? date, int? timeSlotId, string slot)
     {
         Slot = slot ?? "Primary";
 
-        Shift = await _dbContext.Shifts
-            .Include(s => s.TimeSlot)
-            .Include(s => s.Volunteer)
-            .FirstOrDefaultAsync(s => s.Id == shiftId);
+        // Try to find existing shift
+        if (shiftId > 0)
+        {
+            Shift = await _dbContext.Shifts
+                .Include(s => s.TimeSlot)
+                .Include(s => s.Volunteer)
+                .FirstOrDefaultAsync(s => s.Id == shiftId);
+        }
+        else if (date.HasValue && timeSlotId.HasValue)
+        {
+            // Check if shift was created since page load
+            Shift = await _dbContext.Shifts
+                .Include(s => s.TimeSlot)
+                .Include(s => s.Volunteer)
+                .FirstOrDefaultAsync(s => s.Date == date.Value && s.TimeSlotId == timeSlotId.Value);
+
+            if (Shift == null)
+            {
+                // Create the shift now
+                var timeSlot = await _dbContext.TimeSlots.FindAsync(timeSlotId.Value);
+                if (timeSlot == null)
+                {
+                    return NotFound();
+                }
+
+                Shift = new Shift
+                {
+                    Date = date.Value,
+                    TimeSlotId = timeSlotId.Value,
+                    TimeSlot = timeSlot,
+                    Status = ShiftStatus.Open,
+                    Role = ShiftRole.InPerson
+                };
+                _dbContext.Shifts.Add(Shift);
+                await _dbContext.SaveChangesAsync();
+            }
+        }
 
         if (Shift == null)
         {
@@ -148,9 +238,18 @@ public class RequestModel : PageModel
             await _dbContext.SaveChangesAsync();
         }
 
+        // Save email to cookie for future visits
+        Response.Cookies.Append(EmailCookieName, Input.Email, new CookieOptions
+        {
+            Expires = DateTimeOffset.Now.AddYears(1),
+            HttpOnly = true,
+            Secure = true,
+            SameSite = SameSiteMode.Lax
+        });
+
         // Check for existing pending request for this slot
         var existingRequest = await _dbContext.ShiftRequests
-            .AnyAsync(r => r.ShiftId == shiftId &&
+            .AnyAsync(r => r.ShiftId == Shift.Id &&
                            r.VolunteerId == volunteer.Id &&
                            r.RequestedSlot == SlotType &&
                            r.Status == RequestStatus.Pending);
@@ -164,7 +263,7 @@ public class RequestModel : PageModel
         // Create the request
         var request = new ShiftRequest
         {
-            ShiftId = shiftId,
+            ShiftId = Shift.Id,
             VolunteerId = volunteer.Id,
             RequestedSlot = SlotType,
             Status = RequestStatus.Pending,
@@ -183,7 +282,7 @@ public class RequestModel : PageModel
         // Log the action
         _dbContext.AuditLogEntries.Add(new AuditLogEntry
         {
-            ShiftId = shiftId,
+            ShiftId = Shift.Id,
             VolunteerId = volunteer.Id,
             Action = "Shift Requested",
             Details = $"{volunteer.Name} requested {slotLabel} slot on {Shift.Date:MMM d}"
