@@ -46,10 +46,19 @@
                             @if (day != null)
                             {
                                 <div class="fw-bold mb-1">@day.Value.Day</div>
-                                @foreach (var timeSlot in Model.TimeSlots)
+                                @{
+                                    var isSunday = day.Value.DayOfWeek == DayOfWeek.Sunday;
+                                    var isSaturday = day.Value.DayOfWeek == DayOfWeek.Saturday;
+                                }
+                                @if (!isSunday)
                                 {
-                                    var shift = Model.GetShiftForDateAndSlot(day.Value, timeSlot.Id);
-                                    @if (shift != null)
+                                    @foreach (var timeSlot in Model.TimeSlots)
+                                    {
+                                        var isSaturdaySlot = timeSlot.Label.Contains("Saturday", StringComparison.OrdinalIgnoreCase);
+                                        if (isSaturdaySlot != isSaturday) { continue; }
+
+                                        var shift = Model.GetShiftForDateAndSlot(day.Value, timeSlot.Id);
+                                        @if (shift != null)
                                     {
                                         var backupCount = (shift.Backup1VolunteerId != null ? 1 : 0) + (shift.Backup2VolunteerId != null ? 1 : 0);
                                         <div id="shift-cell-@shift.Id"
@@ -84,6 +93,7 @@
                                             <strong>@timeSlot.StartTime.ToString("h:mm")</strong>
                                             <span class="text-muted">Open</span>
                                         </div>
+                                    }
                                     }
                                 }
                             }

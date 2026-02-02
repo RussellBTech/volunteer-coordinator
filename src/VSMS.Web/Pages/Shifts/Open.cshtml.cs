@@ -108,8 +108,19 @@ public class OpenModel : PageModel
         // Generate open slots for each day and time slot
         for (var date = today; date <= threeMonthsOut; date = date.AddDays(1))
         {
+            // Skip Sundays - no shifts
+            if (date.DayOfWeek == DayOfWeek.Sunday)
+                continue;
+
             foreach (var timeSlot in timeSlots)
             {
+                // Filter time slots by day of week
+                var isSaturdaySlot = timeSlot.Label.Contains("Saturday", StringComparison.OrdinalIgnoreCase);
+                var isSaturday = date.DayOfWeek == DayOfWeek.Saturday;
+
+                // Saturday slots only on Saturday, weekday slots only on weekdays
+                if (isSaturdaySlot != isSaturday)
+                    continue;
                 shiftLookup.TryGetValue((date, timeSlot.Id), out var existingShift);
 
                 // Check primary slot
