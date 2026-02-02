@@ -1,11 +1,8 @@
 [build]
-builder = "nixpacks"
-
-[build.nixpacks]
-aptPkgs = ["...", "libicu-dev"]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "cd src/VSMS.Web && dotnet VSMS.Web.dll"
 healthcheckPath = "/health"
 healthcheckTimeout = 100
 restartPolicyType = "on_failure"
