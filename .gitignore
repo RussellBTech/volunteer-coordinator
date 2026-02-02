@@ -55,3 +55,7 @@ appsettings.Local.json
 .DS_Store
 Thumbs.db
 .claude/
+
+# SQLite temp files
+*.db-shm
+*.db-wal
