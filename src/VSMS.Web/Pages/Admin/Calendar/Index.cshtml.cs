@@ -27,10 +27,6 @@ public class IndexModel : PageModel
 
     public List<List<DateOnly?>> Weeks { get; set; } = new();
     public List<Shift> Shifts { get; set; } = new();
-    public bool MonthGenerated { get; set; }
-    public bool MonthPublished { get; set; }
-    public DateTime? PublishedAt { get; set; }
-    public int TotalShifts { get; set; }
 
     public async Task OnGetAsync()
     {
@@ -61,17 +57,12 @@ public class IndexModel : PageModel
         Shifts = await _dbContext.Shifts
             .Include(s => s.TimeSlot)
             .Include(s => s.Volunteer)
+            .Include(s => s.Backup1Volunteer)
+            .Include(s => s.Backup2Volunteer)
             .Where(s => s.Date >= firstDay && s.Date <= lastDay)
             .OrderBy(s => s.Date)
             .ThenBy(s => s.TimeSlot.SortOrder)
             .ToListAsync();
-
-        MonthGenerated = Shifts.Any();
-        TotalShifts = Shifts.Count;
-
-        var anyPublished = Shifts.FirstOrDefault(s => s.MonthPublishedAt != null);
-        MonthPublished = anyPublished != null;
-        PublishedAt = anyPublished?.MonthPublishedAt;
     }
 
     public List<Shift> GetShiftsForDate(DateOnly date)

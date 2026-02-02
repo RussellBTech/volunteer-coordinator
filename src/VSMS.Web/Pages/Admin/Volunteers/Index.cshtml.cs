@@ -38,7 +38,6 @@ public class IndexModel : PageModel
         query = Filter switch
         {
             "active" => query.Where(v => v.IsActive),
-            "backup" => query.Where(v => v.IsBackup && v.IsActive),
             "inactive" => query.Where(v => !v.IsActive),
             _ => query
         };

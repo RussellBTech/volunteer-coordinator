@@ -8,7 +8,6 @@
             <a class="nav-link @(ViewContext.RouteData.Values["page"]?.ToString() == "/Admin/Index" ? "active" : "")" href="/admin">Dashboard</a>
             <a class="nav-link @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Admin/Volunteers") == true ? "active" : "")" href="/admin/volunteers">Volunteers</a>
             <a class="nav-link @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Admin/TimeSlots") == true ? "active" : "")" href="/admin/time-slots">Time Slots</a>
-            <a class="nav-link @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Admin/MasterSchedule") == true ? "active" : "")" href="/admin/master-schedule">Master Schedule</a>
             <a class="nav-link @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Admin/Calendar") == true ? "active" : "")" href="/admin/calendar">Calendar</a>
             <a class="nav-link @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Admin/Requests") == true ? "active" : "")" href="/admin/requests">Requests</a>
             <hr />

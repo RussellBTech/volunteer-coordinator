@@ -9,6 +9,7 @@ public class ShiftRequest
     public Shift Shift { get; set; } = null!;
     public int VolunteerId { get; set; }
     public Volunteer Volunteer { get; set; } = null!;
+    public SlotType RequestedSlot { get; set; } = SlotType.Primary;
     public RequestStatus Status { get; set; } = RequestStatus.Pending;
     public DateTime RequestedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ResolvedAt { get; set; }

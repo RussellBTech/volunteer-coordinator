@@ -18,29 +18,9 @@
 </div>
 
 <div class="mb-3">
-    @if (!Model.MonthGenerated)
-    {
-        <a href="/admin/calendar/generate?month=@Model.Month&year=@Model.Year" class="btn btn-primary">
-            Generate @Model.MonthYear
-        </a>
-    }
-    else if (!Model.MonthPublished)
-    {
-        <a href="/admin/calendar/publish?month=@Model.Month&year=@Model.Year" class="btn btn-success">
-            Publish @Model.MonthYear
-        </a>
-        <span class="text-muted ms-2">@Model.TotalShifts shifts generated</span>
-    }
-    else
-    {
-        <span class="badge bg-success">Published @Model.PublishedAt?.ToString("MMM d")</span>
-    }
-</div>
-
-<div class="mb-3">
-    <span class="badge shift-open p-2">Open</span>
-    <span class="badge shift-assigned p-2">Assigned</span>
-    <span class="badge shift-confirmed p-2">Confirmed</span>
+    <span class="badge shift-open p-2"><i class="bi bi-circle"></i> Open</span>
+    <span class="badge shift-assigned p-2"><i class="bi bi-clock"></i> Assigned</span>
+    <span class="badge shift-confirmed p-2"><i class="bi bi-check-circle"></i> Confirmed</span>
 </div>
 
 <div class="table-responsive">
@@ -68,7 +48,9 @@
                                 <div class="fw-bold mb-1">@day.Value.Day</div>
                                 @foreach (var shift in Model.GetShiftsForDate(day.Value))
                                 {
-                                    <div class="small p-1 mb-1 rounded @GetShiftClass(shift)"
+                                    var backupCount = (shift.Backup1VolunteerId != null ? 1 : 0) + (shift.Backup2VolunteerId != null ? 1 : 0);
+                                    <div id="shift-cell-@shift.Id"
+                                         class="small p-1 mb-1 rounded @GetShiftClass(shift)"
                                          hx-get="/admin/calendar/edit-shift?shiftId=@shift.Id"
                                          hx-target="#shift-modal-content"
                                          hx-trigger="click"
@@ -77,6 +59,10 @@
                                          style="cursor: pointer; font-size: 0.75rem;">
                                         <strong>@shift.TimeSlot.StartTime.ToString("h:mm")</strong>
                                         @shift.Role.ToString()[0]
+                                        @if (backupCount > 0)
+                                        {
+                                            <span class="badge bg-secondary" style="font-size: 0.6rem;">+@backupCount</span>
+                                        }
                                         @if (shift.Volunteer != null)
                                         {
                                             <br />@shift.Volunteer.Name.Split(' ')[0]

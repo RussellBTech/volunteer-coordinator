@@ -38,9 +38,6 @@ public class EditModel : PageModel
         [Phone]
         public string? Phone { get; set; }
 
-        [Display(Name = "Backup Volunteer")]
-        public bool IsBackup { get; set; }
-
         [Display(Name = "Active")]
         public bool IsActive { get; set; }
     }
@@ -59,7 +56,6 @@ public class EditModel : PageModel
             Name = Volunteer.Name,
             Email = Volunteer.Email,
             Phone = Volunteer.Phone,
-            IsBackup = Volunteer.IsBackup,
             IsActive = Volunteer.IsActive
         };
 
@@ -98,7 +94,6 @@ public class EditModel : PageModel
         Volunteer.Name = Input.Name;
         Volunteer.Email = Input.Email;
         Volunteer.Phone = Input.Phone;
-        Volunteer.IsBackup = Input.IsBackup;
         Volunteer.IsActive = Input.IsActive;
 
         await _dbContext.SaveChangesAsync();

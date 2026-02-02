@@ -32,14 +32,14 @@ public class LoginCallbackModel : PageModel
         }
 
         var email = result.Principal?.FindFirstValue(ClaimTypes.Email);
-        var googleId = result.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+        var providerId = result.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
         var name = result.Principal?.FindFirstValue(ClaimTypes.Name);
 
-        if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(googleId))
+        if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(providerId))
         {
-            _logger.LogWarning("Missing email or Google ID in claims");
+            _logger.LogWarning("Missing email or provider ID in claims");
             await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-            TempData["ErrorMessage"] = "Could not retrieve your Google account information.";
+            TempData["ErrorMessage"] = "Could not retrieve your account information.";
             return RedirectToPage("/Admin/Login");
         }
 
@@ -55,10 +55,10 @@ public class LoginCallbackModel : PageModel
             return RedirectToPage("/Admin/Login");
         }
 
-        // Update Google ID if it changed (shouldn't happen often)
-        if (adminUser.GoogleId != googleId)
+        // Update provider ID if it changed (shouldn't happen often)
+        if (adminUser.GoogleId != providerId)
         {
-            adminUser.GoogleId = googleId;
+            adminUser.GoogleId = providerId;
             await _dbContext.SaveChangesAsync();
         }
 

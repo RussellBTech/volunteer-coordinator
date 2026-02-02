@@ -29,20 +29,58 @@
 
 @if (Model.ShowResults && Model.Volunteer != null)
 {
-    <div class="alert alert-info mb-4">
-        <strong>Welcome, @Model.Volunteer.Name!</strong>
-        @if (Model.Volunteer.IsBackup)
-        {
-            <span class="badge bg-secondary ms-2">Backup Volunteer</span>
-        }
+    <div class="alert alert-info mb-4 d-flex justify-content-between align-items-center">
+        <div>
+            <strong>Welcome, @Model.Volunteer.Name!</strong>
+        </div>
+        <form method="post" asp-page-handler="ClearEmail" class="d-inline">
+            <button type="submit" class="btn btn-link btn-sm p-0 text-muted">Use different email</button>
+        </form>
     </div>
+
+    @if (Model.PendingRequests.Any())
+    {
+        <div class="card border-warning mb-4">
+            <div class="card-header bg-warning text-dark">
+                <strong>Pending Requests</strong>
+            </div>
+            <div class="card-body">
+                <p class="card-text small text-muted mb-3">
+                    These requests are waiting for admin approval. You'll receive an email once approved.
+                </p>
+                <div class="row">
+                    @foreach (var request in Model.PendingRequests)
+                    {
+                        var slotLabel = request.RequestedSlot switch
+                        {
+                            SlotType.Backup1 => "Backup 1",
+                            SlotType.Backup2 => "Backup 2",
+                            _ => "Primary"
+                        };
+                        <div class="col-md-6 mb-2">
+                            <div class="d-flex justify-content-between align-items-center p-2 bg-light rounded">
+                                <div>
+                                    <strong>@request.Shift.Date.ToString("ddd, MMM d")</strong>
+                                    <span class="text-muted">@request.Shift.TimeSlot.Label</span>
+                                    <span class="badge bg-secondary ms-1">@slotLabel</span>
+                                </div>
+                                <small class="text-muted">Requested @request.RequestedAt.ToString("MMM d")</small>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
 
     <h3>Upcoming Shifts</h3>
     @if (Model.UpcomingShifts.Any())
     {
         <div class="row mb-4">
-            @foreach (var shift in Model.UpcomingShifts)
+            @foreach (var item in Model.UpcomingShifts)
             {
+                var shift = item.Shift;
+                var assignmentRole = item.Role;
                 var statusClass = shift.Status switch
                 {
                     ShiftStatus.Confirmed => "shift-confirmed",
@@ -51,8 +89,14 @@
                 };
                 var statusBadge = shift.Status switch
                 {
-                    ShiftStatus.Confirmed => "bg-success",
-                    ShiftStatus.Assigned => "bg-warning text-dark",
+                    ShiftStatus.Confirmed => "bg-success status-confirmed",
+                    ShiftStatus.Assigned => "bg-warning text-dark status-assigned",
+                    _ => "bg-secondary status-open"
+                };
+                var roleBadge = assignmentRole switch
+                {
+                    "Primary" => "bg-primary",
+                    "Backup 1" => "bg-secondary",
                     _ => "bg-secondary"
                 };
                 <div class="col-md-6 col-lg-4 mb-3">
@@ -67,10 +111,19 @@
                                 @shift.TimeSlot.StartTime.ToString("h:mm tt") -
                                 @shift.TimeSlot.StartTime.AddMinutes(shift.TimeSlot.DurationMinutes).ToString("h:mm tt")
                             </p>
-                            <span class="badge @(shift.Role == ShiftRole.Phone ? "bg-info" : "bg-primary") mb-2">
-                                @shift.Role
-                            </span>
-                            @if (shift.Status == ShiftStatus.Assigned)
+                            <div class="mb-2">
+                                <span class="badge @roleBadge me-1">@assignmentRole</span>
+                                <span class="badge @(shift.Role == ShiftRole.Phone ? "bg-info" : "bg-dark")">
+                                    @shift.Role
+                                </span>
+                            </div>
+                            @if (assignmentRole != "Primary")
+                            {
+                                <p class="small text-muted mt-2">
+                                    You are a backup for this shift. You'll be contacted if the primary volunteer is unavailable.
+                                </p>
+                            }
+                            else if (shift.Status == ShiftStatus.Assigned)
                             {
                                 <p class="small text-muted mt-2">
                                     Please check your email for the confirmation link.
@@ -105,16 +158,20 @@
                     <tr>
                         <th>Date</th>
                         <th>Time</th>
-                        <th>Role</th>
+                        <th>Assignment</th>
+                        <th>Type</th>
                         <th>Status</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var shift in Model.PastShifts)
+                    @foreach (var item in Model.PastShifts)
                     {
+                        var shift = item.Shift;
+                        var assignmentRole = item.Role;
                         <tr>
                             <td>@shift.Date.ToString("MMM d, yyyy")</td>
                             <td>@shift.TimeSlot.Label (@shift.TimeSlot.StartTime.ToString("h:mm tt"))</td>
+                            <td><span class="badge @(assignmentRole == "Primary" ? "bg-primary" : "bg-secondary")">@assignmentRole</span></td>
                             <td>@shift.Role</td>
                             <td>
                                 @if (shift.Status == ShiftStatus.Confirmed)

@@ -10,5 +10,4 @@ public class TimeSlot
     public int SortOrder { get; set; }
 
     public ICollection<Shift> Shifts { get; set; } = new List<Shift>();
-    public ICollection<MasterScheduleEntry> MasterScheduleEntries { get; set; } = new List<MasterScheduleEntry>();
 }

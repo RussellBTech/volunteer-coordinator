@@ -62,10 +62,18 @@ public class IndexModel : PageModel
 
         if (action == "approve")
         {
-            // Only approve if shift is still open
-            if (request.Shift.Status != ShiftStatus.Open)
+            // Check if the requested slot is still available
+            var slotAvailable = request.RequestedSlot switch
             {
-                TempData["Error"] = "This shift is no longer available.";
+                SlotType.Primary => request.Shift.VolunteerId == null,
+                SlotType.Backup1 => request.Shift.Backup1VolunteerId == null,
+                SlotType.Backup2 => request.Shift.Backup2VolunteerId == null,
+                _ => false
+            };
+
+            if (!slotAvailable)
+            {
+                TempData["Error"] = "This slot is no longer available.";
                 return RedirectToPage();
             }
 
@@ -73,10 +81,28 @@ public class IndexModel : PageModel
             request.ResolvedAt = DateTime.UtcNow;
             request.ResolvedByAdminId = admin?.Id;
 
-            // Assign the volunteer to the shift
-            request.Shift.VolunteerId = request.VolunteerId;
-            request.Shift.Status = ShiftStatus.Assigned;
-            request.Shift.AssignedAt = DateTime.UtcNow;
+            // Assign the volunteer to the appropriate slot
+            var slotLabel = request.RequestedSlot switch
+            {
+                SlotType.Backup1 => "Backup 1",
+                SlotType.Backup2 => "Backup 2",
+                _ => "Primary"
+            };
+
+            switch (request.RequestedSlot)
+            {
+                case SlotType.Backup1:
+                    request.Shift.Backup1VolunteerId = request.VolunteerId;
+                    break;
+                case SlotType.Backup2:
+                    request.Shift.Backup2VolunteerId = request.VolunteerId;
+                    break;
+                default:
+                    request.Shift.VolunteerId = request.VolunteerId;
+                    request.Shift.Status = ShiftStatus.Assigned;
+                    request.Shift.AssignedAt = DateTime.UtcNow;
+                    break;
+            }
 
             // Log the action
             _dbContext.AuditLogEntries.Add(new AuditLogEntry
@@ -85,10 +111,10 @@ public class IndexModel : PageModel
                 VolunteerId = request.VolunteerId,
                 AdminUserId = admin?.Id,
                 Action = "Shift Request Approved",
-                Details = $"Approved request from {request.Volunteer.Name} for {request.Shift.Date:MMM d}"
+                Details = $"Approved {slotLabel} request from {request.Volunteer.Name} for {request.Shift.Date:MMM d}"
             });
 
-            TempData["Success"] = $"Request approved. {request.Volunteer.Name} has been assigned to the shift.";
+            TempData["Success"] = $"Request approved. {request.Volunteer.Name} has been assigned as {slotLabel}.";
         }
         else if (action == "reject")
         {

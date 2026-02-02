@@ -35,8 +35,7 @@ public class ShiftReminderJobsTests
         {
             Name = "Test Volunteer",
             Email = "test@example.com",
-            IsActive = true,
-            IsBackup = false
+            IsActive = true
         };
         context.Volunteers.Add(volunteer);
 
@@ -62,13 +61,14 @@ public class ShiftReminderJobsTests
             Role = ShiftRole.Phone,
             VolunteerId = volunteer.Id,
             Status = ShiftStatus.Assigned,
-            MonthPublishedAt = DateTime.UtcNow.AddDays(-8),
+            AssignedAt = DateTime.UtcNow.AddDays(-8),
             ReminderSentAt7Days = false
         };
         context.Shifts.Add(shift);
         await context.SaveChangesAsync();
 
-        var jobs = new ShiftReminderJobs(context, emailService, logger);
+        var tokenService = new FakeTokenService();
+        var jobs = new ShiftReminderJobs(context, emailService, tokenService, logger);
 
         // Act
         await jobs.SendSevenDayReminders();
@@ -94,13 +94,14 @@ public class ShiftReminderJobsTests
             Role = ShiftRole.Phone,
             VolunteerId = volunteer.Id,
             Status = ShiftStatus.Assigned,
-            MonthPublishedAt = DateTime.UtcNow.AddDays(-10),
+            AssignedAt = DateTime.UtcNow.AddDays(-10),
             ReminderSentAt7Days = false
         };
         context.Shifts.Add(shift);
         await context.SaveChangesAsync();
 
-        var jobs = new ShiftReminderJobs(context, emailService, logger);
+        var tokenService = new FakeTokenService();
+        var jobs = new ShiftReminderJobs(context, emailService, tokenService, logger);
 
         // Act
         await jobs.SendSevenDayReminders();
@@ -126,13 +127,14 @@ public class ShiftReminderJobsTests
             Role = ShiftRole.Phone,
             VolunteerId = volunteer.Id,
             Status = ShiftStatus.Assigned,
-            MonthPublishedAt = DateTime.UtcNow.AddDays(-8),
+            AssignedAt = DateTime.UtcNow.AddDays(-8),
             ReminderSentAt7Days = true // Already sent
         };
         context.Shifts.Add(shift);
         await context.SaveChangesAsync();
 
-        var jobs = new ShiftReminderJobs(context, emailService, logger);
+        var tokenService = new FakeTokenService();
+        var jobs = new ShiftReminderJobs(context, emailService, tokenService, logger);
 
         // Act
         await jobs.SendSevenDayReminders();
@@ -157,13 +159,14 @@ public class ShiftReminderJobsTests
             Role = ShiftRole.Phone,
             VolunteerId = volunteer.Id,
             Status = ShiftStatus.Confirmed, // Already confirmed
-            MonthPublishedAt = DateTime.UtcNow.AddDays(-8),
+            AssignedAt = DateTime.UtcNow.AddDays(-8),
             ReminderSentAt7Days = false
         };
         context.Shifts.Add(shift);
         await context.SaveChangesAsync();
 
-        var jobs = new ShiftReminderJobs(context, emailService, logger);
+        var tokenService = new FakeTokenService();
+        var jobs = new ShiftReminderJobs(context, emailService, tokenService, logger);
 
         // Act
         await jobs.SendSevenDayReminders();
@@ -215,7 +218,8 @@ public class ShiftReminderJobsTests
         context.Shifts.Add(shift);
         await context.SaveChangesAsync();
 
-        var jobs = new ShiftReminderJobs(context, emailService, logger);
+        var tokenService = new FakeTokenService();
+        var jobs = new ShiftReminderJobs(context, emailService, tokenService, logger);
 
         // Act
         await jobs.Send24HourReminders();
@@ -264,7 +268,8 @@ public class ShiftReminderJobsTests
         context.Shifts.Add(shift);
         await context.SaveChangesAsync();
 
-        var jobs = new ShiftReminderJobs(context, emailService, logger);
+        var tokenService = new FakeTokenService();
+        var jobs = new ShiftReminderJobs(context, emailService, tokenService, logger);
 
         // Act
         await jobs.Send24HourReminders();
@@ -313,7 +318,8 @@ public class ShiftReminderJobsTests
         context.Shifts.Add(shift);
         await context.SaveChangesAsync();
 
-        var jobs = new ShiftReminderJobs(context, emailService, logger);
+        var tokenService = new FakeTokenService();
+        var jobs = new ShiftReminderJobs(context, emailService, tokenService, logger);
 
         // Act
         await jobs.Send24HourReminders();
@@ -371,7 +377,8 @@ public class ShiftReminderJobsTests
         context.Shifts.Add(shift);
         await context.SaveChangesAsync();
 
-        var jobs = new ShiftReminderJobs(context, emailService, logger);
+        var tokenService = new FakeTokenService();
+        var jobs = new ShiftReminderJobs(context, emailService, tokenService, logger);
 
         // Act
         await jobs.AutoReopenUnconfirmedShifts();
@@ -426,7 +433,8 @@ public class ShiftReminderJobsTests
         context.Shifts.Add(shift);
         await context.SaveChangesAsync();
 
-        var jobs = new ShiftReminderJobs(context, emailService, logger);
+        var tokenService = new FakeTokenService();
+        var jobs = new ShiftReminderJobs(context, emailService, tokenService, logger);
 
         // Act
         await jobs.AutoReopenUnconfirmedShifts();
@@ -436,7 +444,7 @@ public class ShiftReminderJobsTests
     }
 
     [Fact]
-    public async Task AutoReopenUnconfirmedShifts_EscalatesToBackupVolunteers()
+    public async Task AutoReopenUnconfirmedShifts_SkipsBackupEscalationUntilFeatureImplemented()
     {
         // Arrange
         var context = CreateInMemoryContext();
@@ -462,17 +470,9 @@ public class ShiftReminderJobsTests
         {
             Name = "Assigned Volunteer",
             Email = "assigned@example.com",
-            IsActive = true,
-            IsBackup = false
+            IsActive = true
         };
-        var backupVolunteer = new Volunteer
-        {
-            Name = "Backup Volunteer",
-            Email = "backup@example.com",
-            IsActive = true,
-            IsBackup = true
-        };
-        context.Volunteers.AddRange(assignedVolunteer, backupVolunteer);
+        context.Volunteers.Add(assignedVolunteer);
         await context.SaveChangesAsync();
 
         var shift = new Shift
@@ -486,15 +486,14 @@ public class ShiftReminderJobsTests
         context.Shifts.Add(shift);
         await context.SaveChangesAsync();
 
-        var jobs = new ShiftReminderJobs(context, emailService, logger);
+        var tokenService = new FakeTokenService();
+        var jobs = new ShiftReminderJobs(context, emailService, tokenService, logger);
 
         // Act
         await jobs.AutoReopenUnconfirmedShifts();
 
-        // Assert
-        Assert.Single(emailService.BackupEscalationsSent);
-        Assert.Single(emailService.BackupEscalationsSent[0].backups);
-        Assert.Equal("backup@example.com", emailService.BackupEscalationsSent[0].backups[0].Email);
+        // Assert - backup escalation is disabled until backup slot feature is implemented
+        Assert.Empty(emailService.BackupEscalationsSent);
     }
 
     [Fact]
@@ -540,7 +539,8 @@ public class ShiftReminderJobsTests
         context.Shifts.Add(shift);
         await context.SaveChangesAsync();
 
-        var jobs = new ShiftReminderJobs(context, emailService, logger);
+        var tokenService = new FakeTokenService();
+        var jobs = new ShiftReminderJobs(context, emailService, tokenService, logger);
 
         // Act
         await jobs.AutoReopenUnconfirmedShifts();
@@ -596,7 +596,8 @@ public class ShiftReminderJobsTests
         context.Shifts.Add(shift);
         await context.SaveChangesAsync();
 
-        var jobs = new ShiftReminderJobs(context, emailService, logger);
+        var tokenService = new FakeTokenService();
+        var jobs = new ShiftReminderJobs(context, emailService, tokenService, logger);
 
         // Act
         await jobs.AutoReopenUnconfirmedShifts();
@@ -689,6 +690,35 @@ public class FakeLogger<T> : ILogger<T>
         Func<TState, Exception?, string> formatter)
     {
         LogMessages.Add($"[{logLevel}] {formatter(state, exception)}");
+    }
+}
+
+public class FakeTokenService : ITokenService
+{
+    public int CleanupCallCount { get; private set; }
+    public int TokensToDelete { get; set; } = 0;
+
+    public Task<ActionToken> CreateTokenAsync(int shiftId, int volunteerId, TokenAction action, int? expirationDays = null)
+    {
+        return Task.FromResult(new ActionToken
+        {
+            Token = Guid.NewGuid().ToString("N"),
+            ShiftId = shiftId,
+            VolunteerId = volunteerId,
+            Action = action,
+            ExpiresAt = DateTime.UtcNow.AddDays(expirationDays ?? 14),
+            CreatedAt = DateTime.UtcNow
+        });
+    }
+
+    public string GenerateActionUrl(ActionToken token) => $"https://test.com/action/{token.Token}";
+
+    public string GenerateActionUrl(string tokenValue) => $"https://test.com/action/{tokenValue}";
+
+    public Task<int> CleanupExpiredTokensAsync()
+    {
+        CleanupCallCount++;
+        return Task.FromResult(TokensToDelete);
     }
 }
 

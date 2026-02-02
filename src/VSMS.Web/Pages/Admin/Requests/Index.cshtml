@@ -1,5 +1,6 @@
 @page
 @model VSMS.Web.Pages.Admin.Requests.IndexModel
+@using VSMS.Core.Enums
 @{
     ViewData["Title"] = "Shift Requests";
     Layout = "_AdminLayout";
@@ -28,6 +29,7 @@
             <tr>
                 <th>Volunteer</th>
                 <th>Shift</th>
+                <th>Slot</th>
                 <th>Requested</th>
                 @if (Model.Status == "pending")
                 {
@@ -42,6 +44,19 @@
         <tbody>
             @foreach (var request in Model.Requests)
             {
+                var slotLabel = request.RequestedSlot switch
+                {
+                    SlotType.Backup1 => "Backup 1",
+                    SlotType.Backup2 => "Backup 2",
+                    _ => "Primary"
+                };
+                var slotAvailable = request.RequestedSlot switch
+                {
+                    SlotType.Primary => request.Shift.VolunteerId == null,
+                    SlotType.Backup1 => request.Shift.Backup1VolunteerId == null,
+                    SlotType.Backup2 => request.Shift.Backup2VolunteerId == null,
+                    _ => false
+                };
                 <tr>
                     <td>
                         <strong>@request.Volunteer.Name</strong><br />
@@ -52,9 +67,14 @@
                         <span class="badge @(request.Shift.Role == ShiftRole.Phone ? "bg-info" : "bg-primary")">
                             @request.Shift.Role
                         </span>
-                        @if (request.Shift.Status != ShiftStatus.Open)
+                    </td>
+                    <td>
+                        <span class="badge @(request.RequestedSlot == SlotType.Primary ? "bg-primary" : "bg-secondary")">
+                            @slotLabel
+                        </span>
+                        @if (!slotAvailable)
                         {
-                            <span class="badge bg-warning">Shift no longer open</span>
+                            <br /><span class="badge bg-warning text-dark">Slot filled</span>
                         }
                     </td>
                     <td>@request.RequestedAt.ToString("MMM d, h:mm tt")</td>
@@ -64,10 +84,12 @@
                             <form method="post" class="d-inline">
                                 <input type="hidden" name="requestId" value="@request.Id" />
                                 <button type="submit" name="action" value="approve" class="btn btn-sm btn-success"
-                                        @(request.Shift.Status != ShiftStatus.Open ? "disabled" : "")>
+                                        @(!slotAvailable ? "disabled" : "")
+                                        onclick="this.innerHTML='<span class=\'spinner-border spinner-border-sm\'></span>';">
                                     Approve
                                 </button>
-                                <button type="submit" name="action" value="reject" class="btn btn-sm btn-danger">
+                                <button type="submit" name="action" value="reject" class="btn btn-sm btn-danger"
+                                        onclick="this.innerHTML='<span class=\'spinner-border spinner-border-sm\'></span>';">
                                     Reject
                                 </button>
                             </form>

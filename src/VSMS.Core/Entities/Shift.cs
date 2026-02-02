@@ -11,10 +11,13 @@ public class Shift
     public ShiftRole Role { get; set; }
     public int? VolunteerId { get; set; }
     public Volunteer? Volunteer { get; set; }
+    public int? Backup1VolunteerId { get; set; }
+    public Volunteer? Backup1Volunteer { get; set; }
+    public int? Backup2VolunteerId { get; set; }
+    public Volunteer? Backup2Volunteer { get; set; }
     public ShiftStatus Status { get; set; } = ShiftStatus.Open;
     public DateTime? AssignedAt { get; set; }
     public DateTime? ConfirmedAt { get; set; }
-    public DateTime? MonthPublishedAt { get; set; }
     public string? GoogleCalendarEventId { get; set; }
     public bool ReminderSentAt7Days { get; set; }
     public bool ReminderSentAt24Hours { get; set; }

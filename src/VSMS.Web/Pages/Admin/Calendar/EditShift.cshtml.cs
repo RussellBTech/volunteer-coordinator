@@ -28,6 +28,8 @@ public class EditShiftModel : PageModel
         Shift = await _dbContext.Shifts
             .Include(s => s.TimeSlot)
             .Include(s => s.Volunteer)
+            .Include(s => s.Backup1Volunteer)
+            .Include(s => s.Backup2Volunteer)
             .FirstOrDefaultAsync(s => s.Id == ShiftId);
 
         Volunteers = await _dbContext.Volunteers
@@ -36,10 +38,11 @@ public class EditShiftModel : PageModel
             .ToListAsync();
     }
 
-    public async Task<IActionResult> OnPostAsync(int shiftId, int? volunteerId, ShiftStatus status)
+    public async Task<IActionResult> OnPostAsync(int shiftId, int? volunteerId, int? backup1VolunteerId, int? backup2VolunteerId, ShiftRole role)
     {
         var shift = await _dbContext.Shifts
             .Include(s => s.Volunteer)
+            .Include(s => s.TimeSlot)
             .FirstOrDefaultAsync(s => s.Id == shiftId);
 
         if (shift == null)
@@ -48,18 +51,19 @@ public class EditShiftModel : PageModel
         }
 
         var oldVolunteerId = shift.VolunteerId;
-        var oldStatus = shift.Status;
 
         shift.VolunteerId = volunteerId;
-        shift.Status = status;
+        shift.Backup1VolunteerId = backup1VolunteerId;
+        shift.Backup2VolunteerId = backup2VolunteerId;
+        shift.Role = role;
 
-        // Update timestamps
+        // Auto-manage status based on volunteer assignment
         if (volunteerId != oldVolunteerId)
         {
             if (volunteerId != null)
             {
                 shift.AssignedAt = DateTime.UtcNow;
-                if (status == ShiftStatus.Open)
+                if (shift.Status == ShiftStatus.Open)
                 {
                     shift.Status = ShiftStatus.Assigned;
                 }
@@ -70,11 +74,6 @@ public class EditShiftModel : PageModel
                 shift.ConfirmedAt = null;
                 shift.Status = ShiftStatus.Open;
             }
-        }
-
-        if (status == ShiftStatus.Confirmed && oldStatus != ShiftStatus.Confirmed)
-        {
-            shift.ConfirmedAt = DateTime.UtcNow;
         }
 
         await _dbContext.SaveChangesAsync();
@@ -89,10 +88,50 @@ public class EditShiftModel : PageModel
             VolunteerId = shift.VolunteerId,
             AdminUserId = admin?.Id,
             Action = "Shift Updated",
-            Details = $"Updated shift on {shift.Date:MMM d}: Status={shift.Status}, Volunteer={(volunteerId.HasValue ? "assigned" : "unassigned")}"
+            Details = $"Updated shift on {shift.Date:MMM d}: Status={shift.Status}"
         });
         await _dbContext.SaveChangesAsync();
 
-        return new OkResult();
+        // Reload volunteers for display
+        if (shift.VolunteerId.HasValue)
+        {
+            shift.Volunteer = await _dbContext.Volunteers.FindAsync(shift.VolunteerId.Value);
+        }
+        if (shift.Backup1VolunteerId.HasValue)
+        {
+            shift.Backup1Volunteer = await _dbContext.Volunteers.FindAsync(shift.Backup1VolunteerId.Value);
+        }
+        if (shift.Backup2VolunteerId.HasValue)
+        {
+            shift.Backup2Volunteer = await _dbContext.Volunteers.FindAsync(shift.Backup2VolunteerId.Value);
+        }
+
+        // Return HTML fragment for out-of-band swap of the calendar cell
+        var statusClass = shift.Status switch
+        {
+            ShiftStatus.Open => "shift-open",
+            ShiftStatus.Assigned => "shift-assigned",
+            ShiftStatus.Confirmed => "shift-confirmed",
+            _ => ""
+        };
+
+        var volunteerName = shift.Volunteer?.Name.Split(' ')[0] ?? "";
+        var volunteerHtml = !string.IsNullOrEmpty(volunteerName) ? $"<br />{volunteerName}" : "";
+        var backupCount = (shift.Backup1VolunteerId != null ? 1 : 0) + (shift.Backup2VolunteerId != null ? 1 : 0);
+        var backupHtml = backupCount > 0 ? $@"<span class=""badge bg-secondary"" style=""font-size: 0.6rem;"">+{backupCount}</span>" : "";
+
+        var cellHtml = $@"<div id=""shift-cell-{shift.Id}""
+             class=""small p-1 mb-1 rounded {statusClass}""
+             hx-get=""/admin/calendar/edit-shift?shiftId={shift.Id}""
+             hx-target=""#shift-modal-content""
+             hx-trigger=""click""
+             data-bs-toggle=""modal""
+             data-bs-target=""#shiftModal""
+             style=""cursor: pointer; font-size: 0.75rem;"">
+            <strong>{shift.TimeSlot.StartTime:h:mm}</strong>
+            {shift.Role.ToString()[0]}{backupHtml}{volunteerHtml}
+        </div>";
+
+        return Content(cellHtml, "text/html");
     }
 }

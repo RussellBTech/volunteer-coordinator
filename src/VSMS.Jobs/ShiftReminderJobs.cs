@@ -11,20 +11,23 @@ public class ShiftReminderJobs
 {
     private readonly VsmsDbContext _dbContext;
     private readonly IEmailService _emailService;
+    private readonly ITokenService _tokenService;
     private readonly ILogger<ShiftReminderJobs> _logger;
 
     public ShiftReminderJobs(
         VsmsDbContext dbContext,
         IEmailService emailService,
+        ITokenService tokenService,
         ILogger<ShiftReminderJobs> logger)
     {
         _dbContext = dbContext;
         _emailService = emailService;
+        _tokenService = tokenService;
         _logger = logger;
     }
 
     /// <summary>
-    /// Sends reminder emails to volunteers with unconfirmed shifts 7+ days after month publication.
+    /// Sends reminder emails to volunteers with unconfirmed shifts 7+ days after assignment.
     /// Runs daily at 9am.
     /// </summary>
     public async Task SendSevenDayReminders()
@@ -34,7 +37,7 @@ public class ShiftReminderJobs
         var cutoffDate = DateOnly.FromDateTime(DateTime.Today);
 
         // Find shifts that:
-        // - Were published at least 7 days ago
+        // - Were assigned at least 7 days ago
         // - Are still in Assigned status (not confirmed)
         // - Haven't had a 7-day reminder sent
         // - Are in the future
@@ -44,8 +47,8 @@ public class ShiftReminderJobs
             .Include(s => s.Volunteer)
             .Include(s => s.TimeSlot)
             .Where(s => s.Status == ShiftStatus.Assigned
-                        && s.MonthPublishedAt != null
-                        && s.MonthPublishedAt <= sevenDaysAgo
+                        && s.AssignedAt != null
+                        && s.AssignedAt <= sevenDaysAgo
                         && !s.ReminderSentAt7Days
                         && s.Date >= cutoffDate
                         && s.VolunteerId != null)
@@ -56,6 +59,8 @@ public class ShiftReminderJobs
             .GroupBy(s => s.VolunteerId!.Value)
             .ToDictionary(g => g.Key, g => g.ToList());
 
+        var successfulShifts = new List<Shift>();
+
         foreach (var (volunteerId, shifts) in shiftsByVolunteer)
         {
             var volunteer = shifts.First().Volunteer!;
@@ -64,12 +69,12 @@ public class ShiftReminderJobs
             {
                 await _emailService.SendReminderEmailAsync(volunteer, shifts);
 
-                // Mark reminders as sent
+                // Mark reminders as sent (batch the flag updates)
                 foreach (var shift in shifts)
                 {
                     shift.ReminderSentAt7Days = true;
+                    successfulShifts.Add(shift);
                 }
-                await _dbContext.SaveChangesAsync();
 
                 _logger.LogInformation("Sent 7-day reminder to {Email} for {Count} shifts",
                     volunteer.Email, shifts.Count);
@@ -78,6 +83,12 @@ public class ShiftReminderJobs
             {
                 _logger.LogError(ex, "Failed to send 7-day reminder to {Email}", volunteer.Email);
             }
+        }
+
+        // Batch save all successful updates
+        if (successfulShifts.Any())
+        {
+            await _dbContext.SaveChangesAsync();
         }
 
         _logger.LogInformation("Completed 7-day reminder job. Sent {Count} reminders.", shiftsByVolunteer.Count);
@@ -115,13 +126,15 @@ public class ShiftReminderJobs
             })
             .ToList();
 
+        var successCount = 0;
+
         foreach (var shift in shiftsNeedingReminder)
         {
             try
             {
                 await _emailService.Send24HourReminderAsync(shift.Volunteer!, shift);
                 shift.ReminderSentAt24Hours = true;
-                await _dbContext.SaveChangesAsync();
+                successCount++;
 
                 _logger.LogInformation("Sent 24-hour reminder to {Email} for shift on {Date}",
                     shift.Volunteer!.Email, shift.Date);
@@ -132,7 +145,13 @@ public class ShiftReminderJobs
             }
         }
 
-        _logger.LogInformation("Completed 24-hour reminder job. Sent {Count} reminders.", shiftsNeedingReminder.Count);
+        // Batch save all successful updates
+        if (successCount > 0)
+        {
+            await _dbContext.SaveChangesAsync();
+        }
+
+        _logger.LogInformation("Completed 24-hour reminder job. Sent {Count} reminders.", successCount);
     }
 
     /// <summary>
@@ -167,6 +186,19 @@ public class ShiftReminderJobs
             })
             .ToList();
 
+        if (!shiftsToReopen.Any())
+        {
+            _logger.LogInformation("Completed auto-reopen job. No shifts to reopen.");
+            return;
+        }
+
+        // TODO: Backup volunteers will be assigned to shift slots, not flagged on Volunteer entity
+        // For now, skip backup escalation until backup slot feature is implemented
+        var backupVolunteers = new List<Volunteer>();
+
+        // Track data for batch save
+        var reopenedShifts = new List<(Shift Shift, Volunteer? PreviousVolunteer)>();
+
         foreach (var shift in shiftsToReopen)
         {
             var previousVolunteer = shift.Volunteer;
@@ -186,11 +218,18 @@ public class ShiftReminderJobs
                 Details = $"Shift auto-reopened due to no confirmation from {previousVolunteer?.Name}"
             });
 
-            await _dbContext.SaveChangesAsync();
+            reopenedShifts.Add((shift, previousVolunteer));
 
             _logger.LogWarning("Auto-reopened shift {ShiftId} on {Date} - was assigned to {Volunteer}",
                 shift.Id, shift.Date, previousVolunteer?.Name);
+        }
 
+        // Batch save all shift updates and audit logs
+        await _dbContext.SaveChangesAsync();
+
+        // Send notifications after successful save
+        foreach (var (shift, previousVolunteer) in reopenedShifts)
+        {
             // Notify admin
             try
             {
@@ -202,25 +241,40 @@ public class ShiftReminderJobs
             }
 
             // Escalate to backup volunteers
-            try
+            if (backupVolunteers.Any())
             {
-                var backupVolunteers = await _dbContext.Volunteers
-                    .Where(v => v.IsBackup && v.IsActive)
-                    .ToListAsync();
-
-                if (backupVolunteers.Any())
+                try
                 {
                     await _emailService.SendEscalationToBackupsAsync(shift, backupVolunteers);
                     _logger.LogInformation("Sent escalation to {Count} backup volunteers for shift {ShiftId}",
                         backupVolunteers.Count, shift.Id);
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to send escalation to backup volunteers for shift {ShiftId}", shift.Id);
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to send escalation to backup volunteers for shift {ShiftId}", shift.Id);
+                }
             }
         }
 
         _logger.LogInformation("Completed auto-reopen job. Reopened {Count} shifts.", shiftsToReopen.Count);
+    }
+
+    /// <summary>
+    /// Cleans up expired and used action tokens.
+    /// Runs hourly.
+    /// </summary>
+    public async Task CleanupExpiredTokens()
+    {
+        _logger.LogInformation("Starting token cleanup job");
+
+        try
+        {
+            var deletedCount = await _tokenService.CleanupExpiredTokensAsync();
+            _logger.LogInformation("Completed token cleanup job. Removed {Count} expired/used tokens.", deletedCount);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to cleanup expired tokens");
+        }
     }
 }

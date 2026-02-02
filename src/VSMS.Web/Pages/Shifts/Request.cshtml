@@ -1,8 +1,15 @@
 @page "{shiftId:int}"
 @model VSMS.Web.Pages.Shifts.RequestModel
+@using VSMS.Core.Enums
 @{
     ViewData["Title"] = "Request Shift";
     Layout = "_Layout";
+    var slotLabel = Model.SlotType switch
+    {
+        SlotType.Backup1 => "Backup 1",
+        SlotType.Backup2 => "Backup 2",
+        _ => "Primary"
+    };
 }
 
 @if (Model.Shift == null)
@@ -13,11 +20,20 @@
         <a href="/shifts/open" class="btn btn-primary">View Open Shifts</a>
     </div>
 }
-else if (Model.Shift.Status != ShiftStatus.Open)
+else if (Model.SlotUnavailable)
 {
     <div class="alert alert-warning">
-        <h4>Shift No Longer Available</h4>
-        <p>This shift has already been filled.</p>
+        <h4>Slot No Longer Available</h4>
+        <p>The @slotLabel slot for this shift has already been filled.</p>
+        <a href="/shifts/open" class="btn btn-primary">View Other Open Shifts</a>
+    </div>
+}
+else if (Model.AlreadyRequested)
+{
+    <div class="alert alert-info">
+        <h4>Already Requested</h4>
+        <p>You have already requested the @slotLabel slot for this shift. Your request is pending approval.</p>
+        <p>Check <a href="/shifts/myshifts">My Shifts</a> to see your pending requests.</p>
         <a href="/shifts/open" class="btn btn-primary">View Other Open Shifts</a>
     </div>
 }
@@ -25,26 +41,36 @@ else if (Model.RequestSubmitted)
 {
     <div class="alert alert-success">
         <h4>Request Submitted</h4>
-        <p>Thank you for volunteering! Your request has been submitted and will be reviewed by an administrator.</p>
+        <p>Thank you for volunteering! Your request for the <strong>@slotLabel</strong> slot has been submitted and will be reviewed by an administrator.</p>
         <p>You'll receive an email once your request is approved.</p>
         <a href="/shifts/open" class="btn btn-primary">View Other Open Shifts</a>
     </div>
 }
 else
 {
-    <h2>Request This Shift</h2>
+    <h2>Request @slotLabel Slot</h2>
 
     <div class="card mb-4">
         <div class="card-body">
-            <h5 class="card-title">@Model.Shift.Date.ToString("dddd, MMMM d, yyyy")</h5>
+            <div class="d-flex justify-content-between align-items-start">
+                <h5 class="card-title mb-1">@Model.Shift.Date.ToString("dddd, MMMM d, yyyy")</h5>
+                <span class="badge @(Model.SlotType == SlotType.Primary ? "bg-primary" : "bg-secondary")">@slotLabel</span>
+            </div>
             <p class="card-text">
                 <strong>@Model.Shift.TimeSlot.Label</strong><br />
                 @Model.Shift.TimeSlot.StartTime.ToString("h:mm tt") -
                 @Model.Shift.TimeSlot.StartTime.AddMinutes(Model.Shift.TimeSlot.DurationMinutes).ToString("h:mm tt")
             </p>
-            <span class="badge @(Model.Shift.Role == ShiftRole.Phone ? "bg-info" : "bg-primary")">
-                @Model.Shift.Role
-            </span>
+            @if (Model.SlotType != SlotType.Primary && Model.Shift.Volunteer != null)
+            {
+                <p class="small text-muted mb-0">Primary volunteer: @Model.Shift.Volunteer.Name</p>
+            }
+            @if (Model.SlotType != SlotType.Primary)
+            {
+                <p class="small text-info mt-2 mb-0">
+                    As a backup, you'll be contacted if the primary volunteer is unavailable.
+                </p>
+            }
         </div>
     </div>
 
@@ -52,6 +78,7 @@ else
         <div class="col-md-6">
             <form method="post">
                 <input type="hidden" name="shiftId" value="@Model.Shift.Id" />
+                <input type="hidden" name="slot" value="@Model.Slot" />
 
                 <div asp-validation-summary="ModelOnly" class="text-danger"></div>
 

@@ -30,12 +30,6 @@
                 <span asp-validation-for="Input.Phone" class="text-danger"></span>
             </div>
 
-            <div class="mb-3 form-check">
-                <input asp-for="Input.IsBackup" class="form-check-input" />
-                <label asp-for="Input.IsBackup" class="form-check-label">Backup Volunteer</label>
-                <div class="form-text">Backup volunteers are contacted when shifts can't be filled.</div>
-            </div>
-
             <div class="mb-3">
                 <button type="submit" class="btn btn-primary">Add Volunteer</button>
                 <a href="/admin/volunteers" class="btn btn-outline-secondary">Cancel</a>

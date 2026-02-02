@@ -31,9 +31,6 @@ public class CreateModel : PageModel
 
         [Phone]
         public string? Phone { get; set; }
-
-        [Display(Name = "Backup Volunteer")]
-        public bool IsBackup { get; set; }
     }
 
     public void OnGet()
@@ -62,7 +59,6 @@ public class CreateModel : PageModel
             Name = Input.Name,
             Email = Input.Email,
             Phone = Input.Phone,
-            IsBackup = Input.IsBackup,
             IsActive = true
         };
 

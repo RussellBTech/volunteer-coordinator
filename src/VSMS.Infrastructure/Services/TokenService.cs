@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using VSMS.Core.Entities;
 using VSMS.Core.Enums;
@@ -47,5 +48,25 @@ public class TokenService : ITokenService
     {
         var baseUrl = _configuration["App:BaseUrl"]?.TrimEnd('/') ?? "https://localhost:5001";
         return $"{baseUrl}/action/{tokenValue}";
+    }
+
+    public async Task<int> CleanupExpiredTokensAsync()
+    {
+        var now = DateTime.UtcNow;
+
+        // Delete tokens that are either expired or already used
+        var expiredTokens = await _dbContext.ActionTokens
+            .Where(t => t.ExpiresAt < now || t.UsedAt != null)
+            .ToListAsync();
+
+        if (!expiredTokens.Any())
+        {
+            return 0;
+        }
+
+        _dbContext.ActionTokens.RemoveRange(expiredTokens);
+        await _dbContext.SaveChangesAsync();
+
+        return expiredTokens.Count;
     }
 }

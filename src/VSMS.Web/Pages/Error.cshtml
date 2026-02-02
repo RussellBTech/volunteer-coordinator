@@ -6,17 +6,22 @@
 }
 
 <div class="text-center mt-5">
-    <h1 class="display-4">Error</h1>
-    <p class="lead">An error occurred while processing your request.</p>
+    <h1 class="display-4"><i class="bi bi-exclamation-triangle text-warning"></i></h1>
+    <h2>Something went wrong</h2>
+    <p class="lead">We're sorry, but something unexpected happened. Please try again.</p>
+
+    <div class="mt-4">
+        <a href="javascript:history.back()" class="btn btn-outline-secondary me-2">Go Back</a>
+        <a href="/" class="btn btn-primary">Return to Home</a>
+    </div>
 
     @if (Model.ShowRequestId)
     {
-        <p>
-            <strong>Request ID:</strong> <code>@Model.RequestId</code>
-        </p>
+        <div class="mt-5">
+            <p class="text-muted small">
+                If the problem continues, contact the office and reference this ID:
+            </p>
+            <code class="small">@Model.RequestId</code>
+        </div>
     }
-
-    <p class="mt-4">
-        <a href="/" class="btn btn-primary">Return to Home</a>
-    </p>
 </div>

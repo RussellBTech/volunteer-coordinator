@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using VSMS.Infrastructure.Data;
 
@@ -10,9 +11,11 @@ using VSMS.Infrastructure.Data;
 namespace VSMS.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(VsmsDbContext))]
-    partial class VsmsDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260202080143_RemoveMasterScheduleAndBackupFields")]
+    partial class RemoveMasterScheduleAndBackupFields
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.11");
@@ -138,12 +141,6 @@ namespace VSMS.Infrastructure.Data.Migrations
                     b.Property<DateTime?>("AssignedAt")
                         .HasColumnType("TEXT");
 
-                    b.Property<int?>("Backup1VolunteerId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int?>("Backup2VolunteerId")
-                        .HasColumnType("INTEGER");
-
                     b.Property<DateTime?>("ConfirmedAt")
                         .HasColumnType("TEXT");
 
@@ -173,10 +170,6 @@ namespace VSMS.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Backup1VolunteerId");
-
-                    b.HasIndex("Backup2VolunteerId");
-
                     b.HasIndex("Date");
 
                     b.HasIndex("Status");
@@ -199,9 +192,6 @@ namespace VSMS.Infrastructure.Data.Migrations
 
                     b.Property<DateTime>("RequestedAt")
                         .HasColumnType("TEXT");
-
-                    b.Property<int>("RequestedSlot")
-                        .HasColumnType("INTEGER");
 
                     b.Property<DateTime?>("ResolvedAt")
                         .HasColumnType("TEXT");
@@ -381,16 +371,6 @@ namespace VSMS.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("VSMS.Core.Entities.Shift", b =>
                 {
-                    b.HasOne("VSMS.Core.Entities.Volunteer", "Backup1Volunteer")
-                        .WithMany()
-                        .HasForeignKey("Backup1VolunteerId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.HasOne("VSMS.Core.Entities.Volunteer", "Backup2Volunteer")
-                        .WithMany()
-                        .HasForeignKey("Backup2VolunteerId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("VSMS.Core.Entities.TimeSlot", "TimeSlot")
                         .WithMany("Shifts")
                         .HasForeignKey("TimeSlotId")
@@ -401,10 +381,6 @@ namespace VSMS.Infrastructure.Data.Migrations
                         .WithMany("Shifts")
                         .HasForeignKey("VolunteerId")
                         .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("Backup1Volunteer");
-
-                    b.Navigation("Backup2Volunteer");
 
                     b.Navigation("TimeSlot");
 

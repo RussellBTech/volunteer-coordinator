@@ -17,6 +17,8 @@ public class GoogleCalendarService : ICalendarService
     private readonly IConfiguration _configuration;
     private readonly ILogger<GoogleCalendarService> _logger;
     private readonly string? _calendarId;
+    private readonly string _timezone;
+    private readonly int _timezoneOffsetHours;
     private CalendarService? _calendarService;
 
     public GoogleCalendarService(
@@ -28,6 +30,8 @@ public class GoogleCalendarService : ICalendarService
         _configuration = configuration;
         _logger = logger;
         _calendarId = configuration["Google:CalendarId"];
+        _timezone = configuration["App:Timezone"] ?? "America/Chicago";
+        _timezoneOffsetHours = int.TryParse(configuration["App:TimezoneOffsetHours"], out var offset) ? offset : -6;
     }
 
     private Task<CalendarService?> GetCalendarServiceAsync()
@@ -139,12 +143,6 @@ public class GoogleCalendarService : ICalendarService
 
     public async Task SyncShiftAsync(Shift shift)
     {
-        if (shift.MonthPublishedAt == null)
-        {
-            // Don't sync unpublished shifts
-            return;
-        }
-
         await UpdateEventAsync(shift);
     }
 
@@ -188,13 +186,13 @@ public class GoogleCalendarService : ICalendarService
             Description = description,
             Start = new EventDateTime
             {
-                DateTimeDateTimeOffset = new DateTimeOffset(startDateTime, TimeSpan.FromHours(-6)),
-                TimeZone = "America/Chicago" // Adjust to your timezone
+                DateTimeDateTimeOffset = new DateTimeOffset(startDateTime, TimeSpan.FromHours(_timezoneOffsetHours)),
+                TimeZone = _timezone
             },
             End = new EventDateTime
             {
-                DateTimeDateTimeOffset = new DateTimeOffset(endDateTime, TimeSpan.FromHours(-6)),
-                TimeZone = "America/Chicago"
+                DateTimeDateTimeOffset = new DateTimeOffset(endDateTime, TimeSpan.FromHours(_timezoneOffsetHours)),
+                TimeZone = _timezone
             },
             ColorId = colorId
         };

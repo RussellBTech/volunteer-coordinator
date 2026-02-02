@@ -1,5 +1,6 @@
 @page
 @model VSMS.Web.Pages.Shifts.OpenModel
+@using VSMS.Core.Enums
 @{
     ViewData["Title"] = "Open Shifts";
     Layout = "_Layout";
@@ -8,47 +9,49 @@
 <h2>Open Shifts</h2>
 <p class="lead">Browse available volunteer shifts and sign up to help.</p>
 
-<form method="get" class="row g-3 mb-4">
-    <div class="col-auto">
-        <select name="role" class="form-select">
-            <option value="">All Roles</option>
-            <option value="0" selected="@(Model.Role == 0)">In-Person</option>
-            <option value="1" selected="@(Model.Role == 1)">Phone</option>
-        </select>
-    </div>
-    <div class="col-auto">
-        <button type="submit" class="btn btn-outline-primary">Filter</button>
-    </div>
-</form>
-
 @if (Model.OpenShifts.Any())
 {
     <div class="row">
-        @foreach (var shift in Model.OpenShifts)
+        @foreach (var item in Model.OpenShifts)
         {
+            var shift = item.Shift;
+            var slot = item.AvailableSlot;
+            var isPrimary = slot == "Primary";
+            var cardClass = isPrimary ? "shift-open" : "border-secondary";
+            var badgeClass = isPrimary ? "bg-primary" : "bg-secondary";
             <div class="col-md-6 col-lg-4 mb-3">
-                <div class="card h-100 shift-open">
+                <div class="card h-100 @cardClass">
                     <div class="card-body">
-                        <h5 class="card-title">@shift.Date.ToString("dddd, MMMM d")</h5>
+                        <div class="d-flex justify-content-between align-items-start">
+                            <h5 class="card-title mb-1">@shift.Date.ToString("dddd, MMMM d")</h5>
+                            <span class="badge @badgeClass">@slot</span>
+                        </div>
                         <p class="card-text">
                             <strong>@shift.TimeSlot.Label</strong><br />
                             @shift.TimeSlot.StartTime.ToString("h:mm tt") -
                             @shift.TimeSlot.StartTime.AddMinutes(shift.TimeSlot.DurationMinutes).ToString("h:mm tt")
                         </p>
-                        <span class="badge @(shift.Role == ShiftRole.Phone ? "bg-info" : "bg-primary") mb-2">
-                            @shift.Role
-                        </span>
-                        @if (shift.Role == ShiftRole.Phone)
+                        <div class="mb-2">
+                            <span class="badge @(shift.Role == ShiftRole.Phone ? "bg-info" : "bg-dark")">
+                                <i class="bi @(shift.Role == ShiftRole.Phone ? "bi-telephone" : "bi-person")"></i>
+                                @shift.Role
+                            </span>
+                        </div>
+                        @if (isPrimary)
                         {
-                            <p class="small text-muted">Calls will be forwarded to your phone.</p>
+                            <p class="small text-muted">Primary volunteer needed for this shift.</p>
                         }
                         else
                         {
-                            <p class="small text-muted">At the Intergroup office.</p>
+                            <p class="small text-muted">
+                                Backup slot available. Primary: @(shift.Volunteer?.Name ?? "TBD")
+                            </p>
                         }
                     </div>
                     <div class="card-footer">
-                        <a href="/shifts/request/@shift.Id" class="btn btn-primary btn-sm">Request This Shift</a>
+                        <a href="/shifts/request/@shift.Id?slot=@slot.Replace(" ", "")" class="btn @(isPrimary ? "btn-primary" : "btn-outline-secondary") btn-sm">
+                            Request as @slot
+                        </a>
                     </div>
                 </div>
             </div>
