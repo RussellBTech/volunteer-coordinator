@@ -166,6 +166,23 @@ public class ResendEmailService : IEmailService
         await SendEmailAsync(volunteer.Email, subject, body.ToString());
     }
 
+    public async Task SendShiftRejectedAsync(Volunteer volunteer, Shift shift)
+    {
+        var subject = $"Shift Request Update: {shift.Date:MMM d}";
+
+        var body = new StringBuilder();
+        body.AppendLine($"<h2>Hello {volunteer.Name},</h2>");
+        body.AppendLine($"<p>Thank you for your interest in volunteering. Unfortunately, we were unable to accommodate your request for the following shift:</p>");
+        body.AppendLine($"<div style='background-color: #f8d7da; padding: 15px; margin: 15px 0;'>");
+        body.AppendLine($"<strong>{shift.Date:dddd, MMMM d, yyyy}</strong><br/>");
+        body.AppendLine($"{shift.TimeSlot.Label}: {shift.TimeSlot.StartTime:h:mm tt}");
+        body.AppendLine("</div>");
+        body.AppendLine($"<p>This slot may have already been filled. Please check our <a href='{_configuration["App:BaseUrl"]}/shifts/open'>open shifts page</a> for other volunteer opportunities.</p>");
+        body.AppendLine("<p>Thank you for your willingness to serve!</p>");
+
+        await SendEmailAsync(volunteer.Email, subject, body.ToString());
+    }
+
     public async Task SendShiftReopenedToAdminAsync(Shift shift)
     {
         var adminEmails = _configuration["App:AdminNotificationEmails"]?.Split(',') ?? Array.Empty<string>();

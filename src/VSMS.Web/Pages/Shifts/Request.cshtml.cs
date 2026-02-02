@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
 using VSMS.Core.Entities;
 using VSMS.Core.Enums;
+using VSMS.Core.Interfaces;
 using VSMS.Infrastructure.Data;
 
 namespace VSMS.Web.Pages.Shifts;
@@ -11,10 +12,12 @@ namespace VSMS.Web.Pages.Shifts;
 public class RequestModel : PageModel
 {
     private readonly VsmsDbContext _dbContext;
+    private readonly IEmailService _emailService;
 
-    public RequestModel(VsmsDbContext dbContext)
+    public RequestModel(VsmsDbContext dbContext, IEmailService emailService)
     {
         _dbContext = dbContext;
+        _emailService = emailService;
     }
 
     [BindProperty(SupportsGet = true)]
@@ -57,8 +60,9 @@ public class RequestModel : PageModel
         [EmailAddress]
         public string Email { get; set; } = "";
 
+        [Required]
         [Phone]
-        public string? Phone { get; set; }
+        public string Phone { get; set; } = "";
     }
 
     public async Task OnGetAsync()
@@ -290,7 +294,8 @@ public class RequestModel : PageModel
 
         await _dbContext.SaveChangesAsync();
 
-        // TODO: Send notification email to admin
+        // Send confirmation email to volunteer
+        await _emailService.SendShiftRequestReceivedAsync(volunteer, Shift);
 
         RequestSubmitted = true;
         return Page();

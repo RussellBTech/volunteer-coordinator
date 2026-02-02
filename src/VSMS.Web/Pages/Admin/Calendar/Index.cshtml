@@ -45,12 +45,10 @@
                         <td class="@(day == null ? "bg-light" : "") align-top p-1" style="min-width: 120px; height: 100px;">
                             @if (day != null)
                             {
+                                var isSunday = day.Value.DayOfWeek == DayOfWeek.Sunday;
+                                var isSaturday = day.Value.DayOfWeek == DayOfWeek.Saturday;
                                 <div class="fw-bold mb-1">@day.Value.Day</div>
-                                @{
-                                    var isSunday = day.Value.DayOfWeek == DayOfWeek.Sunday;
-                                    var isSaturday = day.Value.DayOfWeek == DayOfWeek.Saturday;
-                                }
-                                @if (!isSunday)
+                                if (!isSunday)
                                 {
                                     @foreach (var timeSlot in Model.TimeSlots)
                                     {

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
 using VSMS.Core.Entities;
 using VSMS.Core.Enums;
+using VSMS.Core.Interfaces;
 using VSMS.Infrastructure.Data;
 
 namespace VSMS.Web.Pages.Admin.Requests;
@@ -11,10 +12,12 @@ namespace VSMS.Web.Pages.Admin.Requests;
 public class IndexModel : PageModel
 {
     private readonly VsmsDbContext _dbContext;
+    private readonly IEmailService _emailService;
 
-    public IndexModel(VsmsDbContext dbContext)
+    public IndexModel(VsmsDbContext dbContext, IEmailService emailService)
     {
         _dbContext = dbContext;
+        _emailService = emailService;
     }
 
     [BindProperty(SupportsGet = true)]
@@ -115,6 +118,9 @@ public class IndexModel : PageModel
             });
 
             TempData["Success"] = $"Request approved. {request.Volunteer.Name} has been assigned as {slotLabel}.";
+
+            // Send approval email to volunteer
+            await _emailService.SendShiftApprovedAsync(request.Volunteer, request.Shift);
         }
         else if (action == "reject")
         {
@@ -132,6 +138,9 @@ public class IndexModel : PageModel
             });
 
             TempData["Success"] = "Request rejected.";
+
+            // Send rejection email to volunteer
+            await _emailService.SendShiftRejectedAsync(request.Volunteer, request.Shift);
         }
 
         await _dbContext.SaveChangesAsync();

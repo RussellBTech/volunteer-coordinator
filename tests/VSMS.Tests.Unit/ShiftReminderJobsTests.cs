@@ -621,6 +621,7 @@ public class FakeEmailService : IEmailService
     public List<(Volunteer volunteer, Shift shift)> Hour24RemindersSent { get; } = new();
     public List<(Volunteer volunteer, Shift shift)> RequestReceivedEmailsSent { get; } = new();
     public List<(Volunteer volunteer, Shift shift)> ApprovalEmailsSent { get; } = new();
+    public List<(Volunteer volunteer, Shift shift)> RejectionEmailsSent { get; } = new();
     public List<Shift> AdminNotificationsSent { get; } = new();
     public List<(Shift shift, List<Volunteer> backups)> BackupEscalationsSent { get; } = new();
     public List<(Shift shift, List<Volunteer> volunteers)> AllEscalationsSent { get; } = new();
@@ -652,6 +653,12 @@ public class FakeEmailService : IEmailService
     public Task SendShiftApprovedAsync(Volunteer volunteer, Shift shift)
     {
         ApprovalEmailsSent.Add((volunteer, shift));
+        return Task.CompletedTask;
+    }
+
+    public Task SendShiftRejectedAsync(Volunteer volunteer, Shift shift)
+    {
+        RejectionEmailsSent.Add((volunteer, shift));
         return Task.CompletedTask;
     }
 
