@@ -202,7 +202,7 @@ public class EditShiftModel : PageModel
              data-bs-target=""#shiftModal""
              style=""cursor: pointer; font-size: 0.75rem;"">
             <strong>{shift.TimeSlot.StartTime:h:mm}</strong>
-            {shift.Role.ToString()[0]}{backupHtml}{volunteerHtml}
+            <i class=""bi {(shift.Role == ShiftRole.Phone ? "bi-telephone" : "bi-person")}""></i>{backupHtml}{volunteerHtml}
         </div>";
 
         return Content(cellHtml, "text/html");

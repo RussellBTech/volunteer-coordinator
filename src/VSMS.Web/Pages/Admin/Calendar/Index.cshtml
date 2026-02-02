@@ -61,7 +61,7 @@
                                              data-bs-target="#shiftModal"
                                              style="cursor: pointer; font-size: 0.75rem;">
                                             <strong>@timeSlot.StartTime.ToString("h:mm")</strong>
-                                            @shift.Role.ToString()[0]
+                                            <i class="bi @(shift.Role == ShiftRole.Phone ? "bi-telephone" : "bi-person")"></i>
                                             @if (backupCount > 0)
                                             {
                                                 <span class="badge bg-secondary" style="font-size: 0.6rem;">+@backupCount</span>
