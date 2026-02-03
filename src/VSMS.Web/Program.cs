@@ -306,8 +306,9 @@ app.MapRazorPages();
         Log.Information("Using SQLite - creating database if needed");
         await db.Database.EnsureCreatedAsync();
     }
-    else if (app.Environment.IsDevelopment())
+    else
     {
+        Log.Information("Using PostgreSQL - applying migrations");
         await db.Database.MigrateAsync();
     }
 
