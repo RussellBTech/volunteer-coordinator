@@ -115,24 +115,10 @@ else
 
     document.body.addEventListener('htmx:afterRequest', function(evt) {
         if (evt.detail.successful && evt.detail.pathInfo.requestPath === '/admin/calendar/edit-shift' && evt.detail.requestConfig.verb === 'post') {
+            // Close modal and refresh page
             var modal = bootstrap.Modal.getInstance(document.getElementById('shiftModal'));
             if (modal) modal.hide();
-
-            // Update the shift cell with the response HTML
-            var shiftId = new FormData(evt.detail.elt).get('shiftId');
-            if (shiftId && shiftId !== '0') {
-                var cellElement = document.getElementById('shift-cell-' + shiftId);
-                if (cellElement && evt.detail.xhr.responseText) {
-                    var temp = document.createElement('div');
-                    temp.innerHTML = evt.detail.xhr.responseText;
-                    var newCell = temp.firstElementChild;
-                    cellElement.replaceWith(newCell);
-                    htmx.process(newCell);
-                }
-            } else {
-                // New shift created - reload page to show it
-                window.location.reload();
-            }
+            window.location.reload();
         }
     });
 </script>
