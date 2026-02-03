@@ -102,6 +102,13 @@ public class RequestModel : PageModel
             }
         }
 
+        // Block viewing request page for past dates
+        if (Shift != null && Shift.Date < DateOnly.FromDateTime(DateTime.Today))
+        {
+            Shift = null; // Will show "Shift Not Found" message
+            return;
+        }
+
         if (Shift != null && !IsVirtualShift)
         {
             SlotUnavailable = !IsSlotAvailable(Shift, SlotType);
@@ -202,6 +209,12 @@ public class RequestModel : PageModel
         if (Shift == null)
         {
             return NotFound();
+        }
+
+        // Block requests for past dates
+        if (Shift.Date < DateOnly.FromDateTime(DateTime.Today))
+        {
+            return BadRequest("Cannot sign up for shifts in the past.");
         }
 
         // Check if the requested slot is available
