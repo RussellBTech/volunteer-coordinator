@@ -52,6 +52,7 @@ public class IndexModel : PageModel
     {
         var request = await _dbContext.ShiftRequests
             .Include(r => r.Shift)
+                .ThenInclude(s => s.TimeSlot)
             .Include(r => r.Volunteer)
             .FirstOrDefaultAsync(r => r.Id == requestId);
 
@@ -119,6 +120,12 @@ public class IndexModel : PageModel
 
             TempData["Success"] = $"Request approved. {request.Volunteer.Name} has been assigned as {slotLabel}.";
 
+            // Ensure TimeSlot is loaded for email
+            if (request.Shift.TimeSlot == null)
+            {
+                await _dbContext.Entry(request.Shift).Reference(s => s.TimeSlot).LoadAsync();
+            }
+
             // Send approval email to volunteer
             await _emailService.SendShiftApprovedAsync(request.Volunteer, request.Shift);
         }
@@ -138,6 +145,12 @@ public class IndexModel : PageModel
             });
 
             TempData["Success"] = "Request rejected.";
+
+            // Ensure TimeSlot is loaded for email
+            if (request.Shift.TimeSlot == null)
+            {
+                await _dbContext.Entry(request.Shift).Reference(s => s.TimeSlot).LoadAsync();
+            }
 
             // Send rejection email to volunteer
             await _emailService.SendShiftRejectedAsync(request.Volunteer, request.Shift);
