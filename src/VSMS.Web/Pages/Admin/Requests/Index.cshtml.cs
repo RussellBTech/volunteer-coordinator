@@ -13,11 +13,13 @@ public class IndexModel : PageModel
 {
     private readonly VsmsDbContext _dbContext;
     private readonly IEmailService _emailService;
+    private readonly ILogger<IndexModel> _logger;
 
-    public IndexModel(VsmsDbContext dbContext, IEmailService emailService)
+    public IndexModel(VsmsDbContext dbContext, IEmailService emailService, ILogger<IndexModel> logger)
     {
         _dbContext = dbContext;
         _emailService = emailService;
+        _logger = logger;
     }
 
     [BindProperty(SupportsGet = true)]
@@ -126,8 +128,16 @@ public class IndexModel : PageModel
                 await _dbContext.Entry(request.Shift).Reference(s => s.TimeSlot).LoadAsync();
             }
 
-            // Send approval email to volunteer
-            await _emailService.SendShiftApprovedAsync(request.Volunteer, request.Shift);
+            // Send approval email to volunteer (non-fatal if it fails)
+            try
+            {
+                await _emailService.SendShiftApprovedAsync(request.Volunteer, request.Shift);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send approval email to {Email}, but approval succeeded", request.Volunteer.Email);
+                TempData["Warning"] = "Request approved, but notification email could not be sent.";
+            }
         }
         else if (action == "reject")
         {
@@ -152,8 +162,16 @@ public class IndexModel : PageModel
                 await _dbContext.Entry(request.Shift).Reference(s => s.TimeSlot).LoadAsync();
             }
 
-            // Send rejection email to volunteer
-            await _emailService.SendShiftRejectedAsync(request.Volunteer, request.Shift);
+            // Send rejection email to volunteer (non-fatal if it fails)
+            try
+            {
+                await _emailService.SendShiftRejectedAsync(request.Volunteer, request.Shift);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send rejection email to {Email}, but rejection succeeded", request.Volunteer.Email);
+                TempData["Warning"] = "Request rejected, but notification email could not be sent.";
+            }
         }
 
         await _dbContext.SaveChangesAsync();
