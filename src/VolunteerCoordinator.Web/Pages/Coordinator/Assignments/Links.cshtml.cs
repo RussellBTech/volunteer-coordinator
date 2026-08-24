@@ -17,40 +17,27 @@ public sealed class LinksModel : PageModel
 
     public IReadOnlyDictionary<string, string> Links { get; private set; } = new Dictionary<string, string>();
 
-    public void OnGet(Guid assignmentId)
+    public void OnGet()
     {
-        var links = new Dictionary<string, string>();
-        if (TempData["ActionLinkAssignmentId"] is string routedAssignmentId &&
-            string.Equals(routedAssignmentId, assignmentId.ToString("D"), StringComparison.OrdinalIgnoreCase))
-        {
-            foreach (var action in new[] { "Confirm", "Decline", "Cancel" })
-            {
-                if (TempData[$"ActionLink:{action}"] is string url)
-                {
-                    links[action] = url;
-                }
-            }
-        }
-
-        Links = links;
     }
 
     public async Task<IActionResult> OnPostAsync(Guid assignmentId, CancellationToken cancellationToken)
     {
         try
         {
-            var links = await _service.GenerateActionLinksAsync(assignmentId, CoordinatorIdentity.GetEmail(User)!, cancellationToken);
-            TempData["ActionLinkAssignmentId"] = assignmentId.ToString("D");
-            if (links.ConfirmToken is not null)
+            var generated = await _service.GenerateActionLinksAsync(assignmentId, CoordinatorIdentity.GetEmail(User)!, cancellationToken);
+            var links = new Dictionary<string, string>();
+            if (generated.ConfirmToken is not null)
             {
-                TempData["ActionLink:Confirm"] = ActionUrl(links.ConfirmToken);
+                links["Confirm"] = ActionUrl(generated.ConfirmToken);
             }
-            if (links.DeclineToken is not null)
+            if (generated.DeclineToken is not null)
             {
-                TempData["ActionLink:Decline"] = ActionUrl(links.DeclineToken);
+                links["Decline"] = ActionUrl(generated.DeclineToken);
             }
-            TempData["ActionLink:Cancel"] = ActionUrl(links.CancelToken);
-            return RedirectToPage(new { assignmentId });
+            links["Cancel"] = ActionUrl(generated.CancelToken);
+            Links = links;
+            return Page();
         }
         catch (DomainException exception)
         {
