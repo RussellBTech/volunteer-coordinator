@@ -1,0 +1,134 @@
+**Issue**: #1
+**Date**: 2026-08-23
+**Status**: Approved
+**Author**: RussellBTech
+
+Feature: Complete volunteer coverage coordination
+  Volunteer Coordinator must let coordinators establish authoritative schedules and coverage
+  while volunteers self-serve without persistent accounts.
+
+  Scenario: Replace the legacy application
+    Given remote master contains the tracked VSMS solution
+    When issue #1 is delivered
+    Then the legacy solution, projects, and obsolete artifacts are absent
+    And the current lifecycle and steering contract is present
+    And VolunteerCoordinator.sln and the six reserved projects are the only application layout
+    And no legacy compatibility shim or data import is introduced
+
+  Scenario: Coordinator starts from zero shifts
+    Given the database contains no shifts
+    And an allowlisted coordinator is authenticated
+    When the coordinator opens schedule setup
+    Then a textual empty state explains that shifts must be created
+    And the coordinator can create the first shift
+
+  Scenario: Coordinator manages and publishes a shift
+    Given an allowlisted coordinator is authenticated
+    And an active unpublished future shift exists
+    When the coordinator edits its details and publishes it
+    Then the corrected shift is persisted with one primary slot and its configured backup slots
+    And the coordinator actions are audited
+
+  Scenario: Volunteer discovers and requests an opening
+    Given a published future shift has an unfilled slot
+    When a volunteer browses openings and submits valid contact details
+    Then one pending request is persisted
+    And a private opaque status link is shown once
+    And the opening and request states are expressed in text
+
+  Scenario: Duplicate pending request is rejected
+    Given a volunteer already has a pending request for a slot
+    When the same volunteer requests that slot again
+    Then no second pending request is created
+    And a clear validation message is shown
+
+  Scenario: Coordinator approves a request
+    Given a pending request targets an open slot
+    And an allowlisted coordinator is authenticated
+    When the coordinator approves the request
+    Then the volunteer receives the active assignment atomically
+    And the request is approved
+    And the action is audited
+
+  Scenario: Coordinator rejects a request
+    Given a pending request exists
+    And an allowlisted coordinator is authenticated
+    When the coordinator rejects the request
+    Then the request is rejected without filling the slot
+    And the action is audited
+
+  Scenario: Coordinator reassigns a filled slot
+    Given a slot has an active assignment
+    And an allowlisted coordinator is authenticated
+    When the coordinator reassigns the slot to another volunteer
+    Then the previous assignment is marked reassigned
+    And exactly one active assignment remains
+    And the reassignment is audited
+
+  Scenario: Volunteer confirms through a secure link
+    Given an assignment is assigned
+    And a valid unexpired unused confirm token exists for it
+    When the volunteer posts the confirm action
+    Then the token is consumed once
+    And the assignment becomes confirmed
+    And only the token hash remains persisted
+
+  Scenario Outline: Invalid action link changes nothing
+    Given an active assignment exists
+    And the action token is <condition>
+    When the volunteer attempts the action
+    Then the assignment state is unchanged
+    And the token is not accepted
+
+    Examples:
+      | condition  |
+      | expired    |
+      | already used |
+      | bound to another assignment |
+      | unknown    |
+
+  Scenario: Volunteer declines an assignment
+    Given an assigned volunteer has a valid decline link
+    When the volunteer posts the decline action
+    Then the assignment becomes declined
+    And the slot becomes uncovered
+    And the transition is audited
+
+  Scenario: Volunteer cancels a confirmed assignment
+    Given a confirmed volunteer has a valid cancel link
+    When the volunteer posts the cancel action
+    Then the assignment becomes cancelled
+    And the slot becomes uncovered
+    And the transition is audited
+
+  Scenario: Coordinator monitors coverage
+    Given published future shifts contain uncovered, assigned, and confirmed slots
+    And an allowlisted coordinator is authenticated
+    When the coordinator opens coverage monitoring
+    Then uncovered slots are directly discoverable
+    And unconfirmed assignments are directly discoverable
+    And each state includes a text label
+    And intervention actions are available
+
+  Scenario: Notification failure remains separate
+    Given a valid workflow transition is ready to commit
+    And the notification adapter is unavailable
+    When the transition completes
+    Then authoritative workflow and audit state remain committed
+    And notification failure is recorded separately
+
+  Scenario: Non-allowlisted identity cannot coordinate
+    Given an authenticated identity is absent from the coordinator allowlist
+    When the identity requests a coordinator page
+    Then access is forbidden
+
+  Scenario: Public paths remain accountless
+    Given no user is authenticated
+    When a visitor opens shifts, submits a request, views status with a valid token, or uses a valid action token
+    Then no coordinator login is required
+
+  Scenario: Persistence uses PostgreSQL and UTC
+    Given the application exercises persistence behavior
+    When shifts and transitions are saved and loaded
+    Then PostgreSQL stores every instant as UTC
+    And no SQLite or EF in-memory persistence substitute is used
