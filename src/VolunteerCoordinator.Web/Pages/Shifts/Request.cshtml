@@ -1,0 +1,21 @@
+@page "/Shifts/Request/{slotId:guid}"
+@model VolunteerCoordinator.Web.Pages.Shifts.RequestModel
+@{
+    ViewData["Title"] = "Request a shift";
+}
+<h1>Request a shift</h1>
+@if (Model.Opening is not null)
+{
+    <div class="card">
+        <h2>@Model.Opening.ShiftTitle — @Model.Opening.SlotLabel</h2>
+        <p><span class="badge badge-open">@Model.Opening.Status</span></p>
+        <p><time datetime="@Model.Opening.StartsAtUtc.ToString("O")">@Model.Opening.StartsAtUtc.ToString("yyyy-MM-dd HH:mm 'UTC'")</time></p>
+    </div>
+}
+<form method="post">
+    <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+    <div class="form-group"><label asp-for="Name"></label><input asp-for="Name" autocomplete="name"><span asp-validation-for="Name"></span></div>
+    <div class="form-group"><label asp-for="Email"></label><input asp-for="Email" autocomplete="email"><span asp-validation-for="Email"></span></div>
+    <div class="form-group"><label asp-for="Phone"></label><input asp-for="Phone" autocomplete="tel"><span asp-validation-for="Phone"></span></div>
+    <button type="submit">Submit request</button>
+</form>

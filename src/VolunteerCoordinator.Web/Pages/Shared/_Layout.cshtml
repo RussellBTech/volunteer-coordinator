@@ -1,0 +1,52 @@
+@using Microsoft.AspNetCore.Authorization
+@inject IAuthorizationService AuthorizationService
+@{
+    var canAccessCoordinator = (await AuthorizationService.AuthorizeAsync(User, "CoordinatorOnly")).Succeeded;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] - Volunteer Coordinator</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header">
+    <nav aria-label="Main navigation" class="container nav-row">
+        <a class="brand" asp-page="/Shifts/Index">Volunteer Coordinator</a>
+        <div class="nav-links">
+            <a asp-page="/Shifts/Index">Open shifts</a>
+            @if (canAccessCoordinator)
+            {
+                <a asp-page="/Coordinator/Schedule/Index">Schedule</a>
+                <a asp-page="/Coordinator/Requests/Index">Requests</a>
+                <a asp-page="/Coordinator/Coverage/Index">Coverage</a>
+                <a asp-page="/Coordinator/Audit/Index">Audit</a>
+            }
+            @if (User.Identity?.IsAuthenticated == true)
+            {
+                <form method="post" asp-page="/Account/Logout" class="inline"><button type="submit" class="nav-button">Sign out</button></form>
+            }
+            else
+            {
+                <a asp-page="/Account/Login">Coordinator sign in</a>
+            }
+        </div>
+    </nav>
+</header>
+<main id="main-content" class="container">
+    @if (TempData["Message"] is string message)
+    {
+        <div class="alert alert-success" role="status">@message</div>
+    }
+    @if (TempData["Warning"] is string warning)
+    {
+        <div class="alert alert-warning" role="status">@warning</div>
+    }
+    @RenderBody()
+</main>
+<footer class="container site-footer">Authoritative volunteer coverage, shown in UTC.</footer>
+</body>
+</html>

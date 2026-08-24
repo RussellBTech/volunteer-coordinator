@@ -1,0 +1,17 @@
+@page "/Shifts/Request/Complete"
+@model VolunteerCoordinator.Web.Pages.Shifts.RequestCompleteModel
+@{
+    ViewData["Title"] = "Request submitted";
+}
+<h1>Request submitted</h1>
+@if (Model.StatusUrl is not null)
+{
+    <div class="alert alert-success" role="status">Your request is pending.</div>
+    <p>Save this private status link now. It is shown only once and expires after 30 days.</p>
+    <a class="copy-value" href="@Model.StatusUrl">@Model.StatusUrl</a>
+}
+else
+{
+    <p>The private status link has already been shown. Return to open shifts if you need to submit another request.</p>
+}
+<p><a asp-page="/Shifts/Index">Return to open shifts</a></p>

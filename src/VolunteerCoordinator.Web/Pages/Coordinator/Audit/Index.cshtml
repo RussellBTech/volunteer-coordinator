@@ -1,0 +1,20 @@
+@page "/Coordinator/Audit"
+@model VolunteerCoordinator.Web.Pages.Coordinator.Audit.IndexModel
+@{
+    ViewData["Title"] = "Audit trail";
+}
+<h1>Audit trail</h1>
+<p class="lead">Recent coordinator and token-driven state transitions, newest first.</p>
+@if (Model.Entries.Count == 0)
+{
+<div class="empty-state"><h2>No audit entries</h2><p>Auditable workflow actions will appear here.</p></div>
+}
+else
+{
+<div class="table-scroll"><table class="responsive"><thead><tr><th>Occurred</th><th>Actor</th><th>Action</th><th>Entity</th><th>Detail</th></tr></thead><tbody>
+@foreach (var entry in Model.Entries)
+{
+<tr><td data-label="Occurred">@entry.OccurredAtUtc.ToString("yyyy-MM-dd HH:mm:ss 'UTC'")</td><td data-label="Actor">@entry.Actor</td><td data-label="Action">@entry.Action</td><td data-label="Entity">@entry.EntityKind @entry.EntityId</td><td data-label="Detail"><code>@entry.DetailJson</code></td></tr>
+}
+</tbody></table></div>
+}

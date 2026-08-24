@@ -1,0 +1,18 @@
+@page "/Coordinator/Schedule/Edit/{id:guid}"
+@model VolunteerCoordinator.Web.Pages.Coordinator.Schedule.EditModel
+@{
+    ViewData["Title"] = "Edit shift";
+}
+<h1>Edit shift</h1>
+<p>All date and time fields are UTC. A backup slot with active work cannot be removed.</p>
+<form method="post">
+    <input asp-for="ExpectedVersion" type="hidden">
+    <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+    <div class="form-group"><label asp-for="Title"></label><input asp-for="Title"><span asp-validation-for="Title"></span></div>
+    <div class="form-group"><label asp-for="Location"></label><input asp-for="Location"><span asp-validation-for="Location"></span></div>
+    <div class="form-group"><label asp-for="Notes"></label><textarea asp-for="Notes"></textarea><span asp-validation-for="Notes"></span></div>
+    <div class="form-group"><label asp-for="StartsAtUtc">Starts at (UTC)</label><input asp-for="StartsAtUtc" type="datetime-local"><span asp-validation-for="StartsAtUtc"></span></div>
+    <div class="form-group"><label asp-for="EndsAtUtc">Ends at (UTC)</label><input asp-for="EndsAtUtc" type="datetime-local"><span asp-validation-for="EndsAtUtc"></span></div>
+    <div class="form-group"><label asp-for="BackupSlotCount">Backup slots</label><select asp-for="BackupSlotCount"><option value="0">0</option><option value="1">1</option><option value="2">2</option></select><span asp-validation-for="BackupSlotCount"></span></div>
+    <div class="actions"><button type="submit">Save corrections</button><a asp-page="/Coordinator/Schedule/Index">Cancel</a></div>
+</form>

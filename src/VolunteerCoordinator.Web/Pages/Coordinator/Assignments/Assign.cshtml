@@ -1,0 +1,30 @@
+@page "/Coordinator/Assignments/Assign/{slotId:guid}"
+@model VolunteerCoordinator.Web.Pages.Coordinator.Assignments.AssignModel
+@{
+    ViewData["Title"] = "Assign volunteer";
+}
+<h1>@(Model.CurrentAssignmentId.HasValue ? "Reassign slot" : "Assign slot")</h1>
+@if (Model.Coverage is not null)
+{
+<p><strong>@Model.Coverage.ShiftTitle — @Model.Coverage.SlotLabel</strong><br>@Model.Coverage.StartsAtUtc.ToString("yyyy-MM-dd HH:mm 'UTC'")<br>Current state: @Model.Coverage.State</p>
+}
+<p>Entering an existing email updates that volunteer's contact details. Reassignment ends the previous active assignment atomically.</p>
+@if (Model.ExistingVolunteers.Count > 0)
+{
+<details class="card">
+    <summary><strong>Known volunteers (@Model.ExistingVolunteers.Count)</strong></summary>
+    <ul>
+    @foreach (var volunteer in Model.ExistingVolunteers)
+    {
+        <li>@volunteer.Name — @volunteer.Email @if (volunteer.Phone is not null) { <span>— @volunteer.Phone</span> }</li>
+    }
+    </ul>
+</details>
+}
+<form method="post">
+<div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+<div class="form-group"><label asp-for="VolunteerName"></label><input asp-for="VolunteerName" autocomplete="name"><span asp-validation-for="VolunteerName"></span></div>
+<div class="form-group"><label asp-for="VolunteerEmail"></label><input asp-for="VolunteerEmail" autocomplete="email"><span asp-validation-for="VolunteerEmail"></span></div>
+<div class="form-group"><label asp-for="VolunteerPhone"></label><input asp-for="VolunteerPhone" autocomplete="tel"><span asp-validation-for="VolunteerPhone"></span></div>
+<div class="actions"><button type="submit">@(Model.CurrentAssignmentId.HasValue ? "Reassign" : "Assign") volunteer</button><a asp-page="/Coordinator/Coverage/Index">Cancel</a></div>
+</form>

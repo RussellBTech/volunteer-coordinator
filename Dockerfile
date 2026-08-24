@@ -1,26 +1,22 @@
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
-WORKDIR /src
+# syntax=docker/dockerfile:1
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS restore
+WORKDIR /source
+COPY VolunteerCoordinator.sln ./
+COPY src/VolunteerCoordinator.Domain/VolunteerCoordinator.Domain.csproj src/VolunteerCoordinator.Domain/
+COPY src/VolunteerCoordinator.Application/VolunteerCoordinator.Application.csproj src/VolunteerCoordinator.Application/
+COPY src/VolunteerCoordinator.Infrastructure/VolunteerCoordinator.Infrastructure.csproj src/VolunteerCoordinator.Infrastructure/
+COPY src/VolunteerCoordinator.Web/VolunteerCoordinator.Web.csproj src/VolunteerCoordinator.Web/
+RUN dotnet restore src/VolunteerCoordinator.Web/VolunteerCoordinator.Web.csproj
 
-# Copy solution and project files
-COPY *.sln ./
-COPY src/VSMS.Core/*.csproj src/VSMS.Core/
-COPY src/VSMS.Infrastructure/*.csproj src/VSMS.Infrastructure/
-COPY src/VSMS.Jobs/*.csproj src/VSMS.Jobs/
-COPY src/VSMS.Web/*.csproj src/VSMS.Web/
+FROM restore AS build
+COPY src/ src/
+RUN dotnet publish src/VolunteerCoordinator.Web/VolunteerCoordinator.Web.csproj -c Release --no-restore -o /app/publish /p:UseAppHost=false
 
-# Restore dependencies
-RUN dotnet restore src/VSMS.Web/VSMS.Web.csproj
-
-# Copy everything else and build
-COPY . .
-RUN dotnet publish src/VSMS.Web/VSMS.Web.csproj -c Release -o /app/publish
-
-# Runtime image
-FROM mcr.microsoft.com/dotnet/aspnet:9.0
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
+ENV ASPNETCORE_FORWARDEDHEADERS_ENABLED=true \
+    DOTNET_EnableDiagnostics=0
+EXPOSE 8080
 COPY --from=build /app/publish .
-
-# Railway uses PORT env var
-ENV ASPNETCORE_URLS=http://+:${PORT:-8080}
-
-ENTRYPOINT ["dotnet", "VSMS.Web.dll"]
+USER $APP_UID
+ENTRYPOINT ["sh", "-c", "ASPNETCORE_HTTP_PORTS=${PORT:-8080} exec dotnet VolunteerCoordinator.Web.dll"]

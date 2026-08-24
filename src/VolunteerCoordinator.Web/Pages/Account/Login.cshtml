@@ -1,0 +1,15 @@
+@page
+@model VolunteerCoordinator.Web.Pages.Account.LoginModel
+@{
+    ViewData["Title"] = "Coordinator sign in";
+}
+<h1>Coordinator sign in</h1>
+<p>Coordinator access requires an authenticated email that is present in the application allowlist.</p>
+@if (Model.OidcConfigured)
+{
+    <a class="button" asp-page-handler="Oidc" asp-route-returnUrl="@Request.Query["ReturnUrl"]">Continue with identity provider</a>
+}
+else
+{
+    <div class="alert alert-warning" role="status">OIDC is not configured. In Development, an administrator may explicitly enable the development login endpoint.</div>
+}

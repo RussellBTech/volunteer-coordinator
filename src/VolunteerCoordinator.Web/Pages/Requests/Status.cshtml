@@ -1,0 +1,20 @@
+@page "/Requests/Status/{token}"
+@model VolunteerCoordinator.Web.Pages.Requests.StatusModel
+@{
+    ViewData["Title"] = "Request status";
+}
+<h1>Request status</h1>
+@if (Model.Error is not null)
+{
+    <div class="alert alert-error" role="alert">@Model.Error</div>
+}
+else if (Model.Status is not null)
+{
+    <article class="card">
+        <h2>@Model.Status.ShiftTitle — @Model.Status.SlotLabel</h2>
+        <p><strong>Volunteer:</strong> @Model.Status.VolunteerName</p>
+        <p><strong>Starts:</strong> <time datetime="@Model.Status.StartsAtUtc.ToString("O")">@Model.Status.StartsAtUtc.ToString("yyyy-MM-dd HH:mm 'UTC'")</time></p>
+        <p><strong>Request status:</strong> <span class="badge badge-pending">@Model.Status.RequestStatus</span></p>
+        <p><strong>Assignment status:</strong> @(Model.Status.AssignmentStatus ?? "Not assigned")</p>
+    </article>
+}
