@@ -1,0 +1,20 @@
+@page "/Coordinator/Assignments/Links/{assignmentId:guid}"
+@model VolunteerCoordinator.Web.Pages.Coordinator.Assignments.LinksModel
+@{
+    ViewData["Title"] = "Volunteer action links";
+}
+<h1>Volunteer action links</h1>
+<p>Generating links invalidates earlier unused links of the same action. Raw links are never stored and are displayed only on the next page load.</p>
+@if (Model.Links.Count > 0)
+{
+<div class="alert alert-warning" role="status">Copy these links now. They will not be shown again.</div>
+@foreach (var link in Model.Links)
+{
+<div class="form-group"><strong>@link.Key</strong><a class="copy-value" href="@link.Value">@link.Value</a></div>
+}
+}
+else
+{
+<form method="post"><button type="submit">Generate fresh confirm, decline, and cancel links</button></form>
+}
+<p><a asp-page="/Coordinator/Coverage/Index">Return to coverage</a></p>

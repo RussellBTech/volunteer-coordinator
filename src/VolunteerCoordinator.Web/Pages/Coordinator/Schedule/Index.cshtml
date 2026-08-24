@@ -1,0 +1,48 @@
+@page "/Coordinator/Schedule"
+@model VolunteerCoordinator.Web.Pages.Coordinator.Schedule.IndexModel
+@{
+    ViewData["Title"] = "Schedule setup";
+}
+<h1>Schedule setup</h1>
+<p class="lead">Create the real service schedule here. No shifts are hardcoded.</p>
+@if (TempData["Error"] is string error) { <div class="alert alert-error" role="alert">@error</div> }
+<div class="actions"><a class="button" asp-page="/Coordinator/Schedule/Create">Create shift</a></div>
+@if (Model.Shifts.Count == 0)
+{
+    <div class="empty-state">
+        <h2>No shifts have been created</h2>
+        <p>Start by entering the first shift, its UTC interval, and the required backup slots.</p>
+        <a class="button" asp-page="/Coordinator/Schedule/Create">Create the first shift</a>
+    </div>
+}
+else
+{
+    <div class="grid">
+    @foreach (var shift in Model.Shifts)
+    {
+        <article class="card">
+            <h2>@shift.Title</h2>
+            <p><span class="badge">@(shift.IsActive ? "Active" : "Inactive")</span> <span class="badge">@(shift.IsPublished ? "Published" : "Unpublished")</span></p>
+            <p><time datetime="@shift.StartsAtUtc.ToString("O")">@shift.StartsAtUtc.ToString("yyyy-MM-dd HH:mm 'UTC'")</time> – @shift.EndsAtUtc.ToString("yyyy-MM-dd HH:mm 'UTC'")</p>
+            @if (shift.Location is not null) { <p><strong>Location:</strong> @shift.Location</p> }
+            <ul class="status-list">
+            @foreach (var slot in shift.Slots)
+            {
+                <li>@(slot.Kind == "Primary" ? "Primary" : $"Backup {slot.Position}"): <strong>@slot.Status</strong></li>
+            }
+            </ul>
+            <div class="actions">
+                @if (shift.IsActive) { <a class="button button-secondary" asp-page="/Coordinator/Schedule/Edit" asp-route-id="@shift.Id">Edit</a> }
+                @if (shift.IsActive && !shift.IsPublished)
+                {
+                    <form method="post" asp-page-handler="Publish" class="inline"><input type="hidden" name="id" value="@shift.Id"><input type="hidden" name="expectedVersion" value="@shift.Version"><button type="submit">Publish</button></form>
+                }
+                @if (shift.IsActive)
+                {
+                    <form method="post" asp-page-handler="Deactivate" class="inline"><input type="hidden" name="id" value="@shift.Id"><input type="hidden" name="expectedVersion" value="@shift.Version"><button type="submit" class="button-danger">Deactivate</button></form>
+                }
+            </div>
+        </article>
+    }
+    </div>
+}

@@ -1,0 +1,37 @@
+@page "/Coordinator/Requests"
+@model VolunteerCoordinator.Web.Pages.Coordinator.Requests.IndexModel
+@{
+    ViewData["Title"] = "Volunteer requests";
+}
+<h1>Volunteer requests</h1>
+@if (TempData["Error"] is string error) { <div class="alert alert-error" role="alert">@error</div> }
+@if (Model.Requests.Count == 0)
+{
+    <div class="empty-state"><h2>No requests</h2><p>Volunteer requests will appear here after published openings are requested.</p></div>
+}
+else
+{
+<div class="table-scroll"><table class="responsive">
+<thead><tr><th>Volunteer</th><th>Shift</th><th>Requested</th><th>Status</th><th>Actions</th></tr></thead>
+<tbody>
+@foreach (var request in Model.Requests)
+{
+<tr>
+<td data-label="Volunteer">@request.VolunteerName<br><small>@request.VolunteerEmail</small></td>
+<td data-label="Shift">@request.ShiftTitle — @request.SlotLabel<br>@request.StartsAtUtc.ToString("yyyy-MM-dd HH:mm 'UTC'")</td>
+<td data-label="Requested">@request.RequestedAtUtc.ToString("yyyy-MM-dd HH:mm 'UTC'")</td>
+<td data-label="Status"><span class="badge badge-@request.Status.ToLowerInvariant()">@request.Status</span></td>
+<td data-label="Actions">
+@if (request.Status == "Pending")
+{
+<div class="actions">
+<form method="post" asp-page-handler="Approve" class="inline"><input type="hidden" name="id" value="@request.RequestId"><button type="submit">Approve</button></form>
+<form method="post" asp-page-handler="Reject" class="inline"><input type="hidden" name="id" value="@request.RequestId"><button type="submit" class="button-danger">Reject</button></form>
+</div>
+}
+else { <span>No pending action</span> }
+</td>
+</tr>
+}
+</tbody></table></div>
+}

@@ -1,0 +1,33 @@
+@page "/Actions/{token}"
+@model VolunteerCoordinator.Web.Pages.Actions.IndexModel
+@{
+    ViewData["Title"] = "Assignment action";
+}
+<h1>Assignment action</h1>
+@if (Model.Outcome is not null)
+{
+    <div class="alert alert-success" role="status">@Model.Outcome</div>
+    <p>This link has been consumed and cannot be used again.</p>
+}
+else if (Model.Error is not null)
+{
+    <div class="alert alert-error" role="alert">@Model.Error</div>
+}
+else if (Model.Inspection is not null)
+{
+    <article class="card">
+        <h2>@Model.Inspection.ShiftTitle — @Model.Inspection.SlotLabel</h2>
+        <p><strong>Volunteer:</strong> @Model.Inspection.VolunteerName</p>
+        <p><strong>Starts:</strong> <time datetime="@Model.Inspection.StartsAtUtc.ToString("O")">@Model.Inspection.StartsAtUtc.ToString("yyyy-MM-dd HH:mm 'UTC'")</time></p>
+        <p><strong>Current assignment status:</strong> @Model.Inspection.AssignmentStatus</p>
+        <p><strong>Requested action:</strong> @Model.Inspection.Action</p>
+        <p>@Model.Inspection.Message</p>
+        @if (Model.Inspection.CanApply)
+        {
+            <form method="post">
+                <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+                <button type="submit">Apply @Model.Inspection.Action.ToLowerInvariant()</button>
+            </form>
+        }
+    </article>
+}
