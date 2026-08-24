@@ -14,10 +14,9 @@ RUN dotnet publish src/VolunteerCoordinator.Web/VolunteerCoordinator.Web.csproj 
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
-ENV ASPNETCORE_HTTP_PORTS=8080 \
-    ASPNETCORE_FORWARDEDHEADERS_ENABLED=true \
+ENV ASPNETCORE_FORWARDEDHEADERS_ENABLED=true \
     DOTNET_EnableDiagnostics=0
 EXPOSE 8080
 COPY --from=build /app/publish .
 USER $APP_UID
-ENTRYPOINT ["dotnet", "VolunteerCoordinator.Web.dll"]
+ENTRYPOINT ["sh", "-c", "ASPNETCORE_HTTP_PORTS=${PORT:-8080} exec dotnet VolunteerCoordinator.Web.dll"]

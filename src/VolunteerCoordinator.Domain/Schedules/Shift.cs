@@ -52,6 +52,8 @@ public sealed class Shift
 
     public DateTimeOffset? PublishedAtUtc { get; private set; }
 
+    public DateTimeOffset? UpdatedAtUtc { get; private set; }
+
     public uint Version { get; private set; }
 
     public IReadOnlyCollection<ShiftSlot> Slots => _slots;
@@ -90,6 +92,7 @@ public sealed class Shift
         Notes = NormalizeOptional(notes);
         StartsAtUtc = startsAtUtc;
         EndsAtUtc = endsAtUtc;
+        UpdatedAtUtc = nowUtc;
     }
 
     public void ConfigureBackupSlots(int backupSlotCount)

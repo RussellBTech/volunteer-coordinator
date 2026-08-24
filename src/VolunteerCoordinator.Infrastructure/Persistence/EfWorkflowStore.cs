@@ -125,6 +125,13 @@ public sealed class EfWorkflowStore : IWorkflowStore
                  (x.Status == AssignmentStatus.Assigned || x.Status == AssignmentStatus.Confirmed),
             cancellationToken);
 
+    public Task<Assignment?> GetAssignmentBySourceRequestAsync(
+        Guid requestId,
+        CancellationToken cancellationToken) =>
+        _dbContext.Assignments.SingleOrDefaultAsync(
+            x => x.SourceRequestId == requestId,
+            cancellationToken);
+
     public async Task<IReadOnlyList<Assignment>> GetActiveAssignmentsAsync(
         IReadOnlyCollection<Guid> slotIds,
         CancellationToken cancellationToken) =>
@@ -153,6 +160,10 @@ public sealed class EfWorkflowStore : IWorkflowStore
             .ToListAsync(cancellationToken);
 
     public void AddShift(Shift shift) => _dbContext.Shifts.Add(shift);
+    public void AddShiftSlots(IReadOnlyCollection<ShiftSlot> slots) =>
+        _dbContext.ShiftSlots.AddRange(slots);
+
+
 
     public void AddVolunteer(Volunteer volunteer) => _dbContext.Volunteers.Add(volunteer);
 

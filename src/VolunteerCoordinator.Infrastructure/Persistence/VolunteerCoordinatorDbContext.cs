@@ -46,6 +46,7 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
         shift.Property(x => x.StartsAtUtc).HasColumnType("timestamp with time zone");
         shift.Property(x => x.EndsAtUtc).HasColumnType("timestamp with time zone");
         shift.Property(x => x.PublishedAtUtc).HasColumnType("timestamp with time zone");
+        shift.Property(x => x.UpdatedAtUtc).HasColumnType("timestamp with time zone");
         shift.Property(x => x.Version).IsRowVersion();
         shift.HasIndex(x => new { x.IsActive, x.PublishedAtUtc, x.StartsAtUtc, x.EndsAtUtc })
             .HasDatabaseName("IX_Shifts_PublicOpening");
@@ -79,7 +80,7 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
             "CK_ShiftRequests_StatusTokenHash",
             "octet_length(\"StatusTokenHash\") = 32"));
         request.HasKey(x => x.Id);
-        request.Property(x => x.Status).HasConversion<int>();
+        request.Property(x => x.Status).HasConversion<int>().IsConcurrencyToken();
         request.Property(x => x.RequestedAtUtc).HasColumnType("timestamp with time zone");
         request.Property(x => x.ResolvedAtUtc).HasColumnType("timestamp with time zone");
         request.Property(x => x.ResolvedByCoordinatorEmail).HasMaxLength(320);
@@ -96,7 +97,7 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
         var assignment = modelBuilder.Entity<Assignment>();
         assignment.ToTable("Assignments");
         assignment.HasKey(x => x.Id);
-        assignment.Property(x => x.Status).HasConversion<int>();
+        assignment.Property(x => x.Status).HasConversion<int>().IsConcurrencyToken();
         assignment.Property(x => x.AssignedAtUtc).HasColumnType("timestamp with time zone");
         assignment.Property(x => x.ConfirmedAtUtc).HasColumnType("timestamp with time zone");
         assignment.Property(x => x.EndedAtUtc).HasColumnType("timestamp with time zone");
@@ -124,10 +125,13 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
         actionToken.Property(x => x.TokenHash).HasColumnType("bytea").IsRequired();
         actionToken.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
         actionToken.Property(x => x.ExpiresAtUtc).HasColumnType("timestamp with time zone");
-        actionToken.Property(x => x.UsedAtUtc).HasColumnType("timestamp with time zone");
+        actionToken.Property(x => x.UsedAtUtc).HasColumnType("timestamp with time zone").IsConcurrencyToken();
         actionToken.HasOne<Assignment>().WithMany().HasForeignKey(x => x.AssignmentId).OnDelete(DeleteBehavior.Cascade);
         actionToken.HasIndex(x => x.TokenHash).IsUnique();
-        actionToken.HasIndex(x => new { x.AssignmentId, x.Action, x.UsedAtUtc });
+        actionToken.HasIndex(x => new { x.AssignmentId, x.Action })
+            .IsUnique()
+            .HasFilter("\"UsedAtUtc\" IS NULL")
+            .HasDatabaseName("UX_ActionTokens_UnusedAssignmentAction");
 
         var audit = modelBuilder.Entity<AuditEntry>();
         audit.ToTable("AuditEntries");

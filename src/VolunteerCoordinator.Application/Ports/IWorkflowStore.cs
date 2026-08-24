@@ -58,6 +58,10 @@ public interface IWorkflowStore
         Guid shiftId,
         CancellationToken cancellationToken);
 
+    Task<Assignment?> GetAssignmentBySourceRequestAsync(
+        Guid requestId,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<Assignment>> GetActiveAssignmentsAsync(
         IReadOnlyCollection<Guid> slotIds,
         CancellationToken cancellationToken);
@@ -74,6 +78,8 @@ public interface IWorkflowStore
         CancellationToken cancellationToken);
 
     void AddShift(Shift shift);
+    void AddShiftSlots(IReadOnlyCollection<ShiftSlot> slots);
+
 
     void AddVolunteer(Volunteer volunteer);
 

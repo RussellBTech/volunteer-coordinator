@@ -70,4 +70,103 @@ public sealed class PersistenceConstraintTests
 
         await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync());
     }
+
+    [Fact]
+    public async Task PostgreSqlRejectsSecondUnusedTokenForAssignmentAction()
+    {
+        await _fixture.ResetAsync();
+        var seeded = await SeedConcurrencyRowsAsync();
+        await using var context = _fixture.CreateContext();
+        context.ActionTokens.Add(ActionToken.Create(
+            seeded.AssignmentId,
+            VolunteerAction.Confirm,
+            Enumerable.Repeat((byte)9, 32).ToArray(),
+            Now,
+            Now.AddDays(7)));
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task ConcurrentActionTokenConsumptionRejectsSecondSave()
+    {
+        await _fixture.ResetAsync();
+        var seeded = await SeedConcurrencyRowsAsync();
+        await using var firstContext = _fixture.CreateContext();
+        await using var secondContext = _fixture.CreateContext();
+        var first = await firstContext.ActionTokens.SingleAsync(x => x.Id == seeded.ActionTokenId);
+        var second = await secondContext.ActionTokens.SingleAsync(x => x.Id == seeded.ActionTokenId);
+        first.Consume(Now.AddMinutes(1));
+        second.Consume(Now.AddMinutes(1));
+
+        await firstContext.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => secondContext.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task ConcurrentAssignmentTransitionsRejectSecondSave()
+    {
+        await _fixture.ResetAsync();
+        var seeded = await SeedConcurrencyRowsAsync();
+        await using var firstContext = _fixture.CreateContext();
+        await using var secondContext = _fixture.CreateContext();
+        var first = await firstContext.Assignments.SingleAsync(x => x.Id == seeded.AssignmentId);
+        var second = await secondContext.Assignments.SingleAsync(x => x.Id == seeded.AssignmentId);
+        first.Confirm(Now.AddMinutes(1));
+        second.Decline(Now.AddMinutes(1));
+
+        await firstContext.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => secondContext.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task ConcurrentRequestResolutionsRejectSecondSave()
+    {
+        await _fixture.ResetAsync();
+        var seeded = await SeedConcurrencyRowsAsync();
+        await using var firstContext = _fixture.CreateContext();
+        await using var secondContext = _fixture.CreateContext();
+        var first = await firstContext.ShiftRequests.SingleAsync(x => x.Id == seeded.RequestId);
+        var second = await secondContext.ShiftRequests.SingleAsync(x => x.Id == seeded.RequestId);
+        first.Approve("coordinator@example.org", Now.AddMinutes(1));
+        second.Reject("coordinator@example.org", Now.AddMinutes(1));
+
+        await firstContext.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => secondContext.SaveChangesAsync());
+    }
+
+    private async Task<(Guid AssignmentId, Guid RequestId, Guid ActionTokenId)> SeedConcurrencyRowsAsync()
+    {
+        await using var context = _fixture.CreateContext();
+        var shift = Shift.Create("Food service", null, null, Now.AddHours(1), Now.AddHours(2), 0);
+        var volunteer = Volunteer.Create("Alex", "alex@example.org", null, Now);
+        context.AddRange(shift, volunteer);
+        await context.SaveChangesAsync();
+        var slotId = shift.Slots.Single().Id;
+        var request = ShiftRequest.Create(
+            slotId,
+            volunteer.Id,
+            Enumerable.Repeat((byte)1, 32).ToArray(),
+            Now,
+            Now.AddDays(30));
+        var assignment = Assignment.Create(
+            slotId,
+            shift.Id,
+            volunteer.Id,
+            null,
+            "COORDINATOR@EXAMPLE.ORG",
+            Now);
+        var actionToken = ActionToken.Create(
+            assignment.Id,
+            VolunteerAction.Confirm,
+            Enumerable.Repeat((byte)2, 32).ToArray(),
+            Now,
+            Now.AddDays(7));
+        context.AddRange(request, assignment, actionToken);
+        await context.SaveChangesAsync();
+        return (assignment.Id, request.Id, actionToken.Id);
+    }
 }

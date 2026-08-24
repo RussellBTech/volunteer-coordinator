@@ -4,6 +4,7 @@ using VolunteerCoordinator.Domain;
 using VolunteerCoordinator.Domain.Assignments;
 using VolunteerCoordinator.Domain.Notifications;
 using VolunteerCoordinator.Domain.Requests;
+using VolunteerCoordinator.Domain.Volunteers;
 using VolunteerCoordinator.Infrastructure.Notifications;
 using VolunteerCoordinator.Infrastructure.Persistence;
 using VolunteerCoordinator.Infrastructure.Security;
@@ -98,6 +99,123 @@ public sealed class WorkflowIntegrationTests
 
         Assert.Equal(RequestStatus.Rejected, (await context.ShiftRequests.SingleAsync()).Status);
         Assert.Single(await service.ListOpeningsAsync(default));
+    }
+
+    [Fact]
+    public async Task AnonymousRequestPreservesExistingVolunteerContact()
+    {
+        await _fixture.ResetAsync();
+        await using var context = _fixture.CreateContext();
+        var existingVolunteer = Volunteer.Create(
+            "Alex Rivera",
+            "alex@example.org",
+            "555-0100",
+            DateTimeOffset.UtcNow);
+        context.Volunteers.Add(existingVolunteer);
+        await context.SaveChangesAsync();
+        var service = CreateService(context);
+        var starts = DateTimeOffset.UtcNow.AddDays(2);
+        var shiftId = await service.CreateShiftAsync("Welcome desk", null, null, starts, starts.AddHours(1), 0, Coordinator, default);
+        var shift = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
+        await service.PublishShiftAsync(shiftId, shift.Version, Coordinator, default);
+
+        await service.SubmitRequestAsync(
+            shift.Slots.Single().Id,
+            "Different Name",
+            "ALEX@example.org",
+            "555-9999",
+            default);
+
+        var persisted = await context.Volunteers.SingleAsync(x => x.Id == existingVolunteer.Id);
+        Assert.Equal("Alex Rivera", persisted.Name);
+        Assert.Equal("alex@example.org", persisted.Email);
+        Assert.Equal("555-0100", persisted.Phone);
+    }
+
+    [Fact]
+    public async Task RequestStatusKeepsItsTerminalSourceAssignment()
+    {
+        await _fixture.ResetAsync();
+        await using var context = _fixture.CreateContext();
+        var service = CreateService(context);
+        var starts = DateTimeOffset.UtcNow.AddDays(2);
+        var shiftId = await service.CreateShiftAsync("Food service", null, null, starts, starts.AddHours(1), 1, Coordinator, default);
+        var shift = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
+        await service.PublishShiftAsync(shiftId, shift.Version, Coordinator, default);
+        var openings = await service.ListOpeningsAsync(default);
+        var primary = openings.Single(x => x.SlotLabel == "Primary");
+        var backup = openings.Single(x => x.SlotLabel == "Backup 1");
+        var submission = await service.SubmitRequestAsync(primary.SlotId, "Alex", "alex@example.org", null, default);
+        var approved = await service.ApproveRequestAsync(submission.RequestId, Coordinator, default);
+
+        await service.AssignDirectlyAsync(primary.SlotId, "Blair", "blair@example.org", null, Coordinator, default);
+        await service.AssignDirectlyAsync(backup.SlotId, "Alex", "alex@example.org", null, Coordinator, default);
+
+        var status = await service.GetRequestStatusAsync(submission.StatusToken, default);
+        Assert.Equal("Reassigned", status.AssignmentStatus);
+        Assert.Contains(
+            await service.ListAuditAsync(500, default),
+            entry => entry.Action == "AssignmentReassigned" && entry.EntityId == approved.AssignmentId);
+    }
+
+    [Fact]
+    public async Task RequestSubmissionRejectsAStartedShift()
+    {
+        await _fixture.ResetAsync();
+        await using var context = _fixture.CreateContext();
+        var service = CreateService(context);
+        var starts = DateTimeOffset.UtcNow.AddHours(-1);
+        var shiftId = await service.CreateShiftAsync("In progress", null, null, starts, starts.AddHours(2), 0, Coordinator, default);
+        var shift = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
+        await service.PublishShiftAsync(shiftId, shift.Version, Coordinator, default);
+
+        await Assert.ThrowsAsync<DomainException>(() =>
+            service.SubmitRequestAsync(shift.Slots.Single().Id, "Alex", "alex@example.org", null, default));
+    }
+
+    [Fact]
+    public async Task BackupSlotEditAdvancesShiftVersion()
+    {
+        await _fixture.ResetAsync();
+        var starts = DateTimeOffset.UtcNow.AddDays(2);
+        Guid shiftId;
+        uint originalVersion;
+        await using (var creationContext = _fixture.CreateContext())
+        {
+            var creationService = CreateService(creationContext);
+            shiftId = await creationService.CreateShiftAsync(
+                "Welcome desk",
+                null,
+                null,
+                starts,
+                starts.AddHours(1),
+                0,
+                Coordinator,
+                default);
+            originalVersion = (await creationService.ListShiftsAsync(default)).Single(x => x.Id == shiftId).Version;
+        }
+
+        await using (var editContext = _fixture.CreateContext())
+        {
+            var editService = CreateService(editContext);
+            await editService.EditShiftAsync(
+                shiftId,
+                originalVersion,
+                "Welcome desk",
+                null,
+                null,
+                starts,
+                starts.AddHours(1),
+                1,
+                Coordinator,
+                default);
+        }
+
+        await using var verificationContext = _fixture.CreateContext();
+        var verificationService = CreateService(verificationContext);
+        var updated = (await verificationService.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
+        Assert.NotEqual(originalVersion, updated.Version);
+        Assert.Contains(updated.Slots, slot => slot.Kind == "Backup" && slot.Position == 1);
     }
 
     private static VolunteerCoordinatorService CreateService(VolunteerCoordinatorDbContext context)

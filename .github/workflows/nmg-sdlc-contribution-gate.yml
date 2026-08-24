@@ -85,8 +85,8 @@ jobs:
             }
 
             function extractSingularIssue(value) {
-              const match = stripQuotedHistory(value).match(/^\s*\*\*Issue\*\*\s*:\s*#(\d+)\s*$/m);
-              return match ? Number(match[1]) : null;
+              const matches = [...stripQuotedHistory(value).matchAll(/^\s*\*\*Issue\*\*\s*:\s*#(\d+)\s*$/gm)];
+              return matches.length === 1 ? Number(matches[0][1]) : null;
             }
 
             function directoryIssueNumber(directory) {
@@ -150,15 +150,17 @@ jobs:
             }
 
             function hasSpecificVerification(evidence, reportTexts, relevantPaths) {
-              const normalizedEvidence = normalizePath(evidence);
-              const commandOutcome = /(?:`[^`\n]+`|\b(?:command|run)\s*:\s*\S[^\n]*)[\s\S]{0,160}\b(?:pass(?:ed)?|fail(?:ed)?|succeed(?:ed)?|exit\s+(?:code\s+)?0|\d+\s+tests?\s+passed)\b/i.test(evidence);
-              const acceptanceResult = /\bAC\d+\s*[:=-]\s*(?:pass(?:ed)?|fail(?:ed)?)\b/i.test(evidence);
+              const combinedEvidence = [evidence, ...reportTexts].filter(Boolean).join('\n');
+              const failedOutcome = /(?:\b(?:command|run|result|outcome|status|AC\d+)\b[^\n:]*:\s*(?:fail(?:ed)?|error)\b|\bexit\s+(?:code\s+)?[1-9]\d*\b|\btests?\s+failed\b|\b[1-9]\d*\s+(?:tests?\s+)?failed\b)/i.test(combinedEvidence);
+              if (failedOutcome) return false;
+              const normalizedEvidence = normalizePath(combinedEvidence);
+              const commandOutcome = /(?:`[^`\n]+`|\b(?:command|run)\s*:\s*\S[^\n]*)[\s\S]{0,160}\b(?:pass(?:ed)?|succeed(?:ed)?|exit\s+(?:code\s+)?0|\d+\s+tests?\s+passed)\b/i.test(combinedEvidence);
+              const acceptanceResult = /\bAC\d+\s*[:=-]\s*pass(?:ed)?\b/i.test(combinedEvidence);
               const pathResult = relevantPaths.some((path) => {
-                const pathPattern = new RegExp(`${escapeRegex(path)}[\\s\\S]{0,160}\\b(?:pass(?:ed)?|fail(?:ed)?|verified|covered)\\b`, 'i');
+                const pathPattern = new RegExp(`${escapeRegex(path)}[\\s\\S]{0,160}\\b(?:pass(?:ed)?|verified|covered)\\b`, 'i');
                 return pathPattern.test(normalizedEvidence);
               });
-              const nonEmptyReport = reportTexts.some((text) => text.trim().length > 0);
-              return commandOutcome || acceptanceResult || pathResult || nonEmptyReport;
+              return commandOutcome || acceptanceResult || pathResult;
             }
 
             function summarizePaths(paths) {
@@ -201,20 +203,33 @@ jobs:
             const prIssueNumbers = extractIssueNumbers(prText);
             const specDirectories = resolveSpecDirectories(prText, changedPaths);
             const specRecords = await Promise.all(specDirectories.map(async (directory) => {
-              const artifacts = await Promise.all(SPEC_ARTIFACTS.map((artifact) => readText(`${directory}/${artifact}`)));
-              const text = artifacts.join('\n');
-              return { directory, text, tasksText: artifacts[2], issueNumbers: extractIssueNumbers(text) };
+              const artifacts = await Promise.all(SPEC_ARTIFACTS.map(async (artifact) => ({
+                artifact,
+                text: await readText(`${directory}/${artifact}`),
+              })));
+              const text = artifacts.map((artifact) => artifact.text).join('\n');
+              return {
+                directory,
+                artifacts,
+                text,
+                tasksText: artifacts.find((artifact) => artifact.artifact === 'tasks.md')?.text || '',
+                issueNumbers: extractIssueNumbers(text),
+              };
             }));
             const specText = specRecords.map((record) => record.text).join('\n');
             const mismatchedSpecs = specRecords.filter((record) => {
               const dirN = directoryIssueNumber(record.directory);
-              if (dirN === null) return true;
-              if (prIssueNumbers.has(dirN)) return false;
-              return extractSingularIssue(record.text) !== dirN;
+              return dirN === null
+                || !prIssueNumbers.has(dirN)
+                || record.artifacts.some((artifact) => extractSingularIssue(artifact.text) !== dirN);
             });
             const correlatedIssueNumbers = new Set(specRecords.flatMap((record) => {
               const dirN = directoryIssueNumber(record.directory);
-              return dirN !== null && (prIssueNumbers.has(dirN) || extractSingularIssue(record.text) === dirN) ? [dirN] : [];
+              return dirN !== null
+                && prIssueNumbers.has(dirN)
+                && record.artifacts.every((artifact) => extractSingularIssue(artifact.text) === dirN)
+                ? [dirN]
+                : [];
             }));
 
             const pathClasses = new Map(changedPaths.map((path) => [path, classifyChangedPath(path)]));

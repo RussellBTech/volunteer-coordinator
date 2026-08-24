@@ -1,7 +1,9 @@
+using System.Security.Claims;
 using System.Net;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;
+using VolunteerCoordinator.Web.Security;
 
 namespace VolunteerCoordinator.IntegrationTests;
 
@@ -56,5 +58,29 @@ public sealed class AuthorizationIntegrationTests
 
         coordinatorResponse = await client.GetAsync("/Coordinator/Schedule");
         Assert.Equal(HttpStatusCode.OK, coordinatorResponse.StatusCode);
+    }
+
+    [Fact]
+    public void CoordinatorIdentityRequiresAVerifiedEmailClaim()
+    {
+        var usernameOnly = new ClaimsPrincipal(new ClaimsIdentity(
+            [
+                new Claim("preferred_username", "coordinator@example.org"),
+                new Claim("email_verified", bool.TrueString)
+            ]));
+        var unverifiedEmail = new ClaimsPrincipal(new ClaimsIdentity(
+            [
+                new Claim(ClaimTypes.Email, "coordinator@example.org"),
+                new Claim("email_verified", bool.FalseString)
+            ]));
+        var verifiedEmail = new ClaimsPrincipal(new ClaimsIdentity(
+            [
+                new Claim("email", "Coordinator@Example.org"),
+                new Claim("email_verified", bool.TrueString)
+            ]));
+
+        Assert.Null(CoordinatorIdentity.GetEmail(usernameOnly));
+        Assert.Null(CoordinatorIdentity.GetEmail(unverifiedEmail));
+        Assert.Equal("COORDINATOR@EXAMPLE.ORG", CoordinatorIdentity.GetEmail(verifiedEmail));
     }
 }

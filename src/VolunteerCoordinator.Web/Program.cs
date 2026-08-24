@@ -52,14 +52,24 @@ var authentication = builder.Services
 
 var oidcAuthority = builder.Configuration["Oidc:Authority"];
 var oidcClientId = builder.Configuration["Oidc:ClientId"];
-if (!string.IsNullOrWhiteSpace(oidcAuthority) && !string.IsNullOrWhiteSpace(oidcClientId))
+var oidcClientSecret = builder.Configuration["Oidc:ClientSecret"];
+var hasOidcAuthority = !string.IsNullOrWhiteSpace(oidcAuthority);
+var hasOidcClientId = !string.IsNullOrWhiteSpace(oidcClientId);
+var hasOidcClientSecret = !string.IsNullOrWhiteSpace(oidcClientSecret);
+if (hasOidcAuthority || hasOidcClientId || hasOidcClientSecret)
 {
+    if (!hasOidcAuthority || !hasOidcClientId || !hasOidcClientSecret)
+    {
+        throw new InvalidOperationException(
+            "Oidc:Authority, Oidc:ClientId, and Oidc:ClientSecret must all be configured to enable OIDC.");
+    }
+
     authentication.AddOpenIdConnect("oidc", options =>
     {
         options.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
         options.Authority = oidcAuthority;
         options.ClientId = oidcClientId;
-        options.ClientSecret = builder.Configuration["Oidc:ClientSecret"];
+        options.ClientSecret = oidcClientSecret;
         options.ResponseType = OpenIdConnectResponseType.Code;
         options.SaveTokens = false;
         options.GetClaimsFromUserInfoEndpoint = true;
@@ -144,7 +154,8 @@ static async Task<IResult> DevelopmentLoginAsync(
         [
             new Claim(ClaimTypes.NameIdentifier, normalizedEmail),
             new Claim(ClaimTypes.Name, email),
-            new Claim(ClaimTypes.Email, normalizedEmail)
+            new Claim(ClaimTypes.Email, normalizedEmail),
+            new Claim("email_verified", bool.TrueString)
         ],
         CookieAuthenticationDefaults.AuthenticationScheme));
     await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);

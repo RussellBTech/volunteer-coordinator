@@ -17,14 +17,18 @@ public sealed class LinksModel : PageModel
 
     public IReadOnlyDictionary<string, string> Links { get; private set; } = new Dictionary<string, string>();
 
-    public void OnGet()
+    public void OnGet(Guid assignmentId)
     {
         var links = new Dictionary<string, string>();
-        foreach (var action in new[] { "Confirm", "Decline", "Cancel" })
+        if (TempData["ActionLinkAssignmentId"] is string routedAssignmentId &&
+            string.Equals(routedAssignmentId, assignmentId.ToString("D"), StringComparison.OrdinalIgnoreCase))
         {
-            if (TempData[$"ActionLink:{action}"] is string url)
+            foreach (var action in new[] { "Confirm", "Decline", "Cancel" })
             {
-                links[action] = url;
+                if (TempData[$"ActionLink:{action}"] is string url)
+                {
+                    links[action] = url;
+                }
             }
         }
 
@@ -36,6 +40,7 @@ public sealed class LinksModel : PageModel
         try
         {
             var links = await _service.GenerateActionLinksAsync(assignmentId, CoordinatorIdentity.GetEmail(User)!, cancellationToken);
+            TempData["ActionLinkAssignmentId"] = assignmentId.ToString("D");
             TempData["ActionLink:Confirm"] = ActionUrl(links.ConfirmToken);
             TempData["ActionLink:Decline"] = ActionUrl(links.DeclineToken);
             TempData["ActionLink:Cancel"] = ActionUrl(links.CancelToken);

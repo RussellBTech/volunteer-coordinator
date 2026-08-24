@@ -58,6 +58,7 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                     EndsAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
                     PublishedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    UpdatedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
                 },
                 constraints: table =>
@@ -206,9 +207,11 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_ActionTokens_AssignmentId_Action_UsedAtUtc",
+                name: "UX_ActionTokens_UnusedAssignmentAction",
                 table: "ActionTokens",
-                columns: new[] { "AssignmentId", "Action", "UsedAtUtc" });
+                columns: new[] { "AssignmentId", "Action" },
+                unique: true,
+                filter: "\"UsedAtUtc\" IS NULL");
 
             migrationBuilder.CreateIndex(
                 name: "IX_ActionTokens_TokenHash",

@@ -48,6 +48,7 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                         .HasColumnType("bytea");
 
                     b.Property<DateTimeOffset?>("UsedAtUtc")
+                        .IsConcurrencyToken()
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
@@ -55,7 +56,10 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                     b.HasIndex("TokenHash")
                         .IsUnique();
 
-                    b.HasIndex("AssignmentId", "Action", "UsedAtUtc");
+                    b.HasIndex("AssignmentId", "Action")
+                        .IsUnique()
+                        .HasDatabaseName("UX_ActionTokens_UnusedAssignmentAction")
+                        .HasFilter("\"UsedAtUtc\" IS NULL");
 
                     b.ToTable("ActionTokens", null, t =>
                         {
@@ -93,6 +97,7 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<int>("Status")
+                        .IsConcurrencyToken()
                         .HasColumnType("integer");
 
                     b.Property<Guid>("VolunteerId")
@@ -214,6 +219,7 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<int>("Status")
+                        .IsConcurrencyToken()
                         .HasColumnType("integer");
 
                     b.Property<DateTimeOffset>("StatusTokenExpiresAtUtc")
@@ -265,6 +271,9 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(1000)");
 
                     b.Property<DateTimeOffset?>("PublishedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset>("StartsAtUtc")
