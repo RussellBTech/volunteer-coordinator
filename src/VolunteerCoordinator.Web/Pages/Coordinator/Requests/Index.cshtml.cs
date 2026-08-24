@@ -44,7 +44,7 @@ public sealed class IndexModel : PageModel
         try
         {
             var result = await _service.RejectRequestAsync(id, CoordinatorIdentity.GetEmail(User)!, cancellationToken);
-            TempData["Message"] = "Request rejected. The slot remains open.";
+            TempData["Message"] = "Request rejected.";
             TempData["Warning"] = result.NotificationWarning;
         }
         catch (DomainException exception)

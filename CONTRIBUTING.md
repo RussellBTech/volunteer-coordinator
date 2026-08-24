@@ -90,7 +90,7 @@ The managed GitHub Actions contribution gate checks issue, spec, changed-path, s
 - Add the missing canonical spec artifact or correct its `specs/{N}-{slug}/` location.
 - Explain alignment with all steering files or restore a missing steering artifact.
 - Map every relevant changed path by exact path, containing-directory prefix, or structured behavior evidence.
-- Add a specific command-and-outcome, acceptance result, or non-empty verification report.
+- Add a specific command-and-outcome, acceptance result, or changed-path-specific result.
 - Restore this guide if it is missing.
 - Remove an invalid reduced-evidence declaration instead of weakening the workflow.
 

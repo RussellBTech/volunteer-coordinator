@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using VolunteerCoordinator.Application;
@@ -23,7 +25,7 @@ public sealed class IndexModel : PageModel
 
     public async Task OnGetAsync(string token, CancellationToken cancellationToken)
     {
-        Outcome = TempData["ActionOutcome"] as string;
+        Outcome = TempData[OutcomeKey(token)] as string;
         if (Outcome is not null)
         {
             return;
@@ -37,7 +39,7 @@ public sealed class IndexModel : PageModel
         try
         {
             var result = await _service.ApplyActionAsync(token, cancellationToken);
-            TempData["ActionOutcome"] = $"Assignment action completed: {result.Value}.";
+            TempData[OutcomeKey(token)] = $"Assignment action completed: {result.Value}.";
             if (result.NotificationWarning is not null)
             {
                 TempData["Warning"] = result.NotificationWarning;
@@ -64,4 +66,7 @@ public sealed class IndexModel : PageModel
             Error = exception.Message;
         }
     }
+
+    private static string OutcomeKey(string token) =>
+        $"ActionOutcome:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)))}";
 }

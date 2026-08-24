@@ -61,6 +61,26 @@ public sealed class AuthorizationIntegrationTests
     }
 
     [Fact]
+    public async Task AuthenticatedVerifiedNonCoordinatorIsForbidden()
+    {
+        using var factory = new CoordinatorWebFactory(
+            _fixture.ConnectionString,
+            authenticateNonCoordinator: true);
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false
+        });
+        var response = await client.GetAsync("/Coordinator/Schedule");
+        var publicResponse = await client.GetAsync("/Shifts");
+        var publicHtml = await publicResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, publicResponse.StatusCode);
+        Assert.DoesNotContain("/Coordinator/", publicHtml);
+        Assert.Contains("Sign out", publicHtml);
+    }
+
+    [Fact]
     public void CoordinatorIdentityRequiresAVerifiedEmailClaim()
     {
         var usernameOnly = new ClaimsPrincipal(new ClaimsIdentity(

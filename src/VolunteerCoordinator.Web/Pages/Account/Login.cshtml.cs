@@ -16,13 +16,14 @@ public sealed class LoginModel : PageModel
     public bool OidcConfigured => !string.IsNullOrWhiteSpace(_configuration["Oidc:Authority"])
         && !string.IsNullOrWhiteSpace(_configuration["Oidc:ClientId"]);
 
-    public IActionResult OnGetOidc()
+    public IActionResult OnGetOidc(string? returnUrl)
     {
         if (!OidcConfigured)
         {
             return RedirectToPage();
         }
 
-        return Challenge(new AuthenticationProperties { RedirectUri = "/Coordinator/Schedule" }, "oidc");
+        var redirectUri = Url.IsLocalUrl(returnUrl) ? returnUrl : "/Coordinator/Schedule";
+        return Challenge(new AuthenticationProperties { RedirectUri = redirectUri }, "oidc");
     }
 }

@@ -41,8 +41,14 @@ public sealed class LinksModel : PageModel
         {
             var links = await _service.GenerateActionLinksAsync(assignmentId, CoordinatorIdentity.GetEmail(User)!, cancellationToken);
             TempData["ActionLinkAssignmentId"] = assignmentId.ToString("D");
-            TempData["ActionLink:Confirm"] = ActionUrl(links.ConfirmToken);
-            TempData["ActionLink:Decline"] = ActionUrl(links.DeclineToken);
+            if (links.ConfirmToken is not null)
+            {
+                TempData["ActionLink:Confirm"] = ActionUrl(links.ConfirmToken);
+            }
+            if (links.DeclineToken is not null)
+            {
+                TempData["ActionLink:Decline"] = ActionUrl(links.DeclineToken);
+            }
             TempData["ActionLink:Cancel"] = ActionUrl(links.CancelToken);
             return RedirectToPage(new { assignmentId });
         }

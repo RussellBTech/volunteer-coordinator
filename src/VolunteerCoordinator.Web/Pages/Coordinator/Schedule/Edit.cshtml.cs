@@ -26,10 +26,10 @@ public sealed class EditModel : PageModel
     public string? Notes { get; set; }
 
     [BindProperty, Required]
-    public DateTime StartsAtUtc { get; set; }
+    public DateTime? StartsAtUtc { get; set; }
 
     [BindProperty, Required]
-    public DateTime EndsAtUtc { get; set; }
+    public DateTime? EndsAtUtc { get; set; }
 
     [BindProperty, Range(0, 2)]
     public int BackupSlotCount { get; set; }
@@ -70,8 +70,8 @@ public sealed class EditModel : PageModel
                 Title,
                 Location,
                 Notes,
-                AsUtc(StartsAtUtc),
-                AsUtc(EndsAtUtc),
+                AsUtc(StartsAtUtc!.Value),
+                AsUtc(EndsAtUtc!.Value),
                 BackupSlotCount,
                 CoordinatorIdentity.GetEmail(User)!,
                 cancellationToken);

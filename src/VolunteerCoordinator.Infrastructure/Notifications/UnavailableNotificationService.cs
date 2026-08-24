@@ -7,6 +7,7 @@ namespace VolunteerCoordinator.Infrastructure.Notifications;
 
 public sealed class UnavailableNotificationService : INotificationService
 {
+    private static readonly TimeSpan PersistenceTimeout = TimeSpan.FromSeconds(5);
     private readonly VolunteerCoordinatorDbContext _dbContext;
     private readonly IClock _clock;
 
@@ -27,7 +28,8 @@ public sealed class UnavailableNotificationService : INotificationService
             _clock.UtcNow);
         attempt.Fail(_clock.UtcNow, "No transactional notification provider is configured.");
         _dbContext.NotificationAttempts.Add(attempt);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        using var persistenceTimeout = new CancellationTokenSource(PersistenceTimeout);
+        await _dbContext.SaveChangesAsync(persistenceTimeout.Token);
         return new NotificationResult(false, "The workflow succeeded; notification delivery is not configured.");
     }
 }

@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  issues: read
 
 jobs:
   contribution-gate:
@@ -36,7 +37,10 @@ jobs:
               pull_number: pr.number,
               per_page: 100,
             });
-            const changedPaths = files.map((file) => normalizePath(file.filename)).filter(Boolean);
+            const changedPaths = [...new Set(files
+              .flatMap((file) => [file.filename, file.previous_filename])
+              .map(normalizePath)
+              .filter(Boolean))];
 
             function normalizePath(value) {
               return String(value || '').trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/{2,}/g, '/');
@@ -104,7 +108,7 @@ jobs:
               for (const match of stripQuotedHistory(value).matchAll(/\bspecs\/\d+-[a-z0-9-]+\b/gi)) {
                 directories.add(normalizePath(match[0]));
               }
-              return [...directories].sort().slice(0, MAX_SPEC_DIRECTORIES);
+              return [...directories].sort();
             }
 
             function classifyChangedPath(path) {
@@ -151,7 +155,7 @@ jobs:
 
             function hasSpecificVerification(evidence, reportTexts, relevantPaths) {
               const combinedEvidence = [evidence, ...reportTexts].filter(Boolean).join('\n');
-              const failedOutcome = /(?:\b(?:command|run|result|outcome|status|AC\d+)\b[^\n:]*:\s*(?:fail(?:ed)?|error)\b|\bexit\s+(?:code\s+)?[1-9]\d*\b|\btests?\s+failed\b|\b[1-9]\d*\s+(?:tests?\s+)?failed\b)/i.test(combinedEvidence);
+              const failedOutcome = /(?:\b(?:command|run|result|outcome|status|AC\d+)\b[^\n:]*:\s*(?:fail(?:ed)?|error)\b|\bexit\s+(?:code\s+)?[1-9]\d*\b|\b[1-9]\d*\s+(?:tests?\s+)?failed\b|(?:`[^`\n]+`|\b(?:dotnet|npm|pnpm|yarn|cargo|go|mvn|gradle)\b[^\n]*)\s*(?:[:—-]+|\b(?:result|outcome|status)\s*:?)\s*(?:fail(?:ed)?|error)\b|\b(?:build|compile|restore|format(?:ting)?|lint|tests?)\s+(?:fail(?:ed)?|error(?:ed)?)\b)/i.test(combinedEvidence);
               if (failedOutcome) return false;
               const normalizedEvidence = normalizePath(combinedEvidence);
               const commandOutcome = /(?:`[^`\n]+`|\b(?:command|run)\s*:\s*\S[^\n]*)[\s\S]{0,160}\b(?:pass(?:ed)?|succeed(?:ed)?|exit\s+(?:code\s+)?0|\d+\s+tests?\s+passed)\b/i.test(combinedEvidence);
@@ -199,9 +203,36 @@ jobs:
                 throw error;
               }
             }
+            async function resolveIssue(number) {
+              try {
+                const response = await github.rest.issues.get({
+                  owner,
+                  repo,
+                  issue_number: number,
+                });
+                return {
+                  number,
+                  exists: true,
+                  isPullRequest: Boolean(response.data.pull_request),
+                };
+              } catch (error) {
+                if (error.status === 404) {
+                  return { number, exists: false, isPullRequest: false };
+                }
+                throw error;
+              }
+            }
+
 
             const prIssueNumbers = extractIssueNumbers(prText);
-            const specDirectories = resolveSpecDirectories(prText, changedPaths);
+            const issueRecords = await Promise.all([...prIssueNumbers].map(resolveIssue));
+            const validIssueNumbers = new Set(issueRecords
+              .filter((record) => record.exists && !record.isPullRequest)
+              .map((record) => record.number));
+            const invalidIssueRecords = issueRecords.filter((record) => !record.exists || record.isPullRequest);
+            const discoveredSpecDirectories = resolveSpecDirectories(prText, changedPaths);
+            const specDirectoryOverflow = discoveredSpecDirectories.length > MAX_SPEC_DIRECTORIES;
+            const specDirectories = discoveredSpecDirectories.slice(0, MAX_SPEC_DIRECTORIES);
             const specRecords = await Promise.all(specDirectories.map(async (directory) => {
               const artifacts = await Promise.all(SPEC_ARTIFACTS.map(async (artifact) => ({
                 artifact,
@@ -220,13 +251,13 @@ jobs:
             const mismatchedSpecs = specRecords.filter((record) => {
               const dirN = directoryIssueNumber(record.directory);
               return dirN === null
-                || !prIssueNumbers.has(dirN)
+                || !validIssueNumbers.has(dirN)
                 || record.artifacts.some((artifact) => extractSingularIssue(artifact.text) !== dirN);
             });
             const correlatedIssueNumbers = new Set(specRecords.flatMap((record) => {
               const dirN = directoryIssueNumber(record.directory);
               return dirN !== null
-                && prIssueNumbers.has(dirN)
+                && validIssueNumbers.has(dirN)
                 && record.artifacts.every((artifact) => extractSingularIssue(artifact.text) === dirN)
                 ? [dirN]
                 : [];
@@ -255,7 +286,7 @@ jobs:
               const titleMatch = String(pr.title || '').trim().match(/^docs: approve spec for #(\d+)$/);
               if (!titleMatch) return false;
               const issueN = Number(titleMatch[1]);
-              if (!prIssueNumbers.has(issueN)) return false;
+              if (!validIssueNumbers.has(issueN)) return false;
               if (changedPaths.length === 0) return false;
               if (!changedPaths.every((path) => pathClasses.get(path) === 'spec')) return false;
               const directories = new Set();
@@ -300,15 +331,23 @@ jobs:
 
             const reducedMode = docsOnlyEligible ? 'docs-only' : rewriteEligible ? 'repository-rewrite' : specOnlyEligible ? 'spec-only' : null;
 
-            if (prIssueNumbers.size === 0 && !rewriteEligible) {
-              failures.push('Missing issue evidence: add a current issue reference such as `Closes #123` or `**Issue**: #123`.');
+            if (!rewriteEligible) {
+              if (prIssueNumbers.size === 0) {
+                failures.push('Missing issue evidence: add a current issue reference such as `Closes #123` or `**Issue**: #123`.');
+              } else if (invalidIssueRecords.length > 0) {
+                failures.push(`Invalid issue evidence: ${invalidIssueRecords.map((record) => `#${record.number} ${record.isPullRequest ? 'is a pull request' : 'does not exist'}`).join(', ')}.`);
+              }
+            }
+
+            if (specDirectoryOverflow) {
+              failures.push(`Too many spec directories: found ${discoveredSpecDirectories.length}; the gate accepts at most ${MAX_SPEC_DIRECTORIES} per contribution.`);
             }
 
             if (!docsOnlyEligible && !rewriteEligible) {
               if (specDirectories.length === 0) {
                 failures.push('Missing spec evidence: name or change the relevant `specs/{N}-{slug}` directory.');
               } else if (mismatchedSpecs.length > 0) {
-                failures.push(`Issue/spec mismatch: PR issues ${[...prIssueNumbers].map((number) => `#${number}`).join(', ') || 'none'} do not match ${mismatchedSpecs.map((record) => record.directory).join(', ')}.`);
+                failures.push(`Issue/spec mismatch: valid PR issues ${[...validIssueNumbers].map((number) => `#${number}`).join(', ') || 'none'} do not match ${mismatchedSpecs.map((record) => record.directory).join(', ')}.`);
               }
             }
 
@@ -329,7 +368,7 @@ jobs:
             }
 
             if (reducedMode !== 'docs-only' && reducedMode !== 'spec-only' && !hasSpecificVerification(verificationEvidence, verificationReports, relevantPaths)) {
-              failures.push('Missing specific verification: provide a command with its outcome, a non-empty report, an AC result, or a changed-path-specific result.');
+              failures.push('Missing specific verification: provide a command with its outcome, an AC result, or a changed-path-specific result.');
             }
 
             if (!(await pathExists('CONTRIBUTING.md'))) {

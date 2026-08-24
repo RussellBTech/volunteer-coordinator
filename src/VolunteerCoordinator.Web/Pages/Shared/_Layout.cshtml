@@ -1,3 +1,8 @@
+@using Microsoft.AspNetCore.Authorization
+@inject IAuthorizationService AuthorizationService
+@{
+    var canAccessCoordinator = (await AuthorizationService.AuthorizeAsync(User, "CoordinatorOnly")).Succeeded;
+}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -13,12 +18,15 @@
         <a class="brand" asp-page="/Shifts/Index">Volunteer Coordinator</a>
         <div class="nav-links">
             <a asp-page="/Shifts/Index">Open shifts</a>
-            @if (User.Identity?.IsAuthenticated == true)
+            @if (canAccessCoordinator)
             {
                 <a asp-page="/Coordinator/Schedule/Index">Schedule</a>
                 <a asp-page="/Coordinator/Requests/Index">Requests</a>
                 <a asp-page="/Coordinator/Coverage/Index">Coverage</a>
                 <a asp-page="/Coordinator/Audit/Index">Audit</a>
+            }
+            @if (User.Identity?.IsAuthenticated == true)
+            {
                 <form method="post" asp-page="/Account/Logout" class="inline"><button type="submit" class="nav-button">Sign out</button></form>
             }
             else

@@ -23,6 +23,8 @@ public interface IWorkflowStore
     Task<Shift?> GetShiftAsync(Guid shiftId, CancellationToken cancellationToken);
 
     Task<ShiftSlot?> GetSlotAsync(Guid slotId, CancellationToken cancellationToken);
+    Task LockSlotAsync(Guid slotId, CancellationToken cancellationToken);
+
 
     Task<Volunteer?> GetVolunteerAsync(Guid volunteerId, CancellationToken cancellationToken);
 

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Volunteer Coordinator is a greenfield coverage coordination core. The approved direction is a .NET 10 modular monolith with coordinator-owned schedules, PostgreSQL-authoritative workflow state, accountless volunteer actions through expiring single-use links, and authenticated auditable coordinator actions. Application source remains absent until a real issue and approved spec own the first implementation.
+Volunteer Coordinator is a .NET 10 modular monolith with coordinator-owned schedules, PostgreSQL-authoritative workflow state, accountless volunteer actions through expiring single-use links, and authenticated auditable coordinator actions. The implemented solution follows the approved `src/` and `tests/` layer layout; subsequent behavior and layout changes require a real issue and approved spec.
 
 Consult `steering/product.md`, `steering/tech.md`, and `steering/structure.md` before changing product behavior, technology, or repository layout.
 

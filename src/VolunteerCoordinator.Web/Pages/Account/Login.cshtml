@@ -7,7 +7,7 @@
 <p>Coordinator access requires an authenticated email that is present in the application allowlist.</p>
 @if (Model.OidcConfigured)
 {
-    <a class="button" asp-page-handler="Oidc">Continue with identity provider</a>
+    <a class="button" asp-page-handler="Oidc" asp-route-returnUrl="@Request.Query["ReturnUrl"]">Continue with identity provider</a>
 }
 else
 {

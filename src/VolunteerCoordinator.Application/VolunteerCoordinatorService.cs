@@ -121,6 +121,7 @@ public sealed class VolunteerCoordinatorService
                              x.IsActive &&
                              x.Position > backupSlotCount))
                 {
+                    await _store.LockSlotAsync(slot.Id, token);
                     if (await _store.GetActiveAssignmentForSlotAsync(slot.Id, token) is not null ||
                         (await _store.GetPendingRequestsForSlotAsync(slot.Id, token)).Count > 0)
                     {
@@ -221,6 +222,7 @@ public sealed class VolunteerCoordinatorService
         var result = await _store.ExecuteInTransactionAsync(
             async token =>
             {
+                await _store.LockSlotAsync(slotId, token);
                 var slot = await RequireSlotAsync(slotId, token);
                 var shift = await RequireShiftAsync(slot.ShiftId, token);
                 if (!slot.IsActive || !shift.IsActive || !shift.PublishedAtUtc.HasValue || shift.StartsAtUtc <= now)
@@ -276,6 +278,7 @@ public sealed class VolunteerCoordinatorService
 
     public async Task<IReadOnlyList<CoordinatorRequestDto>> ListRequestsAsync(CancellationToken cancellationToken)
     {
+        var now = _clock.UtcNow;
         var requests = await _store.GetRequestsAsync(cancellationToken);
         var result = new List<CoordinatorRequestDto>(requests.Count);
         foreach (var request in requests)
@@ -283,7 +286,23 @@ public sealed class VolunteerCoordinatorService
             var slot = await RequireSlotAsync(request.ShiftSlotId, cancellationToken);
             var shift = await RequireShiftAsync(slot.ShiftId, cancellationToken);
             var volunteer = await RequireVolunteerAsync(request.VolunteerId, cancellationToken);
-            result.Add(new CoordinatorRequestDto(request.Id, volunteer.Name, volunteer.Email, shift.Title, SlotLabel(slot), shift.StartsAtUtc, request.Status.ToString(), request.RequestedAtUtc));
+            var slotState = !slot.IsActive || !shift.IsActive
+                ? "Inactive"
+                : shift.EndsAtUtc <= now
+                    ? "Ended"
+                    : "Available";
+            var canApprove = request.Status == RequestStatus.Pending && slotState == "Available";
+            result.Add(new CoordinatorRequestDto(
+                request.Id,
+                volunteer.Name,
+                volunteer.Email,
+                shift.Title,
+                SlotLabel(slot),
+                shift.StartsAtUtc,
+                request.Status.ToString(),
+                request.RequestedAtUtc,
+                canApprove,
+                slotState));
         }
 
         return result.OrderByDescending(x => x.RequestedAtUtc).ToArray();
@@ -302,6 +321,7 @@ public sealed class VolunteerCoordinatorService
                     throw new DomainException("Only a pending request can be approved.");
                 }
 
+                await _store.LockSlotAsync(request.ShiftSlotId, token);
                 var slot = await RequireSlotAsync(request.ShiftSlotId, token);
                 var shift = await RequireShiftAsync(slot.ShiftId, token);
                 if (!slot.IsActive || !shift.IsActive || shift.EndsAtUtc <= now)
@@ -357,6 +377,7 @@ public sealed class VolunteerCoordinatorService
         var result = await _store.ExecuteInTransactionAsync(
             async token =>
             {
+                await _store.LockSlotAsync(slotId, token);
                 var slot = await RequireSlotAsync(slotId, token);
                 var shift = await RequireShiftAsync(slot.ShiftId, token);
                 if (!slot.IsActive || !shift.IsActive || shift.EndsAtUtc <= now)
@@ -408,8 +429,14 @@ public sealed class VolunteerCoordinatorService
                     throw new DomainException("Action links can be generated only for an active assignment.");
                 }
 
-                var confirm = await RegenerateActionTokenAsync(assignment.Id, VolunteerAction.Confirm, now, token);
-                var decline = await RegenerateActionTokenAsync(assignment.Id, VolunteerAction.Decline, now, token);
+                string? confirm = null;
+                string? decline = null;
+                if (assignment.Status == AssignmentStatus.Assigned)
+                {
+                    confirm = await RegenerateActionTokenAsync(assignment.Id, VolunteerAction.Confirm, now, token);
+                    decline = await RegenerateActionTokenAsync(assignment.Id, VolunteerAction.Decline, now, token);
+                }
+
                 var cancel = await RegenerateActionTokenAsync(assignment.Id, VolunteerAction.Cancel, now, token);
                 _store.AddAuditEntry(AuditEntry.Create(now, actor, "ActionLinksGenerated", nameof(Assignment), assignment.Id, "{}"));
                 return new ActionLinkBundle(assignment.Id, confirm, decline, cancel);

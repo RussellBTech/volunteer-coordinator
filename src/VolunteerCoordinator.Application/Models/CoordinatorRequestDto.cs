@@ -8,4 +8,6 @@ public sealed record CoordinatorRequestDto(
     string SlotLabel,
     DateTimeOffset StartsAtUtc,
     string Status,
-    DateTimeOffset RequestedAtUtc);
+    DateTimeOffset RequestedAtUtc,
+    bool CanApprove,
+    string SlotState);

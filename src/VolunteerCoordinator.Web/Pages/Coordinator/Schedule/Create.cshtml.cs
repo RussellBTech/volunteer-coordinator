@@ -26,10 +26,10 @@ public sealed class CreateModel : PageModel
     public string? Notes { get; set; }
 
     [BindProperty, Required]
-    public DateTime StartsAtUtc { get; set; }
+    public DateTime? StartsAtUtc { get; set; }
 
     [BindProperty, Required]
-    public DateTime EndsAtUtc { get; set; }
+    public DateTime? EndsAtUtc { get; set; }
 
     [BindProperty, Range(0, 2)]
     public int BackupSlotCount { get; set; }
@@ -37,8 +37,9 @@ public sealed class CreateModel : PageModel
     public void OnGet()
     {
         var nextHour = DateTime.UtcNow.AddHours(1);
-        StartsAtUtc = new DateTime(nextHour.Year, nextHour.Month, nextHour.Day, nextHour.Hour, 0, 0);
-        EndsAtUtc = StartsAtUtc.AddHours(1);
+        var startsAtUtc = new DateTime(nextHour.Year, nextHour.Month, nextHour.Day, nextHour.Hour, 0, 0);
+        StartsAtUtc = startsAtUtc;
+        EndsAtUtc = startsAtUtc.AddHours(1);
     }
 
     public async Task<IActionResult> OnPostAsync(CancellationToken cancellationToken)
@@ -54,8 +55,8 @@ public sealed class CreateModel : PageModel
                 Title,
                 Location,
                 Notes,
-                AsUtc(StartsAtUtc),
-                AsUtc(EndsAtUtc),
+                AsUtc(StartsAtUtc!.Value),
+                AsUtc(EndsAtUtc!.Value),
                 BackupSlotCount,
                 CoordinatorIdentity.GetEmail(User)!,
                 cancellationToken);

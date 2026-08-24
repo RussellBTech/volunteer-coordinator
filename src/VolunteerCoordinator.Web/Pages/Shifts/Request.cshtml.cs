@@ -39,7 +39,8 @@ public sealed class RequestModel : PageModel
     {
         if (!await LoadOpeningAsync(slotId, cancellationToken))
         {
-            return NotFound();
+            ModelState.AddModelError(string.Empty, "This slot is no longer available for requests.");
+            return Page();
         }
 
         if (!ModelState.IsValid)

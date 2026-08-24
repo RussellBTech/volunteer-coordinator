@@ -1,6 +1,6 @@
 # Volunteer Coordinator Code Structure Steering
 
-This document reserves the greenfield solution layout, dependency direction, ownership, and naming conventions. Application source is intentionally absent until an approved implementation issue creates it.
+This document defines the implemented modular-monolith layout, dependency direction, ownership, and naming conventions. The initial application source was created by an approved implementation issue; subsequent changes require their own approved issue and spec.
 
 ## Reserved Project Layout
 

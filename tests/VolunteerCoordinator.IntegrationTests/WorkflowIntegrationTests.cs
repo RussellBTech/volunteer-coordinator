@@ -58,9 +58,9 @@ public sealed class WorkflowIntegrationTests
         var storedTokens = await context.ActionTokens.ToListAsync();
         Assert.Equal(3, storedTokens.Count);
         Assert.All(storedTokens, token => Assert.Equal(32, token.TokenHash.Length));
-        var confirmation = await service.ApplyActionAsync(links.ConfirmToken, default);
+        var confirmation = await service.ApplyActionAsync(links.ConfirmToken!, default);
         Assert.Equal("Confirm", confirmation.Value);
-        await Assert.ThrowsAsync<DomainException>(() => service.ApplyActionAsync(links.ConfirmToken, default));
+        await Assert.ThrowsAsync<DomainException>(() => service.ApplyActionAsync(links.ConfirmToken!, default));
         Assert.Equal(AssignmentStatus.Confirmed, (await context.Assignments.SingleAsync(x => x.Id == approved.AssignmentId)).Status);
 
         var reassigned = await service.AssignDirectlyAsync(opening.SlotId, "Blair Jones", "blair@example.org", null, Coordinator, default);
@@ -68,13 +68,15 @@ public sealed class WorkflowIntegrationTests
         Assert.Single(await context.Assignments.Where(x => x.Status == AssignmentStatus.Assigned || x.Status == AssignmentStatus.Confirmed).ToListAsync());
 
         var declineLinks = await service.GenerateActionLinksAsync(reassigned.AssignmentId, Coordinator, default);
-        await service.ApplyActionAsync(declineLinks.DeclineToken, default);
+        await service.ApplyActionAsync(declineLinks.DeclineToken!, default);
         Assert.Single(await service.ListOpeningsAsync(default), x => x.SlotId == opening.SlotId);
 
         var finalAssignment = await service.AssignDirectlyAsync(opening.SlotId, "Alex Rivera", "alex@example.org", null, Coordinator, default);
         var confirmLinks = await service.GenerateActionLinksAsync(finalAssignment.AssignmentId, Coordinator, default);
-        await service.ApplyActionAsync(confirmLinks.ConfirmToken, default);
+        await service.ApplyActionAsync(confirmLinks.ConfirmToken!, default);
         var cancelLinks = await service.GenerateActionLinksAsync(finalAssignment.AssignmentId, Coordinator, default);
+        Assert.Null(cancelLinks.ConfirmToken);
+        Assert.Null(cancelLinks.DeclineToken);
         await service.ApplyActionAsync(cancelLinks.CancelToken, default);
         Assert.Single(await service.ListOpeningsAsync(default), x => x.SlotId == opening.SlotId);
 
@@ -216,6 +218,155 @@ public sealed class WorkflowIntegrationTests
         var updated = (await verificationService.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
         Assert.NotEqual(originalVersion, updated.Version);
         Assert.Contains(updated.Slots, slot => slot.Kind == "Backup" && slot.Position == 1);
+    }
+
+    [Fact]
+    public async Task BackupSlotRemovalWaitsForPendingRequestAndIsRejected()
+    {
+        await _fixture.ResetAsync();
+        var starts = DateTimeOffset.UtcNow.AddDays(2);
+        Guid shiftId;
+        Guid backupSlotId;
+        uint version;
+        await using (var creationContext = _fixture.CreateContext())
+        {
+            var creationService = CreateService(creationContext);
+            shiftId = await creationService.CreateShiftAsync(
+                "Welcome desk",
+                null,
+                null,
+                starts,
+                starts.AddHours(1),
+                1,
+                Coordinator,
+                default);
+            var shift = (await creationService.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
+            backupSlotId = shift.Slots.Single(x => x.Kind == "Backup").Id;
+            version = shift.Version;
+        }
+
+        await using var requestContext = _fixture.CreateContext();
+        await using var requestTransaction = await requestContext.Database.BeginTransactionAsync();
+        await LockSlotAsync(requestContext, backupSlotId);
+
+        await using var editContext = _fixture.CreateContext();
+        var editService = CreateService(editContext);
+        var editTask = editService.EditShiftAsync(
+            shiftId,
+            version,
+            "Welcome desk",
+            null,
+            null,
+            starts,
+            starts.AddHours(1),
+            0,
+            Coordinator,
+            default);
+        await AssertBlockedAsync(editTask);
+
+        var volunteer = Volunteer.Create("Alex", "alex@example.org", null, DateTimeOffset.UtcNow);
+        requestContext.Volunteers.Add(volunteer);
+        requestContext.ShiftRequests.Add(ShiftRequest.Create(
+            backupSlotId,
+            volunteer.Id,
+            new byte[32],
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow.AddDays(1)));
+        await requestContext.SaveChangesAsync();
+        await requestTransaction.CommitAsync();
+
+        await Assert.ThrowsAsync<DomainException>(() => editTask);
+
+        await using var verificationContext = _fixture.CreateContext();
+        Assert.True((await verificationContext.ShiftSlots.SingleAsync(x => x.Id == backupSlotId)).IsActive);
+    }
+
+    [Fact]
+    public async Task AssignmentWaitsForInflightRequestAndSupersedesIt()
+    {
+        await _fixture.ResetAsync();
+        var starts = DateTimeOffset.UtcNow.AddDays(2);
+        Guid slotId;
+        await using (var creationContext = _fixture.CreateContext())
+        {
+            var creationService = CreateService(creationContext);
+            var shiftId = await creationService.CreateShiftAsync(
+                "Welcome desk",
+                null,
+                null,
+                starts,
+                starts.AddHours(1),
+                0,
+                Coordinator,
+                default);
+            var shift = (await creationService.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
+            await creationService.PublishShiftAsync(shiftId, shift.Version, Coordinator, default);
+            slotId = shift.Slots.Single().Id;
+        }
+
+        await using var requestContext = _fixture.CreateContext();
+        await using var requestTransaction = await requestContext.Database.BeginTransactionAsync();
+        await LockSlotAsync(requestContext, slotId);
+
+        await using var assignmentContext = _fixture.CreateContext();
+        var assignmentService = CreateService(assignmentContext);
+        var assignmentTask = assignmentService.AssignDirectlyAsync(
+            slotId,
+            "Assigned Volunteer",
+            "assigned@example.org",
+            null,
+            Coordinator,
+            default);
+        await AssertBlockedAsync(assignmentTask);
+
+        var requester = Volunteer.Create("Requester", "requester@example.org", null, DateTimeOffset.UtcNow);
+        var request = ShiftRequest.Create(
+            slotId,
+            requester.Id,
+            new byte[32],
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow.AddDays(1));
+        requestContext.Volunteers.Add(requester);
+        requestContext.ShiftRequests.Add(request);
+        await requestContext.SaveChangesAsync();
+        await requestTransaction.CommitAsync();
+
+        await assignmentTask;
+
+        await using var verificationContext = _fixture.CreateContext();
+        Assert.Equal(
+            RequestStatus.Superseded,
+            (await verificationContext.ShiftRequests.SingleAsync(x => x.Id == request.Id)).Status);
+    }
+
+    [Fact]
+    public async Task NotificationAttemptPersistsAfterInitiatingRequestIsCanceled()
+    {
+        await _fixture.ResetAsync();
+        await using var context = _fixture.CreateContext();
+        var service = new UnavailableNotificationService(context, new SystemClock());
+        using var requestCancellation = new CancellationTokenSource();
+        requestCancellation.Cancel();
+
+        var result = await service.RecordAndSendAsync(
+            new VolunteerCoordinator.Application.Notifications.NotificationMessage(
+                Guid.NewGuid(),
+                "AssignmentCreated",
+                "alex@example.org"),
+            requestCancellation.Token);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(NotificationState.Failed, (await context.NotificationAttempts.SingleAsync()).State);
+    }
+
+    private static Task<int> LockSlotAsync(VolunteerCoordinatorDbContext context, Guid slotId) =>
+        context.Database.ExecuteSqlInterpolatedAsync(
+            $"""SELECT 1 FROM "ShiftSlots" WHERE "Id" = {slotId} FOR UPDATE""");
+
+    private static async Task AssertBlockedAsync(Task operation)
+    {
+        var timeout = Task.Delay(TimeSpan.FromMilliseconds(250));
+        Assert.Same(timeout, await Task.WhenAny(operation, timeout));
     }
 
     private static VolunteerCoordinatorService CreateService(VolunteerCoordinatorDbContext context)
