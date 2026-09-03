@@ -1,0 +1,76 @@
+**Issue**: #17
+**Date**: 2026-09-03
+**Status**: Approved
+**Author**: RussellBTech
+
+# Generated from: specs/17-guide-nontechnical-coordinators-through-setup-and-routine-work/requirements.md
+Feature: Guide nontechnical coordinators through setup and routine work
+  As a first-time or rotating volunteer coordinator
+  I want the application to guide me through setup and routine work in familiar language
+  So that I can maintain coverage confidently without technical training or separate documentation
+
+  @SCN001
+  Scenario: First-time coordinator publishes the first schedule from visible guidance
+    Given an empty installation has group-local time support
+    And an allowlisted coordinator has no product training or external instructions
+    When the coordinator signs in and follows the one primary next action
+    Then ordered steps explain the group time zone and request-approval policy
+    And lead through first schedule entry and volunteer-facing review
+    And require explicit publication confirmation
+    And finish on routine coordinator home with no hidden setup flag
+
+  @SCN002
+  Scenario Outline: Routine home leads directly to attention
+    Given <work> needs coordinator attention
+    When the coordinator opens home
+    Then the <label> card shows the authoritative count and up to three urgent examples
+    And its plain-language link opens the filtered resolution page
+
+    Examples:
+      | work                                      | label                    |
+      | pending requests                          | Requests to review       |
+      | uncovered future commitments              | Open commitments         |
+      | unconfirmed assignments                   | Waiting for confirmation |
+      | failed messages for unended commitments   | Messages not sent        |
+
+  @SCN003
+  Scenario Outline: High-impact action requires fresh consequence confirmation
+    Given a coordinator starts <action>
+    When the review page is displayed
+    Then affected people, local dates, slots, and consequences are plain text
+    And Go back without changes performs no mutation
+    When authoritative state changes before final confirmation
+    Then the stale confirmation is rejected and updated details require review
+
+    Examples:
+      | action                |
+      | shift publication     |
+      | shift deactivation    |
+      | assignment cancellation|
+      | volunteer replacement |
+
+  @SCN004
+  Scenario: Coordinator chooses a known volunteer without retyping contact data
+    Given an eligible known volunteer exists
+    When the coordinator chooses Choose known volunteer
+    And selects the labelled name and email
+    Then no contact field must be retyped
+    And a replacement preview appears before mutation
+    When the coordinator confirms
+    Then the server reloads the selected volunteer and performs the authoritative assignment command
+
+  @SCN005
+  Scenario: Invalid form remains recoverable
+    Given a coordinator has entered valid and invalid values in one form
+    When server validation fails
+    Then every valid value remains entered
+    And the exact invalid field has adjacent plain-language help
+    And all errors appear in a summary
+    And no stack, database, provider, raw identifier, JSON, or UTC-conversion text appears
+
+  @SCN006
+  Scenario: Mobile keyboard workflow remains complete
+    Given a coordinator uses keyboard only at a 320 CSS-pixel viewport
+    When they complete setup, filter routine work, choose a volunteer, review consequences, go back, and confirm
+    Then focus and reading order follow the visual task order
+    And all targets, labels, states, errors, and consequences remain available without color, hover, drag, hidden gestures, or horizontal page scrolling
