@@ -1,0 +1,68 @@
+**Issue**: #18
+**Date**: 2026-09-03
+**Status**: Approved
+**Author**: RussellBTech
+
+# Generated from: specs/18-create-a-durable-accountless-volunteer-action-hub/requirements.md
+Feature: Create a durable accountless volunteer action hub
+  As a volunteer
+  I want one private link that remains useful through my commitment
+  So that I can see status and take currently valid actions without an account or repeated coordinator intervention
+
+  @SCN001
+  Scenario: One request capability follows the commitment lifecycle
+    Given a future request has one valid private status capability
+    When a coordinator approves it
+    Then the same link displays complete local commitment context and Assigned status
+    And offers Confirm and Decline before shift start
+    When the volunteer confirms
+    Then the same link displays Confirmed status and offers Cancel before shift end
+    And replay of confirmation changes nothing
+
+  @SCN002
+  Scenario: Access lifetime follows the commitment rather than a fixed issue date
+    Given a valid hub was issued more than 30 days before its shift
+    When it is used before or at seven days after the current shift end
+    Then read-only status remains available
+    And an authorized shift date correction changes the access deadline without rewriting the token
+    When the grace deadline passes
+    Then the same link is uniformly invalid and changes nothing
+
+  @SCN003
+  Scenario: Recovery does not enumerate or invalidate current access
+    Given matching and nonmatching email plus local commitment date submissions
+    When an anonymous caller submits each recovery form
+    Then both receive the same generic receipt
+    And matching commitments enqueue at most three separately scoped recovery deliveries
+    And no current hub is invalidated by request, send, or delivery failure
+
+  @SCN004
+  Scenario: Recovery redemption atomically replaces access
+    Given a matching volunteer receives a 30-minute single-use recovery token
+    And an old hub remains valid
+    When the recovery token is redeemed
+    Then it is consumed once
+    And all old hubs for that volunteer and slot are invalidated
+    And one new raw hub capability is returned while only its hash persists
+    And concurrent or replayed redemption changes nothing
+
+  @SCN005
+  Scenario Outline: Coordinator manages failed or compromised access
+    Given coverage reports the volunteer access as <state>
+    When the coordinator chooses <operation> and confirms its consequences
+    Then replacement delivery state remains visible and the actor/mode are audited
+    And current access is <old_access>
+
+    Examples:
+      | state            | operation                     | old_access                         |
+      | Message not sent | Send replacement access       | valid until recovery redemption    |
+      | Active           | Revoke now and send replacement| invalid immediately                |
+
+  @SCN006
+  Scenario: Previously issued action links drain without extension
+    Given a separate assignment action link was issued before hub cutover
+    When it is used before its stored expiry and action deadline
+    Then the existing single-use transition may succeed
+    When it is replayed or used after stored expiry
+    Then it is uniformly invalid and changes nothing
+    And no application path creates or extends a legacy action token after cutover
