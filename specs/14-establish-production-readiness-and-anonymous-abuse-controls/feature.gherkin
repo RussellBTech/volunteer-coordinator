@@ -1,0 +1,61 @@
+**Issue**: #14
+**Date**: 2026-09-03
+**Status**: Approved
+**Author**: RussellBTech
+
+# Generated from: specs/14-establish-production-readiness-and-anonymous-abuse-controls/requirements.md
+Feature: Establish production readiness and anonymous abuse controls
+  As a group maintainer
+  I want deployment health, schema changes, recovery, and public endpoints to fail safely
+  So that a small volunteer organization can operate the service without hidden infrastructure risk
+
+  @SCN001
+  Scenario: PostgreSQL readiness controls deployment admission
+    Given Railway Infrastructure as Code configures the Web health check as /health/ready
+    And process liveness remains available at /health
+    When PostgreSQL is unavailable to a new Web deployment
+    Then /health/ready is unhealthy
+    And /health still reports the serving process as live
+    And Railway does not admit the deployment
+
+  @SCN002
+  Scenario: A release applies migrations before serving
+    Given a release contains a pending EF Core migration
+    And Railway's Web service pre-deploy command is dotnet VolunteerCoordinator.Web.dll --migrate-only
+    When Railway deploys the release
+    Then one non-serving process applies the migration and exits successfully
+    And the normal Web process does not apply migrations
+    And Railway admits the Web process only after PostgreSQL readiness succeeds
+
+  @SCN003
+  Scenario Outline: Excess anonymous traffic is rejected without state change
+    Given one client address has exhausted the <tier> limit
+    And matching valid and invalid route identifiers exist
+    When that client sends another valid request and another invalid request
+    Then both responses are HTTP 429
+    And both responses contain the same generic retry text and retry guidance
+    And neither request executes a page handler or changes workflow state
+
+    Examples:
+      | tier                       |
+      | request mutation           |
+      | private-token read         |
+      | assignment-action mutation|
+
+  @SCN004
+  Scenario: A daily backup restores authoritative workflow state
+    Given the selected production backup is no more than 24 hours old
+    And the operator creates a new isolated PostgreSQL target
+    When the operator follows the recovery runbook
+    Then EF migration history is restored
+    And schedule, volunteer, request, assignment, action-token metadata, notification, and audit state pass integrity checks
+    And representative coordinator reads succeed against only the isolated target
+    And production data is not overwritten by the drill
+
+  @SCN005
+  Scenario: A second coordinator preserves operational continuity
+    Given two distinct verified OIDC identities are listed in the production coordinator allowlist
+    When each identity signs in independently
+    Then each identity can operate the existing schedule
+    And no credentials are shared
+    And the outgoing identity is removed only after the incoming identity succeeds
