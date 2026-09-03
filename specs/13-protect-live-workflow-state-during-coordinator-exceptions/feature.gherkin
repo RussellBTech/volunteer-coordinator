@@ -1,0 +1,65 @@
+**Issue**: #13
+**Date**: 2026-09-02
+**Status**: Approved
+**Author**: RussellBTech
+
+# Generated from: specs/13-protect-live-workflow-state-during-coordinator-exceptions/requirements.md
+Feature: Protect live workflow state during coordinator exceptions
+  As a volunteer coordinator
+  I want deactivation and assignment correction to resolve every related workflow record atomically
+  So that the schedule never hides commitments that volunteers can still act upon
+
+  @SCN001
+  Scenario: Deactivation resolves all live workflow records
+    Given an active shift has a pending request, an assigned volunteer, a confirmed volunteer, and unused assignment action tokens
+    And an allowlisted coordinator has the shift's current version
+    And the schedule page explains that deactivation will supersede pending requests, cancel active assignments, and invalidate their action links
+    When the coordinator deactivates the shift
+    Then the shift is inactive
+    And every pending request for its slots is superseded by that coordinator
+    And every active assignment for its slots is cancelled
+    And every unused action token for those assignments is unusable
+    And the complete transition and coordinator audits commit atomically
+    And the shift is absent from public openings and coverage without hidden live workflow state
+
+  @SCN002
+  Scenario: Coordinator cancels an active assignment
+    Given a published slot has a confirmed assignment with unused action tokens
+    And an allowlisted coordinator is authenticated
+    When the coordinator cancels the assignment from coverage
+    Then the assignment is cancelled
+    And the slot is reported as Uncovered
+    And every previously issued action link fails without mutation
+    And AssignmentCancelledByCoordinator identifies the coordinator in the audit trail
+
+  @SCN003
+  Scenario Outline: Requests and coverage agree on active assignment state
+    Given a request targets a published future slot whose active assignment is <assignment_status>
+    When an allowlisted coordinator views requests and coverage
+    Then the request queue reports the slot as <coordinator_state>
+    And coverage reports the slot as <coordinator_state>
+    And the request cannot be approved as an available slot
+
+    Examples:
+      | assignment_status | coordinator_state |
+      | Assigned          | Unconfirmed       |
+      | Confirmed         | Confirmed         |
+
+  @SCN004
+  Scenario: Conflicting correction transitions leave one authoritative state
+    Given separate PostgreSQL transactions target the same slot with assignment, action-link generation, volunteer-action, coordinator-cancellation, or shift-deactivation transitions
+    When the transactions attempt to commit
+    Then slot locking serializes commands that create, administratively end, act on, or generate links for assignments
+    And concurrency tokens or active-state uniqueness reject stale conflicting writes
+    And the committed state is one valid lifecycle outcome
+    And an inactive shift has no pending request, active assignment, or usable assignment action token
+
+  @SCN005
+  Scenario: Coordinator reassignment invalidates superseded assignment links
+    Given a slot has an active assignment with unused action tokens
+    And an allowlisted coordinator is authenticated
+    When the coordinator reassigns the slot to another volunteer
+    Then the previous assignment is Reassigned
+    And every action link issued for the previous assignment fails without mutation
+    And the replacement assignment remains the only active assignment for the slot
+
