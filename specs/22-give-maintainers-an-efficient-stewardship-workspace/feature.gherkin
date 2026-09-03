@@ -1,0 +1,78 @@
+**Issue**: #22
+**Date**: 2026-09-03
+**Status**: Approved
+**Author**: RussellBTech
+
+# Generated from: specs/22-give-maintainers-an-efficient-stewardship-workspace/requirements.md
+Feature: Give maintainers an efficient stewardship workspace
+  As a rotating volunteer maintainer
+  I want prioritized work queues, reusable volunteer selection, understandable history, and safe handoff
+  So that the schedule remains operable without specialist knowledge
+
+  @SCN001
+  Scenario Outline: Prioritized work leads to one narrow intervention
+    Given <work> exists for a live or future commitment
+    When a coordinator opens Home and prioritized Work
+    Then both surfaces report the same authoritative count
+    And each Work row has textual urgency and one direct intervention
+    And rows are ordered by 24-hour urgent, 72-hour soon, then upcoming rules
+
+    Examples:
+      | work                         |
+      | pending decision             |
+      | uncovered commitment         |
+      | unconfirmed volunteer        |
+      | message not sent or bounced  |
+      | recurring withdrawal risk    |
+      | recurrence or handoff review |
+
+  @SCN002
+  Scenario: Known volunteer search reveals only matching assignment data
+    Given assignable, unrelated, and anonymized volunteer records exist
+    When a coordinator posts the beginning of a name or email with at least three characters
+    Then at most ten matching active names and full emails appear in stable order
+    And phone, history, unrelated records, total count, and anonymized records do not appear
+    When the coordinator selects a result that becomes stale
+    Then assignment changes nothing and Search again is shown with preserved input
+
+  @SCN003
+  Scenario: Human history stays stable while new events arrive
+    Given more than 50 matching audit events exist
+    When a coordinator filters by local date, actor, shift, volunteer, and action category
+    Then the newest 50 human local summaries appear without raw JSON, GUIDs, action codes, or tokens
+    When a new event is inserted and the coordinator follows Next
+    Then keyset paging neither duplicates nor skips the original matching sequence
+    And tampered or mismatched cursor returns safely to newest matches
+
+  @SCN004
+  Scenario: Removed volunteer history remains non-identifying
+    Given audit events correlate to an anonymized volunteer
+    When a coordinator views matching history
+    Then events use Removed volunteer and an opaque short reference
+    And no original name, email, phone, raw identifier, or audit JSON appears
+
+  @SCN005
+  Scenario: Two coordinators verify handoff before removal
+    Given OIDC is configured and two distinct normalized emails are allowlisted
+    When each coordinator signs in independently and selects Verify my access
+    Then Access shows both current-list verification dates and Handoff ready
+    When the outgoing email is removed from external configuration
+    Then its historical audit remains
+    And it no longer counts toward readiness
+    And no secret or shared credential is displayed or managed in-app
+
+  @SCN006
+  Scenario: Coordinator query work stays bounded as data grows
+    Given representative PostgreSQL data has 1,000 volunteers, 5,000 shifts, and 10,000 audits
+    When Home, Work, Requests, Coverage, Messages, History, and Search render full pages
+    And the rendered-result volume is increased tenfold
+    Then each surface remains within its fixed SQL-command budget
+    And no per-row query, lazy loading, unbounded include, full-table load, or cache masking occurs
+
+  @SCN007
+  Scenario: Rotating coordinator completes daily stewardship without documentation
+    Given a coordinator has no product training
+    When they follow only application-visible Home and Work text
+    Then they can resolve requests, coverage, delivery, withdrawal, and recurrence-review work
+    And each task preserves valid input, offers one primary action, and ends with a plain-language next step
+    And the workflow remains keyboard-usable at 320 CSS pixels
