@@ -1,0 +1,68 @@
+**Issue**: #15
+**Date**: 2026-09-03
+**Status**: Approved
+**Author**: RussellBTech
+
+# Generated from: specs/15-present-commitments-in-local-time-with-complete-context/requirements.md
+Feature: Present commitments in local time with complete context
+  As a volunteer
+  I want every commitment shown in the group's local time with its duration, place, and instructions
+  So that I can decide and arrive without converting UTC or finding a separate message
+
+  @SCN001
+  Scenario: Coordinator configures the group time zone
+    Given no group time zone has been configured
+    And an allowlisted coordinator is authenticated
+    When the coordinator selects a valid IANA time zone
+    Then the singleton setting is stored with optimistic concurrency
+    And GroupTimeZoneConfigured identifies that coordinator in the audit trail
+    And schedule forms use local date and time controls
+    And persisted shift instants remain UTC
+
+  @SCN002
+  Scenario Outline: Daylight-saving exceptions require explicit correction
+    Given the group time zone is America/New_York
+    And the coordinator enters <local_time> for a shift boundary
+    When the coordinator submits the schedule form without an offset choice
+    Then the application <outcome>
+    And no shift mutation occurs until one valid interpretation is supplied
+
+    Examples:
+      | local_time       | outcome                                                                    |
+      | 2026-03-08 02:30 | explains that the time does not exist and requires another wall time       |
+      | 2026-11-01 01:30 | displays both labelled UTC-offset interpretations and requires one choice  |
+
+  @SCN003
+  Scenario: Volunteer sees complete commitment context
+    Given a published shift has a location, volunteer instructions, and a primary slot
+    And the group time zone is configured
+    When a volunteer browses, requests, checks status, and inspects an assignment action
+    Then every surface labels the local start, local end, duration, zone and UTC offset, location, slot role, and instructions
+    And semantic time values retain the authoritative UTC instants
+    And internal coordinator notes never appear
+
+  @SCN004
+  Scenario: Unconfigured time zone reveals no private-link validity
+    Given the group time zone is not configured
+    And valid and invalid request-status and assignment-action tokens are presented
+    When their GET and POST routes are requested
+    Then every route shows the same textual commitment-times-unavailable state
+    And no request, assignment, action token, notification, or audit state changes
+    And no UTC fallback or token-validity detail appears
+
+  @SCN005
+  Scenario: Confirmed zone correction changes display not commitments
+    Given future commitments exist as authoritative UTC instants
+    And an allowlisted coordinator views the time-zone consequence warning
+    When the coordinator confirms a change to another valid IANA zone
+    Then GroupTimeZoneChanged records the actor and old and new zone identifiers
+    And every stored shift instant is unchanged
+    And every commitment surface immediately renders those instants in the new group zone
+
+  @SCN006
+  Scenario: Local commitment text remains accessible and deterministic
+    Given a commitment crosses a local date or daylight-saving boundary
+    When it is rendered in a browser with a different locale at a narrow mobile width
+    Then start and end dates are explicit
+    And elapsed duration is calculated from UTC instants
+    And all state and context remain available as text without color or icons
