@@ -1,0 +1,73 @@
+**Issue**: #16
+**Date**: 2026-09-03
+**Status**: Approved
+**Author**: RussellBTech
+
+# Generated from: specs/16-define-volunteer-privacy-retention-and-deletion-lifecycle/requirements.md
+Feature: Define volunteer privacy retention and deletion lifecycle
+  As an accountless volunteer
+  I want to understand and control the contact data used for scheduling
+  So that participation does not create indefinite or misleading personal records
+
+  @SCN001
+  Scenario: Contact collection is informed and minimized
+    Given a volunteer opens a service-commitment request form
+    When the form displays name, email, and optional phone fields
+    Then privacy text before submit explains purpose, coordinator visibility, one-year retention, backup rotation, and the configured removal contact
+    And the text says the record is for service scheduling, not AA membership or attendance
+    When the volunteer submits without a phone
+    Then the request succeeds and phone remains null
+
+  @SCN002
+  Scenario: Expired eligible contact is anonymized automatically
+    Given a volunteer has no pending request, active assignment, or future commitment
+    And the greatest related workflow activity or shift end is more than 365 days old
+    And usable request-status and assignment-action links and notification destinations remain
+    When the retention process locks and revalidates the volunteer
+    Then name and email become neutral non-personal tombstones
+    And phone is cleared
+    And all private links are unusable
+    And notification destinations are redacted
+    And one non-identifying VolunteerAnonymized audit commits atomically
+    And non-identifying workflow history remains valid
+
+  @SCN003
+  Scenario Outline: Live workflow state blocks removal
+    Given a volunteer has a <dependency>
+    When automatic retention or a coordinator attempts removal
+    Then the operation explains the blocking category and count
+    And no contact, token, destination, workflow, or audit state changes
+
+    Examples:
+      | dependency          |
+      | pending request     |
+      | assigned assignment |
+      | confirmed assignment|
+      | future commitment   |
+
+  @SCN004
+  Scenario: Coordinator processes a verified early-removal request
+    Given a volunteer supplies their email and one recent commitment out of band
+    And an allowlisted coordinator matches both values
+    And the volunteer has no live dependency
+    When the coordinator confirms removal before 365 days
+    Then eligible contact is anonymized through the same atomic command
+    And the success text says non-identifying scheduling history was retained
+    And the audit names the coordinator and reason without removed values
+
+  @SCN005
+  Scenario: Contact reuse cannot race anonymization
+    Given one PostgreSQL transaction is creating a request or assignment for an existing volunteer
+    And another transaction attempts to anonymize that volunteer
+    When both operations acquire the shared volunteer-row lock and commit
+    Then one serially valid state results
+    And an anonymized record never regains contact data or a live dependency
+    And a later request using the removed email creates a new volunteer record
+
+  @SCN006
+  Scenario: Concurrent retention is idempotent
+    Given two retention workers select the same eligible volunteer
+    When both process the candidate
+    Then the volunteer is anonymized once
+    And exactly one VolunteerAnonymized audit exists
+    And both workers can continue processing later bounded candidates
