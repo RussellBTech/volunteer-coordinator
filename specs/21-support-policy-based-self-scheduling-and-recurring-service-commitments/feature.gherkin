@@ -1,0 +1,81 @@
+**Issue**: #21
+**Date**: 2026-09-03
+**Status**: Approved
+**Author**: RussellBTech
+
+# Generated from: specs/21-support-policy-based-self-scheduling-and-recurring-service-commitments/requirements.md
+Feature: Support policy-based self-scheduling and recurring service commitments
+  As a volunteer
+  I want to claim either one opening or an ongoing service cadence under the group's scheduling policy
+  So that regular service does not require repeating the same request every week
+
+  @SCN001
+  Scenario Outline: Persisted policy controls the public outcome
+    Given a published opening uses <policy>
+    When a volunteer reviews and submits the labelled form
+    Then the page explains <consequence> before submission
+    And the authoritative result is <result>
+
+    Examples:
+      | policy           | consequence                                  | result                         |
+      | Approval required| A coordinator reviews each request           | one Pending request            |
+      | Direct claim     | The first eligible volunteer is confirmed    | one Confirmed assignment       |
+
+  @SCN002
+  Scenario: Concurrent direct claims have one winner
+    Given an open Direct claim slot
+    When two eligible volunteers submit in separate PostgreSQL transactions
+    Then one Confirmed assignment, capability, intent, and audit commit
+    And the other sees This commitment was just claimed. Choose another opening.
+    And the loser persists no volunteer, request, assignment, capability, intent, or audit state
+
+  @SCN003
+  Scenario Outline: Recurring policy creates a finite cadence
+    Given a published recurring series has generated concrete occurrences
+    And a volunteer selects one role, first occurrence, and 12-week horizon
+    When the volunteer submits under <policy>
+    Then exact Included and Skipped dates were previewed
+    And the system creates <initial>
+    And no filled, manual, Needs review, or Skipped occurrence is overwritten
+
+    Examples:
+      | policy            | initial                                                        |
+      | Direct claim      | an Active commitment with Confirmed eligible assignments       |
+      | Approval required | one Pending recurring request without a slot reservation       |
+
+  @SCN004
+  Scenario: One confirmation accepts an approved cadence
+    Given a coordinator approves an approval-required recurring request
+    And eligible concrete assignments are Assigned
+    When the volunteer confirms through the recurring hub
+    Then every still-eligible cadence assignment becomes Confirmed atomically
+    And the recurring commitment becomes Active
+    And no weekly confirmation is required
+    And replay changes nothing
+
+  @SCN005
+  Scenario: Volunteer withdraws from a future occurrence
+    Given an Active recurring commitment has earlier and later assignments
+    When the volunteer confirms withdrawal effective from a selected future occurrence
+    Then later cadence assignments are cancelled and their access invalidated atomically
+    And earlier assignment/history remains unchanged
+    And future slots reopen in coverage
+    And replay changes nothing
+
+  @SCN006
+  Scenario: One substitute does not end the cadence
+    Given a recurring volunteer is assigned across several occurrences
+    When a coordinator replaces only one occurrence
+    Then that occurrence is marked Replaced and remains an exception
+    And the substitute is authoritative for that occurrence
+    And the recurring volunteer remains assigned to every other eligible occurrence
+
+  @SCN007
+  Scenario: Series revision requires explicit recurring handoff
+    Given issue 20 preserves old protected recurring assignments as exceptions after a revision
+    When the coordinator previews moving one recurring commitment to revised occurrences
+    Then old cancellations, new assignments, skipped conflicts, local changes, access, and messages are listed
+    When any mapped target changes before confirmation
+    Then no handoff mutation commits
+    When the fresh mapping is confirmed
+    Then only the selected future set moves atomically and earlier history remains
