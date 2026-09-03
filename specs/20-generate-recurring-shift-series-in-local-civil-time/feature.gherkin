@@ -1,0 +1,75 @@
+**Issue**: #20
+**Date**: 2026-09-03
+**Status**: Approved
+**Author**: RussellBTech
+
+# Generated from: specs/20-generate-recurring-shift-series-in-local-civil-time/requirements.md
+Feature: Generate recurring shift series in local civil time
+  As a volunteer coordinator
+  I want to define a regular service position once and generate future occurrences safely
+  So that weekly meetings do not require repetitive UTC data entry
+
+  @SCN001
+  Scenario Outline: Series generates bounded concrete occurrences
+    Given the group IANA time zone is configured
+    And a coordinator previews a <pattern> series with a 12-week horizon
+    When the coordinator confirms creation
+    Then actual upcoming local dates and roles become unique unpublished concrete shifts
+    And each occurrence records its series revision and local date
+    And a daily worker idempotently maintains the bounded horizon
+
+    Examples:
+      | pattern                                      |
+      | daily every 2 days                           |
+      | every 2 weeks on Monday and Thursday         |
+
+  @SCN002
+  Scenario Outline: DST start exceptions never disappear silently
+    Given a series generates a local start at a daylight-saving <condition>
+    When the occurrence is reconciled
+    Then the occurrence <result>
+    And its elapsed duration is added after start UTC is resolved
+
+    Examples:
+      | condition | result                                                                    |
+      | overlap   | uses the stored first or second occurrence choice                         |
+      | gap       | remains visible as Needs review without a concrete shift                  |
+
+  @SCN003
+  Scenario: Coordinator explicitly resolves a gap
+    Given one occurrence is Needs review because its local start does not exist
+    When the coordinator previews and chooses a valid replacement local time
+    Then one unpublished concrete shift is created as an exception
+    And adjacent occurrences are unchanged
+    When another gap occurrence is skipped with a reason
+    Then it remains visible and audited without a shift
+
+  @SCN004
+  Scenario: Future correction protects live commitments by default
+    Given a new effective revision reaches eligible, protected, and manually changed future occurrences
+    When the coordinator confirms the ordinary series correction
+    Then eligible non-exceptions adopt the revision
+    And protected occurrences keep their prior shifts and workflow as detached exceptions
+    And manual exceptions remain unchanged
+    And resolving a protected occurrence requires a separate issue-13 consequence confirmation
+
+  @SCN005
+  Scenario: Selected horizon publication is all or nothing
+    Given reviewed generated occurrences are selected by local-date range
+    And one selected occurrence is stale or Needs review
+    When the coordinator confirms publication
+    Then no selected shift is published
+    And every blocking local date and plain-language reason is shown
+    When every selected occurrence is eligible with current versions
+    Then all selected shifts and audits commit in one transaction
+
+  @SCN006
+  Scenario: Group-zone change pauses series generation
+    Given the group zone changes while an active series retains its prior IANA zone snapshot
+    When daily top-up runs
+    Then no new occurrence is generated for that series
+    And coordinator home reports Zone review required
+    When the coordinator previews and confirms adopting the group zone
+    Then a new effective revision records the decision
+    And protected and exception UTC shifts remain fixed
+    And bounded top-up resumes under the new zone
