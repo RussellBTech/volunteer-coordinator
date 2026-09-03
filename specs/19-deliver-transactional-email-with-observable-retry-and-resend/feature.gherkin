@@ -1,0 +1,74 @@
+**Issue**: #19
+**Date**: 2026-09-03
+**Status**: Approved
+**Author**: RussellBTech
+
+# Generated from: specs/19-deliver-transactional-email-with-observable-retry-and-resend/requirements.md
+Feature: Deliver transactional email with observable retry and resend
+  As a volunteer and coordinator
+  I want private scheduling links delivered reliably with visible failure handling
+  So that the workflow does not depend on copying raw URLs by hand
+
+  @SCN001
+  Scenario Outline: Committed workflow creates automatic delivery
+    Given a <event> transition and notification intent can commit atomically
+    When the transition succeeds and the worker processes its intent
+    Then Resend receives one encoded plain-text and HTML message with group-local commitment context
+    And any private link material exists only transiently while its hash persists
+    And provider outcome commits independently from workflow state
+
+    Examples:
+      | event                 |
+      | request receipt       |
+      | assignment access     |
+      | access recovery       |
+      | schedule correction   |
+      | cancellation          |
+      | deactivation          |
+
+  @SCN002
+  Scenario: Transient failure follows bounded idempotent retry
+    Given Resend returns a transient failure for a due message
+    When the in-process worker runs through its retry policy
+    Then attempts occur at 0, 1, 5, 30, and 120 minutes at most
+    And identical in-memory submissions reuse one Resend idempotency key
+    And fresh secret material uses a new attempt and key after abandoned work
+    And the fifth failure becomes final without another workflow transition
+
+  @SCN003
+  Scenario: Provider acceptance and delivery remain distinct
+    Given Resend accepts a message and returns a provider message ID
+    When no webhook has arrived
+    Then the coordinator sees Accepted by email service
+    When a valid signed delivered webhook arrives
+    Then the coordinator sees Delivered to mail server
+    And the application does not claim that the volunteer read the message
+
+  @SCN004
+  Scenario Outline: Signed terminal webhook overrides accepted state
+    Given an accepted message has provider ID and a verified <event> webhook arrives
+    When the event is processed twice or out of order with a delivered event
+    Then one webhook receipt is stored
+    And visible state remains <state>
+    And no raw webhook body or recipient is persisted or logged
+
+    Examples:
+      | event            | state                   |
+      | email.bounced    | Bounced                 |
+      | email.complained | Recipient reported spam |
+
+  @SCN005
+  Scenario: Provider failure cannot roll back scheduling
+    Given a scheduling transition and notification intent committed
+    When Resend times out or permanently rejects the message
+    Then schedule, request, assignment, capability, and audit state remain committed
+    And notification state alone becomes retrying or not sent
+    And the coordinator can request another copy without repeating the workflow transition
+
+  @SCN006
+  Scenario: Coordinator resend is visible and audited
+    Given a delivery failed or a volunteer asks for another copy
+    When an allowlisted coordinator requests resend or access reissue
+    Then a deduplicated new intent receives its own retry budget
+    And the request is audited without destination, credentials, or raw links
+    And issue 18 normal versus revoke-now access semantics are preserved
