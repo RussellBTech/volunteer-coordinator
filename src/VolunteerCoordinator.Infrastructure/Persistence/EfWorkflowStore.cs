@@ -63,11 +63,49 @@ public sealed class EfWorkflowStore : IWorkflowStore
             .OrderBy(x => x.StartsAtUtc)
             .ToListAsync(cancellationToken);
 
-    public Task<Shift?> GetShiftAsync(Guid shiftId, CancellationToken cancellationToken) =>
-        _dbContext.Shifts.Include(x => x.Slots).SingleOrDefaultAsync(x => x.Id == shiftId, cancellationToken);
+    public async Task<Shift?> GetShiftAsync(Guid shiftId, CancellationToken cancellationToken)
+    {
+        var trackedEntry = _dbContext.ChangeTracker
+            .Entries<Shift>()
+            .SingleOrDefault(x => x.Entity.Id == shiftId);
+        if (trackedEntry is not null)
+        {
+            await trackedEntry.ReloadAsync(cancellationToken);
+            return trackedEntry.State == EntityState.Detached ? null : trackedEntry.Entity;
+        }
 
-    public Task<ShiftSlot?> GetSlotAsync(Guid slotId, CancellationToken cancellationToken) =>
-        _dbContext.ShiftSlots.SingleOrDefaultAsync(x => x.Id == slotId, cancellationToken);
+        return await _dbContext.Shifts.Include(x => x.Slots).SingleOrDefaultAsync(x => x.Id == shiftId, cancellationToken);
+    }
+
+    public async Task<ShiftSlot?> GetSlotAsync(Guid slotId, CancellationToken cancellationToken)
+    {
+        var trackedEntry = _dbContext.ChangeTracker
+            .Entries<ShiftSlot>()
+            .SingleOrDefault(x => x.Entity.Id == slotId);
+        if (trackedEntry is not null)
+        {
+            await trackedEntry.ReloadAsync(cancellationToken);
+            return trackedEntry.State == EntityState.Detached ? null : trackedEntry.Entity;
+        }
+
+        return await _dbContext.ShiftSlots.SingleOrDefaultAsync(x => x.Id == slotId, cancellationToken);
+    }
+
+    public async Task<ShiftRequest?> GetRequestAsync(Guid requestId, CancellationToken cancellationToken)
+    {
+        var trackedEntry = _dbContext.ChangeTracker
+            .Entries<ShiftRequest>()
+            .SingleOrDefault(x => x.Entity.Id == requestId);
+        if (trackedEntry is not null)
+        {
+            await trackedEntry.ReloadAsync(cancellationToken);
+            return trackedEntry.State == EntityState.Detached ? null : trackedEntry.Entity;
+        }
+
+        return await _dbContext.ShiftRequests.SingleOrDefaultAsync(x => x.Id == requestId, cancellationToken);
+    }
+
+
     public async Task LockSlotAsync(Guid slotId, CancellationToken cancellationToken)
     {
         await _dbContext.Database.ExecuteSqlInterpolatedAsync(
@@ -87,8 +125,6 @@ public sealed class EfWorkflowStore : IWorkflowStore
     public async Task<IReadOnlyList<Volunteer>> GetVolunteersAsync(CancellationToken cancellationToken) =>
         await _dbContext.Volunteers.ToListAsync(cancellationToken);
 
-    public Task<ShiftRequest?> GetRequestAsync(Guid requestId, CancellationToken cancellationToken) =>
-        _dbContext.ShiftRequests.SingleOrDefaultAsync(x => x.Id == requestId, cancellationToken);
 
     public Task<ShiftRequest?> GetRequestByStatusHashAsync(byte[] hash, CancellationToken cancellationToken) =>
         _dbContext.ShiftRequests.SingleOrDefaultAsync(x => x.StatusTokenHash.SequenceEqual(hash), cancellationToken);
@@ -111,26 +147,73 @@ public sealed class EfWorkflowStore : IWorkflowStore
             .Where(x => x.ShiftSlotId == slotId && x.Status == RequestStatus.Pending)
             .ToListAsync(cancellationToken);
 
-    public Task<Assignment?> GetAssignmentAsync(Guid assignmentId, CancellationToken cancellationToken) =>
-        _dbContext.Assignments.SingleOrDefaultAsync(x => x.Id == assignmentId, cancellationToken);
+    public async Task<IReadOnlyList<ShiftRequest>> GetPendingRequestsAsync(
+        IReadOnlyCollection<Guid> slotIds,
+        CancellationToken cancellationToken)
+    {
+        if (slotIds.Count == 0)
+        {
+            return [];
+        }
 
-    public Task<Assignment?> GetActiveAssignmentForSlotAsync(
-        Guid slotId,
+        return await _dbContext.ShiftRequests
+            .Where(x => slotIds.Contains(x.ShiftSlotId) && x.Status == RequestStatus.Pending)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<Assignment?> GetAssignmentAsync(Guid assignmentId, CancellationToken cancellationToken)
+    {
+        var trackedEntry = _dbContext.ChangeTracker
+            .Entries<Assignment>()
+            .SingleOrDefault(x => x.Entity.Id == assignmentId);
+        if (trackedEntry is not null)
+        {
+            await trackedEntry.ReloadAsync(cancellationToken);
+            return trackedEntry.State == EntityState.Detached ? null : trackedEntry.Entity;
+        }
+
+        return await _dbContext.Assignments.SingleOrDefaultAsync(x => x.Id == assignmentId, cancellationToken);
+    }
+
+    public Task<Guid?> GetAssignmentSlotIdAsync(
+        Guid assignmentId,
         CancellationToken cancellationToken) =>
-        _dbContext.Assignments.SingleOrDefaultAsync(
-            x => x.ShiftSlotId == slotId &&
-                 (x.Status == AssignmentStatus.Assigned || x.Status == AssignmentStatus.Confirmed),
-            cancellationToken);
+        _dbContext.Assignments
+            .Where(x => x.Id == assignmentId)
+            .Select(x => (Guid?)x.ShiftSlotId)
+            .SingleOrDefaultAsync(cancellationToken);
 
-    public Task<Assignment?> GetActiveAssignmentForVolunteerAndShiftAsync(
+    public async Task<Assignment?> GetActiveAssignmentForSlotAsync(
+        Guid slotId,
+        CancellationToken cancellationToken)
+    {
+        var assignmentId = await _dbContext.Assignments
+            .AsNoTracking()
+            .Where(x => x.ShiftSlotId == slotId &&
+                        (x.Status == AssignmentStatus.Assigned || x.Status == AssignmentStatus.Confirmed))
+            .Select(x => (Guid?)x.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+        return assignmentId.HasValue
+            ? await GetAssignmentAsync(assignmentId.Value, cancellationToken)
+            : null;
+    }
+
+    public async Task<Assignment?> GetActiveAssignmentForVolunteerAndShiftAsync(
         Guid volunteerId,
         Guid shiftId,
-        CancellationToken cancellationToken) =>
-        _dbContext.Assignments.SingleOrDefaultAsync(
-            x => x.VolunteerId == volunteerId &&
-                 x.ShiftId == shiftId &&
-                 (x.Status == AssignmentStatus.Assigned || x.Status == AssignmentStatus.Confirmed),
-            cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        var assignmentId = await _dbContext.Assignments
+            .AsNoTracking()
+            .Where(x => x.VolunteerId == volunteerId &&
+                        x.ShiftId == shiftId &&
+                        (x.Status == AssignmentStatus.Assigned || x.Status == AssignmentStatus.Confirmed))
+            .Select(x => (Guid?)x.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+        return assignmentId.HasValue
+            ? await GetAssignmentAsync(assignmentId.Value, cancellationToken)
+            : null;
+    }
 
     public Task<Assignment?> GetAssignmentBySourceRequestAsync(
         Guid requestId,
@@ -141,14 +224,45 @@ public sealed class EfWorkflowStore : IWorkflowStore
 
     public async Task<IReadOnlyList<Assignment>> GetActiveAssignmentsAsync(
         IReadOnlyCollection<Guid> slotIds,
-        CancellationToken cancellationToken) =>
-        await _dbContext.Assignments
+        CancellationToken cancellationToken)
+    {
+        if (slotIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await _dbContext.Assignments
             .Where(x => slotIds.Contains(x.ShiftSlotId) &&
                         (x.Status == AssignmentStatus.Assigned || x.Status == AssignmentStatus.Confirmed))
             .ToListAsync(cancellationToken);
+    }
 
-    public Task<ActionToken?> GetActionTokenByHashAsync(byte[] hash, CancellationToken cancellationToken) =>
-        _dbContext.ActionTokens.SingleOrDefaultAsync(x => x.TokenHash.SequenceEqual(hash), cancellationToken);
+    public Task<Guid?> GetActionTokenSlotIdAsync(
+        byte[] hash,
+        CancellationToken cancellationToken) =>
+        _dbContext.ActionTokens
+            .Where(x => x.TokenHash.SequenceEqual(hash))
+            .Join(
+                _dbContext.Assignments,
+                actionToken => actionToken.AssignmentId,
+                assignment => assignment.Id,
+                (_, assignment) => (Guid?)assignment.ShiftSlotId)
+            .SingleOrDefaultAsync(cancellationToken);
+
+    public async Task<ActionToken?> GetActionTokenByHashAsync(byte[] hash, CancellationToken cancellationToken)
+    {
+        var trackedEntry = _dbContext.ChangeTracker
+            .Entries<ActionToken>()
+            .SingleOrDefault(x => x.Entity.TokenHash.SequenceEqual(hash));
+        if (trackedEntry is not null)
+        {
+            await trackedEntry.ReloadAsync(cancellationToken);
+            return trackedEntry.State == EntityState.Detached ? null : trackedEntry.Entity;
+        }
+
+        return await _dbContext.ActionTokens
+            .SingleOrDefaultAsync(x => x.TokenHash.SequenceEqual(hash), cancellationToken);
+    }
 
     public async Task<IReadOnlyList<ActionToken>> GetUnusedActionTokensAsync(
         Guid assignmentId,
@@ -157,6 +271,20 @@ public sealed class EfWorkflowStore : IWorkflowStore
         await _dbContext.ActionTokens
             .Where(x => x.AssignmentId == assignmentId && x.Action == action && x.UsedAtUtc == null)
             .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<ActionToken>> GetUnusedActionTokensAsync(
+        IReadOnlyCollection<Guid> assignmentIds,
+        CancellationToken cancellationToken)
+    {
+        if (assignmentIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await _dbContext.ActionTokens
+            .Where(x => assignmentIds.Contains(x.AssignmentId) && x.UsedAtUtc == null)
+            .ToListAsync(cancellationToken);
+    }
 
     public async Task<IReadOnlyList<AuditEntry>> GetAuditEntriesAsync(
         int limit,

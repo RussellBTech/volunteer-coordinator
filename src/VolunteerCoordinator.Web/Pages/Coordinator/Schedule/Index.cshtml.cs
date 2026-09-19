@@ -43,7 +43,7 @@ public sealed class IndexModel : PageModel
         try
         {
             await _service.DeactivateShiftAsync(id, expectedVersion, CoordinatorIdentity.GetEmail(User)!, cancellationToken);
-            TempData["Message"] = "Shift deactivated and removed from public discovery.";
+            TempData["Message"] = "Shift deactivated. Pending requests, active assignments, and action links were resolved.";
         }
         catch (DomainException exception)
         {

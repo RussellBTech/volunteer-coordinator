@@ -39,7 +39,14 @@ else
                 }
                 @if (shift.IsActive)
                 {
-                    <form method="post" asp-page-handler="Deactivate" class="inline"><input type="hidden" name="id" value="@shift.Id"><input type="hidden" name="expectedVersion" value="@shift.Version"><button type="submit" class="button-danger">Deactivate</button></form>
+                    <div>
+                        <p>Deactivation supersedes pending requests, cancels active assignments, and invalidates their action links.</p>
+                        <form method="post" asp-page-handler="Deactivate" class="inline">
+                            <input type="hidden" name="id" value="@shift.Id">
+                            <input type="hidden" name="expectedVersion" value="@shift.Version">
+                            <button type="submit" class="button-danger">Deactivate and resolve</button>
+                        </form>
+                    </div>
                 }
             </div>
         </article>
