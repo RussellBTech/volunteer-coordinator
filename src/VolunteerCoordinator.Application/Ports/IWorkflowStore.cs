@@ -49,7 +49,15 @@ public interface IWorkflowStore
         Guid slotId,
         CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<ShiftRequest>> GetPendingRequestsAsync(
+        IReadOnlyCollection<Guid> slotIds,
+        CancellationToken cancellationToken);
+
     Task<Assignment?> GetAssignmentAsync(Guid assignmentId, CancellationToken cancellationToken);
+
+    Task<Guid?> GetAssignmentSlotIdAsync(
+        Guid assignmentId,
+        CancellationToken cancellationToken);
 
     Task<Assignment?> GetActiveAssignmentForSlotAsync(
         Guid slotId,
@@ -68,11 +76,19 @@ public interface IWorkflowStore
         IReadOnlyCollection<Guid> slotIds,
         CancellationToken cancellationToken);
 
+    Task<Guid?> GetActionTokenSlotIdAsync(
+        byte[] hash,
+        CancellationToken cancellationToken);
+
     Task<ActionToken?> GetActionTokenByHashAsync(byte[] hash, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<ActionToken>> GetUnusedActionTokensAsync(
         Guid assignmentId,
         VolunteerAction action,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<ActionToken>> GetUnusedActionTokensAsync(
+        IReadOnlyCollection<Guid> assignmentIds,
         CancellationToken cancellationToken);
 
     Task<IReadOnlyList<AuditEntry>> GetAuditEntriesAsync(

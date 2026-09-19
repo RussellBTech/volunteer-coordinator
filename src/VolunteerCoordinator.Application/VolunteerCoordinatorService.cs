@@ -13,12 +13,18 @@ namespace VolunteerCoordinator.Application;
 
 public sealed class VolunteerCoordinatorService
 {
+    private const int MaxAssignmentLockAttempts = 3;
+    private const string AssignmentLockConflictMessage = "The requested change conflicts with current schedule state. Reload and try again.";
     private static readonly TimeSpan StatusTokenLifetime = TimeSpan.FromDays(30);
     private static readonly TimeSpan ActionTokenLifetime = TimeSpan.FromDays(7);
     private readonly IWorkflowStore _store;
     private readonly IClock _clock;
     private readonly ITokenService _tokens;
     private readonly INotificationService _notifications;
+    private sealed class AssignmentLockRestartException : Exception
+    {
+    }
+
 
     public VolunteerCoordinatorService(
         IWorkflowStore store,
@@ -116,14 +122,18 @@ public sealed class VolunteerCoordinatorService
                     throw new DomainException("This shift was changed by another coordinator. Reload it and try again.");
                 }
 
-                foreach (var slot in shift.Slots.Where(x =>
-                             x.Kind == SlotKind.Backup &&
-                             x.IsActive &&
-                             x.Position > backupSlotCount))
+                var removedBackupSlotIds = shift.Slots
+                    .Where(x =>
+                        x.Kind == SlotKind.Backup &&
+                        x.IsActive &&
+                        x.Position > backupSlotCount)
+                    .Select(x => x.Id)
+                    .ToArray();
+                await LockSlotsAsync(removedBackupSlotIds, token);
+                foreach (var slotId in removedBackupSlotIds)
                 {
-                    await _store.LockSlotAsync(slot.Id, token);
-                    if (await _store.GetActiveAssignmentForSlotAsync(slot.Id, token) is not null ||
-                        (await _store.GetPendingRequestsForSlotAsync(slot.Id, token)).Count > 0)
+                    if (await _store.GetActiveAssignmentForSlotAsync(slotId, token) is not null ||
+                        (await _store.GetPendingRequestsForSlotAsync(slotId, token)).Count > 0)
                     {
                         throw new DomainException("A backup slot with an active assignment or pending request cannot be removed.");
                     }
@@ -162,12 +172,40 @@ public sealed class VolunteerCoordinatorService
                     throw new DomainException("This shift was changed by another coordinator. Reload it and try again.");
                 }
 
+                var slotIds = shift.Slots.Select(x => x.Id).ToArray();
+                await LockSlotsAsync(slotIds, token);
+
+                var pendingRequests = await _store.GetPendingRequestsAsync(slotIds, token);
+                var activeAssignments = await _store.GetActiveAssignmentsAsync(slotIds, token);
+                foreach (var request in pendingRequests)
+                {
+                    request.Supersede(actor, now);
+                }
+
+                var invalidatedTokenCount = await CancelAssignmentsAsync(
+                    activeAssignments,
+                    now,
+                    actor,
+                    "AssignmentCancelledByShiftDeactivation",
+                    token);
                 shift.Deactivate();
-                _store.AddAuditEntry(AuditEntry.Create(now, actor, "ShiftDeactivated", nameof(Shift), shift.Id, "{}"));
+                _store.AddAuditEntry(AuditEntry.Create(
+                    now,
+                    actor,
+                    "ShiftDeactivated",
+                    nameof(Shift),
+                    shift.Id,
+                    Detail(new
+                    {
+                        SupersededRequests = pendingRequests.Count,
+                        CancelledAssignments = activeAssignments.Count,
+                        InvalidatedTokens = invalidatedTokenCount
+                    })));
                 return true;
             },
             cancellationToken);
     }
+
 
     public async Task PublishShiftAsync(
         Guid shiftId,
@@ -280,17 +318,26 @@ public sealed class VolunteerCoordinatorService
     {
         var now = _clock.UtcNow;
         var requests = await _store.GetRequestsAsync(cancellationToken);
+        var slotIds = requests.Select(x => x.ShiftSlotId).Distinct().ToArray();
+        var assignmentsBySlot = (await _store.GetActiveAssignmentsAsync(slotIds, cancellationToken))
+            .ToDictionary(x => x.ShiftSlotId);
         var result = new List<CoordinatorRequestDto>(requests.Count);
         foreach (var request in requests)
         {
             var slot = await RequireSlotAsync(request.ShiftSlotId, cancellationToken);
             var shift = await RequireShiftAsync(slot.ShiftId, cancellationToken);
             var volunteer = await RequireVolunteerAsync(request.VolunteerId, cancellationToken);
+            assignmentsBySlot.TryGetValue(slot.Id, out var assignment);
             var slotState = !slot.IsActive || !shift.IsActive
                 ? "Inactive"
                 : shift.EndsAtUtc <= now
                     ? "Ended"
-                    : "Available";
+                    : assignment?.Status switch
+                    {
+                        AssignmentStatus.Assigned => "Unconfirmed",
+                        AssignmentStatus.Confirmed => "Confirmed",
+                        _ => "Available"
+                    };
             var canApprove = request.Status == RequestStatus.Pending && slotState == "Available";
             result.Add(new CoordinatorRequestDto(
                 request.Id,
@@ -308,11 +355,12 @@ public sealed class VolunteerCoordinatorService
         return result.OrderByDescending(x => x.RequestedAtUtc).ToArray();
     }
 
+
     public async Task<AssignmentResult> ApproveRequestAsync(Guid requestId, string coordinatorEmail, CancellationToken cancellationToken)
     {
         var actor = RequireCoordinator(coordinatorEmail);
         var now = _clock.UtcNow;
-        var result = await _store.ExecuteInTransactionAsync(
+        var result = await ExecuteWithAssignmentLockRetryAsync(
             async token =>
             {
                 var request = await RequireRequestAsync(requestId, token);
@@ -321,7 +369,21 @@ public sealed class VolunteerCoordinatorService
                     throw new DomainException("Only a pending request can be approved.");
                 }
 
-                await _store.LockSlotAsync(request.ShiftSlotId, token);
+                var preflightSlot = await RequireSlotAsync(request.ShiftSlotId, token);
+                var preflightShift = await RequireShiftAsync(preflightSlot.ShiftId, token);
+                var preflightVolunteer = await RequireVolunteerAsync(request.VolunteerId, token);
+                var lockedAssignmentSlots = await LockAssignmentSlotsAsync(
+                    preflightSlot.Id,
+                    preflightShift.Id,
+                    preflightVolunteer.Id,
+                    token);
+
+                request = await RequireRequestAsync(requestId, token);
+                if (request.Status != RequestStatus.Pending)
+                {
+                    throw new DomainException("Only a pending request can be approved.");
+                }
+
                 var slot = await RequireSlotAsync(request.ShiftSlotId, token);
                 var shift = await RequireShiftAsync(slot.ShiftId, token);
                 if (!slot.IsActive || !shift.IsActive || shift.EndsAtUtc <= now)
@@ -330,7 +392,14 @@ public sealed class VolunteerCoordinatorService
                 }
 
                 var volunteer = await RequireVolunteerAsync(request.VolunteerId, token);
-                await SupersedeConflictingAssignmentsAsync(slot.Id, shift.Id, volunteer.Id, actor, now, token);
+                await SupersedeConflictingAssignmentsAsync(
+                    slot.Id,
+                    shift.Id,
+                    volunteer.Id,
+                    lockedAssignmentSlots,
+                    actor,
+                    now,
+                    token);
 
                 var assignment = Assignment.Create(slot.Id, shift.Id, volunteer.Id, request.Id, actor, now);
                 _store.AddAssignment(assignment);
@@ -340,6 +409,9 @@ public sealed class VolunteerCoordinatorService
                 return (assignment.Id, volunteer.Email);
             },
             cancellationToken);
+
+
+
 
         var notification = await NotifySafelyAsync(new NotificationMessage(result.Id, "AssignmentCreated", result.Email), cancellationToken);
         return new AssignmentResult(result.Id, notification.Warning);
@@ -374,10 +446,19 @@ public sealed class VolunteerCoordinatorService
     {
         var actor = RequireCoordinator(coordinatorEmail);
         var now = _clock.UtcNow;
-        var result = await _store.ExecuteInTransactionAsync(
+        var result = await ExecuteWithAssignmentLockRetryAsync(
             async token =>
             {
-                await _store.LockSlotAsync(slotId, token);
+                var preflightSlot = await RequireSlotAsync(slotId, token);
+                var preflightShift = await RequireShiftAsync(preflightSlot.ShiftId, token);
+                var normalizedEmail = Volunteer.NormalizeEmail(volunteerEmail);
+                var preflightVolunteer = await _store.GetVolunteerByNormalizedEmailAsync(normalizedEmail, token);
+                var lockedAssignmentSlots = await LockAssignmentSlotsAsync(
+                    preflightSlot.Id,
+                    preflightShift.Id,
+                    preflightVolunteer?.Id,
+                    token);
+
                 var slot = await RequireSlotAsync(slotId, token);
                 var shift = await RequireShiftAsync(slot.ShiftId, token);
                 if (!slot.IsActive || !shift.IsActive || shift.EndsAtUtc <= now)
@@ -385,7 +466,6 @@ public sealed class VolunteerCoordinatorService
                     throw new DomainException("An inactive or ended slot cannot be assigned.");
                 }
 
-                var normalizedEmail = Volunteer.NormalizeEmail(volunteerEmail);
                 var volunteer = await _store.GetVolunteerByNormalizedEmailAsync(normalizedEmail, token);
                 if (volunteer is null)
                 {
@@ -397,7 +477,14 @@ public sealed class VolunteerCoordinatorService
                     volunteer.UpdateContact(volunteerName, volunteerEmail, volunteerPhone, now);
                 }
 
-                await SupersedeConflictingAssignmentsAsync(slot.Id, shift.Id, volunteer.Id, actor, now, token);
+                await SupersedeConflictingAssignmentsAsync(
+                    slot.Id,
+                    shift.Id,
+                    volunteer.Id,
+                    lockedAssignmentSlots,
+                    actor,
+                    now,
+                    token);
                 var assignment = Assignment.Create(slot.Id, shift.Id, volunteer.Id, null, actor, now);
                 _store.AddAssignment(assignment);
                 await SupersedeOtherRequestsAsync(slot.Id, null, actor, now, token);
@@ -405,10 +492,41 @@ public sealed class VolunteerCoordinatorService
                 return (assignment.Id, volunteer.Email);
             },
             cancellationToken);
-
         var notification = await NotifySafelyAsync(new NotificationMessage(result.Id, "AssignmentCreated", result.Email), cancellationToken);
         return new AssignmentResult(result.Id, notification.Warning);
     }
+
+
+    public async Task CancelAssignmentAsync(
+        Guid assignmentId,
+        string coordinatorEmail,
+        CancellationToken cancellationToken)
+    {
+        var actor = RequireCoordinator(coordinatorEmail);
+        var now = _clock.UtcNow;
+        await _store.ExecuteInTransactionAsync(
+            async token =>
+            {
+                var slotId = await _store.GetAssignmentSlotIdAsync(assignmentId, token)
+                    ?? throw new DomainException("The assignment was not found.");
+                await _store.LockSlotAsync(slotId, token);
+                var assignment = await RequireAssignmentAsync(assignmentId, token);
+                if (!assignment.IsActive)
+                {
+                    throw new DomainException("Only an active assignment can be cancelled.");
+                }
+
+                await CancelAssignmentsAsync(
+                    [assignment],
+                    now,
+                    actor,
+                    "AssignmentCancelledByCoordinator",
+                    token);
+                return true;
+            },
+            cancellationToken);
+    }
+
 
     public async Task<IReadOnlyList<VolunteerDto>> ListVolunteersAsync(CancellationToken cancellationToken)
     {
@@ -423,6 +541,9 @@ public sealed class VolunteerCoordinatorService
         return await _store.ExecuteInTransactionAsync(
             async token =>
             {
+                var slotId = await _store.GetAssignmentSlotIdAsync(assignmentId, token)
+                    ?? throw new DomainException("The assignment was not found.");
+                await _store.LockSlotAsync(slotId, token);
                 var assignment = await RequireAssignmentAsync(assignmentId, token);
                 if (!assignment.IsActive)
                 {
@@ -443,6 +564,7 @@ public sealed class VolunteerCoordinatorService
             },
             cancellationToken);
     }
+
 
     public async Task<ActionInspectionDto> InspectActionAsync(string rawToken, CancellationToken cancellationToken)
     {
@@ -465,10 +587,18 @@ public sealed class VolunteerCoordinatorService
     public async Task<CommandResult<string>> ApplyActionAsync(string rawToken, CancellationToken cancellationToken)
     {
         var now = _clock.UtcNow;
+        var hash = HashRequiredToken(rawToken);
         var result = await _store.ExecuteInTransactionAsync(
             async tokenCancellation =>
             {
-                var (actionToken, assignment) = await ResolveActionAsync(rawToken, tokenCancellation);
+                var slotId = await _store.GetActionTokenSlotIdAsync(hash, tokenCancellation);
+                if (!slotId.HasValue)
+                {
+                    throw new DomainException("This action link is invalid, expired, or already used.");
+                }
+
+                await _store.LockSlotAsync(slotId.Value, tokenCancellation);
+                var (actionToken, assignment) = await ResolveActionAsync(hash, tokenCancellation);
                 if (!CanApply(actionToken.Action, assignment.Status))
                 {
                     throw new DomainException("This action no longer applies to the current assignment state.");
@@ -499,6 +629,7 @@ public sealed class VolunteerCoordinatorService
         var notification = await NotifySafelyAsync(new NotificationMessage(result.Id, $"Assignment{result.Action}", result.Email), cancellationToken);
         return new CommandResult<string>(result.Action, notification.Warning);
     }
+
 
     public async Task<IReadOnlyList<CoverageDto>> GetCoverageAsync(CancellationToken cancellationToken)
     {
@@ -538,6 +669,37 @@ public sealed class VolunteerCoordinatorService
         return entries.Select(x => new AuditDto(x.OccurredAtUtc, x.Actor, x.Action, x.EntityKind, x.EntityId, x.DetailJson)).ToArray();
     }
 
+    private async Task<int> CancelAssignmentsAsync(
+        IReadOnlyCollection<Assignment> assignments,
+        DateTimeOffset now,
+        string coordinatorEmail,
+        string auditAction,
+        CancellationToken cancellationToken)
+    {
+        var tokens = await _store.GetUnusedActionTokensAsync(
+            assignments.Select(x => x.Id).ToArray(),
+            cancellationToken);
+        var tokensByAssignment = tokens.ToLookup(x => x.AssignmentId);
+        foreach (var assignment in assignments)
+        {
+            assignment.Cancel(now);
+            foreach (var actionToken in tokensByAssignment[assignment.Id])
+            {
+                actionToken.Invalidate(now);
+            }
+
+            _store.AddAuditEntry(AuditEntry.Create(
+                now,
+                coordinatorEmail,
+                auditAction,
+                nameof(Assignment),
+                assignment.Id,
+                Detail(new { assignment.ShiftSlotId, assignment.VolunteerId, assignment.Status })));
+        }
+
+        return tokens.Count;
+    }
+
     private async Task<string> RegenerateActionTokenAsync(Guid assignmentId, VolunteerAction action, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var existingTokens = await _store.GetUnusedActionTokensAsync(assignmentId, action, cancellationToken);
@@ -550,20 +712,108 @@ public sealed class VolunteerCoordinatorService
         _store.AddActionToken(ActionToken.Create(assignmentId, action, generated.Hash, now, now.Add(ActionTokenLifetime)));
         return generated.RawToken;
     }
+    private async Task<T> ExecuteWithAssignmentLockRetryAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        var attempts = 0;
+        while (attempts < MaxAssignmentLockAttempts)
+        {
+            attempts++;
+            try
+            {
+                return await _store.ExecuteInTransactionAsync(operation, cancellationToken);
+            }
+            catch (AssignmentLockRestartException)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+        }
+
+        throw new DomainException(AssignmentLockConflictMessage);
+    }
+
+    private async Task<IReadOnlySet<Guid>> LockSlotsAsync(
+        IEnumerable<Guid> slotIds,
+        CancellationToken cancellationToken)
+    {
+        var orderedSlotIds = slotIds
+            .Distinct()
+            .OrderBy(x => x)
+            .ToArray();
+        foreach (var slotId in orderedSlotIds)
+        {
+            await _store.LockSlotAsync(slotId, cancellationToken);
+        }
+
+        return orderedSlotIds.ToHashSet();
+    }
+
+
+    private async Task<IReadOnlySet<Guid>> LockAssignmentSlotsAsync(
+        Guid destinationSlotId,
+        Guid shiftId,
+        Guid? volunteerId,
+        CancellationToken cancellationToken)
+    {
+        var slotAssignment = await _store.GetActiveAssignmentForSlotAsync(destinationSlotId, cancellationToken);
+        var volunteerAssignment = volunteerId.HasValue
+            ? await _store.GetActiveAssignmentForVolunteerAndShiftAsync(volunteerId.Value, shiftId, cancellationToken)
+            : null;
+        var slotIds = new Guid?[] { destinationSlotId, slotAssignment?.ShiftSlotId, volunteerAssignment?.ShiftSlotId }
+            .Where(x => x.HasValue)
+            .Select(x => x.GetValueOrDefault())
+            .Distinct()
+            .ToArray();
+        var lockedSlotIds = await LockSlotsAsync(slotIds, cancellationToken);
+
+        var currentSlotAssignment = await _store.GetActiveAssignmentForSlotAsync(destinationSlotId, cancellationToken);
+        var currentVolunteerAssignment = volunteerId.HasValue
+            ? await _store.GetActiveAssignmentForVolunteerAndShiftAsync(volunteerId.Value, shiftId, cancellationToken)
+            : null;
+        var currentSlotIds = new Guid?[]
+        {
+            currentSlotAssignment?.ShiftSlotId,
+            currentVolunteerAssignment?.ShiftSlotId
+        };
+        if (currentSlotIds.Any(x => x.HasValue && !lockedSlotIds.Contains(x.Value)))
+        {
+            throw new AssignmentLockRestartException();
+        }
+
+        return lockedSlotIds;
+    }
 
     private async Task SupersedeConflictingAssignmentsAsync(
         Guid slotId,
         Guid shiftId,
         Guid volunteerId,
+        IReadOnlySet<Guid> lockedSlotIds,
         string coordinatorEmail,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
         var slotAssignment = await _store.GetActiveAssignmentForSlotAsync(slotId, cancellationToken);
         var volunteerAssignment = await _store.GetActiveAssignmentForVolunteerAndShiftAsync(volunteerId, shiftId, cancellationToken);
-        foreach (var assignment in new[] { slotAssignment, volunteerAssignment }.Where(x => x is not null).Cast<Assignment>().DistinctBy(x => x.Id))
+        var conflictingAssignments = new[] { slotAssignment, volunteerAssignment }
+            .Where(x => x is not null)
+            .Cast<Assignment>()
+            .DistinctBy(x => x.Id)
+            .ToArray();
+        if (conflictingAssignments.Any(assignment => !lockedSlotIds.Contains(assignment.ShiftSlotId)))
+        {
+            throw new AssignmentLockRestartException();
+        }
+
+        foreach (var assignment in conflictingAssignments)
         {
             assignment.Reassign(now);
+            var actionTokens = await _store.GetUnusedActionTokensAsync([assignment.Id], cancellationToken);
+            foreach (var actionToken in actionTokens)
+            {
+                actionToken.Invalidate(now);
+            }
+
             _store.AddAuditEntry(AuditEntry.Create(
                 now,
                 coordinatorEmail,
@@ -575,6 +825,7 @@ public sealed class VolunteerCoordinatorService
         await _store.FlushAsync(cancellationToken);
     }
 
+
     private async Task SupersedeOtherRequestsAsync(Guid slotId, Guid? approvedRequestId, string coordinatorEmail, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var requests = await _store.GetPendingRequestsForSlotAsync(slotId, cancellationToken);
@@ -584,9 +835,11 @@ public sealed class VolunteerCoordinatorService
         }
     }
 
-    private async Task<(ActionToken Token, Assignment Assignment)> ResolveActionAsync(string rawToken, CancellationToken cancellationToken)
+    private async Task<(ActionToken Token, Assignment Assignment)> ResolveActionAsync(string rawToken, CancellationToken cancellationToken) =>
+        await ResolveActionAsync(HashRequiredToken(rawToken), cancellationToken);
+
+    private async Task<(ActionToken Token, Assignment Assignment)> ResolveActionAsync(byte[] hash, CancellationToken cancellationToken)
     {
-        var hash = HashRequiredToken(rawToken);
         var actionToken = await _store.GetActionTokenByHashAsync(hash, cancellationToken);
         if (actionToken is null || !_tokens.FixedTimeEquals(hash, actionToken.TokenHash) || !actionToken.IsUsable(_clock.UtcNow))
         {
@@ -601,6 +854,7 @@ public sealed class VolunteerCoordinatorService
 
         return (actionToken, assignment);
     }
+
 
     private byte[] HashRequiredToken(string rawToken)
     {
