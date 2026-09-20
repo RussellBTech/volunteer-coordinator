@@ -16,7 +16,7 @@
     <ul>
     @foreach (var volunteer in Model.ExistingVolunteers)
     {
-        <li>@volunteer.Name — @volunteer.Email @if (volunteer.Phone is not null) { <span>— @volunteer.Phone</span> }</li>
+        <li>@volunteer.Name @if (!volunteer.IsAnonymized) { <span>— @volunteer.Email @if (volunteer.Phone is not null) { <span>— @volunteer.Phone</span> }</span> }</li>
     }
     </ul>
 </details>
@@ -26,5 +26,6 @@
 <div class="form-group"><label asp-for="VolunteerName"></label><input asp-for="VolunteerName" autocomplete="name"><span asp-validation-for="VolunteerName"></span></div>
 <div class="form-group"><label asp-for="VolunteerEmail"></label><input asp-for="VolunteerEmail" autocomplete="email"><span asp-validation-for="VolunteerEmail"></span></div>
 <div class="form-group"><label asp-for="VolunteerPhone"></label><input asp-for="VolunteerPhone" autocomplete="tel"><span asp-validation-for="VolunteerPhone"></span></div>
+<partial name="_VolunteerPrivacyNotice" />
 <div class="actions"><button type="submit">@(Model.CurrentAssignmentId.HasValue ? "Reassign" : "Assign") volunteer</button><a asp-page="/Coordinator/Coverage/Index">Cancel</a></div>
 </form>

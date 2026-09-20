@@ -29,6 +29,7 @@ public sealed class RequestModel : PageModel
     public string Email { get; set; } = string.Empty;
 
     [BindProperty]
+    [Display(Name = "Phone (optional)")]
     [Phone, StringLength(40)]
     public string? Phone { get; set; }
 

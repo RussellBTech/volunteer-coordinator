@@ -19,6 +19,7 @@ else if (Model.Opening is not null)
         <div class="form-group"><label asp-for="Name"></label><input asp-for="Name" autocomplete="name"><span asp-validation-for="Name"></span></div>
         <div class="form-group"><label asp-for="Email"></label><input asp-for="Email" autocomplete="email"><span asp-validation-for="Email"></span></div>
         <div class="form-group"><label asp-for="Phone"></label><input asp-for="Phone" autocomplete="tel"><span asp-validation-for="Phone"></span></div>
+        <partial name="_VolunteerPrivacyNotice" />
         <button type="submit">Submit request</button>
     </form>
 }

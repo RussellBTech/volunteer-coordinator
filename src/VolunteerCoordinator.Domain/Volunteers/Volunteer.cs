@@ -27,11 +27,18 @@ public sealed class Volunteer
 
     public DateTimeOffset UpdatedAtUtc { get; private set; }
 
+    public DateTimeOffset? AnonymizedAtUtc { get; private set; }
+
     public static Volunteer Create(string name, string email, string? phone, DateTimeOffset nowUtc) =>
         new(name, email, phone, nowUtc);
 
     public void UpdateContact(string name, string email, string? phone, DateTimeOffset nowUtc)
     {
+        if (AnonymizedAtUtc.HasValue)
+        {
+            throw new DomainException("Removed volunteer contact data cannot be restored.");
+        }
+
         if (string.IsNullOrWhiteSpace(name) || name.Trim().Length > 120)
         {
             throw new DomainException("Volunteer name is required and cannot exceed 120 characters.");
@@ -48,10 +55,7 @@ public sealed class Volunteer
             throw new DomainException("Phone cannot exceed 40 characters.");
         }
 
-        if (nowUtc.Offset != TimeSpan.Zero)
-        {
-            throw new DomainException("Volunteer timestamps must be UTC.");
-        }
+        ValidateUtc(nowUtc, "Volunteer timestamps must be UTC.");
 
         Name = name.Trim();
         Email = email.Trim();
@@ -60,6 +64,31 @@ public sealed class Volunteer
         UpdatedAtUtc = nowUtc;
     }
 
+    public bool Anonymize(DateTimeOffset nowUtc)
+    {
+        ValidateUtc(nowUtc, "Volunteer timestamps must be UTC.");
+        if (AnonymizedAtUtc.HasValue)
+        {
+            return false;
+        }
+
+        Name = "Removed volunteer";
+        Email = $"removed-{Id:N}@invalid.invalid";
+        NormalizedEmail = Email.ToUpperInvariant();
+        Phone = null;
+        UpdatedAtUtc = nowUtc;
+        AnonymizedAtUtc = nowUtc;
+        return true;
+    }
+
     public static string NormalizeEmail(string email) =>
         string.IsNullOrWhiteSpace(email) ? string.Empty : email.Trim().ToUpperInvariant();
+
+    private static void ValidateUtc(DateTimeOffset value, string message)
+    {
+        if (value.Offset != TimeSpan.Zero)
+        {
+            throw new DomainException(message);
+        }
+    }
 }

@@ -1,0 +1,49 @@
+@page "/Coordinator/Privacy"
+@model VolunteerCoordinator.Web.Pages.Coordinator.Privacy.IndexModel
+@{
+    ViewData["Title"] = "Volunteer contact removal";
+}
+<h1>Volunteer contact removal</h1>
+<p class="lead">Use this page only for a volunteer's verified out-of-band removal request. Match the normalized email and one recent service commitment before continuing.</p>
+<div class="card">
+    <h2>Verification and scope</h2>
+    <p>Enter the email supplied by the volunteer. A matching record is shown only to an authorized coordinator. The volunteer must also identify one recent related commitment. This verifies a removal request; it is not a volunteer account sign-in.</p>
+    <p>Live pending requests, assigned or confirmed assignments, and future commitments block removal. Non-identifying scheduling history remains after contact data is removed.</p>
+</div>
+@if (Model.LookupMessage is not null)
+{
+    <div class="alert alert-warning" role="status">@Model.LookupMessage</div>
+}
+@if (Model.BlockingMessage is not null)
+{
+    <div class="alert alert-warning" role="alert">@Model.BlockingMessage</div>
+}
+<form method="post" asp-page-handler="Lookup">
+    <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+    <div class="form-group"><label asp-for="Email"></label><input asp-for="Email" autocomplete="email"><span asp-validation-for="Email"></span></div>
+    <button type="submit">Find removal record</button>
+</form>
+@if (Model.Lookup is not null)
+{
+    <section class="card">
+        <h2>Choose the recent commitment supplied out of band</h2>
+        <p>Confirm that one of these commitments matches what the volunteer supplied. Do not continue if none matches.</p>
+        <form method="post" asp-page-handler="Confirm">
+            <input type="hidden" asp-for="VolunteerId">
+            <input type="hidden" asp-for="NormalizedEmail">
+            <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+            <fieldset class="form-group">
+                <legend>Recent related commitments</legend>
+                @foreach (var commitment in Model.Lookup.Commitments)
+                {
+                    <label>
+                        <input type="radio" asp-for="SelectedShiftId" value="@commitment.ShiftId">
+                        <span><strong>@commitment.Status</strong></span>
+                        <partial name="_CommitmentDetails" model="commitment.Commitment" />
+                    </label>
+                }
+            </fieldset>
+            <button type="submit" class="button-danger">Confirm verified removal</button>
+        </form>
+    </section>
+}

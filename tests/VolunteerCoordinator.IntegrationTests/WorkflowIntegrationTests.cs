@@ -1143,6 +1143,14 @@ public sealed class WorkflowIntegrationTests
     {
         await _fixture.ResetAsync();
         await using var context = _fixture.CreateContext();
+        var volunteer = Volunteer.Create(
+            "Alex",
+            "alex@example.org",
+            null,
+            DateTimeOffset.UtcNow);
+        context.Volunteers.Add(volunteer);
+        await context.SaveChangesAsync();
+
         var service = new UnavailableNotificationService(context, new SystemClock());
         using var requestCancellation = new CancellationTokenSource();
         requestCancellation.Cancel();
@@ -1151,11 +1159,12 @@ public sealed class WorkflowIntegrationTests
             new VolunteerCoordinator.Application.Notifications.NotificationMessage(
                 Guid.NewGuid(),
                 "AssignmentCreated",
-                "alex@example.org"),
+                volunteer.Id),
             requestCancellation.Token);
 
         Assert.False(result.Succeeded);
         Assert.Equal(NotificationState.Failed, (await context.NotificationAttempts.SingleAsync()).State);
+        Assert.Equal("alex@example.org", (await context.NotificationAttempts.SingleAsync()).Destination);
     }
 
     private static Task<int> LockSlotAsync(VolunteerCoordinatorDbContext context, Guid slotId) =>

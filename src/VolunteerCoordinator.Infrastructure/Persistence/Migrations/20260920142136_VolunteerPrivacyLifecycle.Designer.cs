@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using VolunteerCoordinator.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using VolunteerCoordinator.Infrastructure.Persistence;
 namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(VolunteerCoordinatorDbContext))]
-    partial class VolunteerCoordinatorDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260920142136_VolunteerPrivacyLifecycle")]
+    partial class VolunteerPrivacyLifecycle
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

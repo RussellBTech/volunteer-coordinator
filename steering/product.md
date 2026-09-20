@@ -61,6 +61,12 @@ Shift setup is a first-release capability. Authenticated coordinators can create
 | Low-friction volunteer access | Require no persistent volunteer account for the first releasable workflow. |
 | Coverage visibility | Prioritize actionable uncovered and unconfirmed work over administrative reporting. |
 
+## Volunteer Contact Privacy
+
+Volunteer contact data is collected only to coordinate a service commitment. The application must explain what is collected, who authorized coordinators can see, the optional phone field, the configured removal contact, the one-year lifecycle, and protected-backup rotation before a volunteer submits contact data. It must never characterize a volunteer as an organizational member or attendee.
+
+Identifying contact data is retained only while a live scheduling dependency exists and for at most 365 elapsed UTC days after the latest related workflow activity or shift end. A verified earlier-removal request is supported. When no live dependency remains, identifying contact data is irreversibly anonymized while non-identifying scheduling history remains available to preserve coverage and audit integrity. Removed records use a neutral `Removed volunteer` identity.
+
 ## Lifecycle Commands
 
 | Need | Command |

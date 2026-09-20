@@ -5,6 +5,7 @@ using VolunteerCoordinator.Application.Ports;
 using VolunteerCoordinator.Domain;
 using VolunteerCoordinator.Domain.Assignments;
 using VolunteerCoordinator.Domain.Auditing;
+using VolunteerCoordinator.Domain.Notifications;
 using VolunteerCoordinator.Domain.Requests;
 using VolunteerCoordinator.Domain.Schedules;
 using VolunteerCoordinator.Domain.Settings;
@@ -16,6 +17,7 @@ namespace VolunteerCoordinator.Application;
 public sealed class VolunteerCoordinatorService
 {
     public const string CommitmentUnavailableMessage = "Commitment times are temporarily unavailable. Please contact the coordinator.";
+    private const int VolunteerRetentionDays = VolunteerRetentionPolicy.MinimumRetentionDays;
     private const int MaxAssignmentLockAttempts = 3;
     private const string AssignmentLockConflictMessage = "The requested change conflicts with current schedule state. Reload and try again.";
     private static readonly TimeSpan StatusTokenLifetime = TimeSpan.FromDays(30);
@@ -27,6 +29,14 @@ public sealed class VolunteerCoordinatorService
     private sealed class AssignmentLockRestartException : Exception
     {
     }
+
+    private sealed record VolunteerPrivacyState(
+        Volunteer? Volunteer,
+        IReadOnlyList<ShiftRequest> Requests,
+        IReadOnlyList<Assignment> Assignments,
+        IReadOnlyList<Shift> Shifts,
+        IReadOnlyList<ActionToken> UnusedActionTokens,
+        IReadOnlyList<NotificationAttempt> Notifications);
 
 
     public VolunteerCoordinatorService(
@@ -250,6 +260,12 @@ public sealed class VolunteerCoordinatorService
                     .Select(x => x.Id)
                     .ToArray();
                 await LockSlotsAsync(removedBackupSlotIds, token);
+                await _store.LockShiftAsync(shiftId, token);
+                shift = await RequireShiftAsync(shiftId, token);
+                if (shift.Version != expectedVersion)
+                {
+                    throw new DomainException("This shift was changed by another coordinator. Reload it and try again.");
+                }
                 foreach (var slotId in removedBackupSlotIds)
                 {
                     if (await _store.GetActiveAssignmentForSlotAsync(slotId, token) is not null ||
@@ -310,6 +326,12 @@ public sealed class VolunteerCoordinatorService
 
                 var slotIds = shift.Slots.Select(x => x.Id).ToArray();
                 await LockSlotsAsync(slotIds, token);
+                await _store.LockShiftAsync(shiftId, token);
+                shift = await RequireShiftAsync(shiftId, token);
+                if (shift.Version != expectedVersion)
+                {
+                    throw new DomainException("This shift was changed by another coordinator. Reload it and try again.");
+                }
 
                 var pendingRequests = await _store.GetPendingRequestsAsync(slotIds, token);
                 var activeAssignments = await _store.GetActiveAssignmentsAsync(slotIds, token);
@@ -354,6 +376,7 @@ public sealed class VolunteerCoordinatorService
         await _store.ExecuteInTransactionAsync(
             async token =>
             {
+                await _store.LockShiftAsync(shiftId, token);
                 var shift = await RequireShiftAsync(shiftId, token);
                 if (shift.Version != expectedVersion)
                 {
@@ -425,8 +448,18 @@ public sealed class VolunteerCoordinatorService
                 }
 
                 var normalizedEmail = Volunteer.NormalizeEmail(email);
-                var volunteer = await _store.GetVolunteerByNormalizedEmailAsync(normalizedEmail, token);
-                if (volunteer is null)
+                var volunteerId = await _store.GetVolunteerIdByNormalizedEmailAsync(normalizedEmail, token);
+                Volunteer volunteer;
+                if (volunteerId.HasValue)
+                {
+                    await _store.LockVolunteerAsync(volunteerId.Value, token);
+                    volunteer = await RequireVolunteerAsync(volunteerId.Value, token);
+                    if (volunteer.AnonymizedAtUtc.HasValue)
+                    {
+                        throw new DomainException("Removed volunteer contact data cannot be restored.");
+                    }
+                }
+                else
                 {
                     volunteer = Volunteer.Create(name, email, phone, now);
                     _store.AddVolunteer(volunteer);
@@ -440,11 +473,11 @@ public sealed class VolunteerCoordinatorService
                 var request = ShiftRequest.Create(slot.Id, volunteer.Id, generatedToken.Hash, now, now.Add(StatusTokenLifetime));
                 _store.AddRequest(request);
                 _store.AddAuditEntry(AuditEntry.Create(now, $"volunteer:{volunteer.Id}", "RequestSubmitted", nameof(ShiftRequest), request.Id, Detail(new { request.ShiftSlotId, request.VolunteerId })));
-                return (request.Id, volunteer.Email, Commitment: BuildCommitment(shift, settings, slot, SlotLabel(slot)));
+                return (request.Id, VolunteerId: volunteer.Id, Commitment: BuildCommitment(shift, settings, slot, SlotLabel(slot)));
             },
             cancellationToken);
 
-        var notification = await NotifySafelyAsync(new NotificationMessage(result.Id, "RequestReceived", result.Email), cancellationToken);
+        var notification = await NotifySafelyAsync(new NotificationMessage(result.Id, "RequestReceived", result.VolunteerId), cancellationToken);
         return new RequestSubmission(result.Id, generatedToken.RawToken, notification.Warning, result.Commitment);
     }
 
@@ -504,8 +537,8 @@ public sealed class VolunteerCoordinatorService
             var canApprove = request.Status == RequestStatus.Pending && slotState == "Available";
             result.Add(new CoordinatorRequestDto(
                 request.Id,
-                volunteer.Name,
-                volunteer.Email,
+                volunteer.AnonymizedAtUtc.HasValue ? "Removed volunteer" : volunteer.Name,
+                volunteer.AnonymizedAtUtc.HasValue ? string.Empty : volunteer.Email,
                 BuildCommitment(shift, settings, slot, SlotLabel(slot)),
                 request.Status.ToString(),
                 request.RequestedAtUtc,
@@ -538,6 +571,7 @@ public sealed class VolunteerCoordinatorService
                     preflightShift.Id,
                     preflightVolunteer.Id,
                     token);
+                await _store.LockVolunteerAsync(preflightVolunteer.Id, token);
 
                 request = await RequireRequestAsync(requestId, token);
                 if (request.Status != RequestStatus.Pending)
@@ -555,6 +589,10 @@ public sealed class VolunteerCoordinatorService
                 }
 
                 var volunteer = await RequireVolunteerAsync(request.VolunteerId, token);
+                if (volunteer.AnonymizedAtUtc.HasValue)
+                {
+                    throw new DomainException("Removed volunteer contact data cannot be restored.");
+                }
                 await SupersedeConflictingAssignmentsAsync(
                     slot.Id,
                     shift.Id,
@@ -569,14 +607,14 @@ public sealed class VolunteerCoordinatorService
                 request.Approve(actor, now);
                 await SupersedeOtherRequestsAsync(slot.Id, request.Id, actor, now, token);
                 _store.AddAuditEntry(AuditEntry.Create(now, actor, "RequestApproved", nameof(ShiftRequest), request.Id, Detail(new { AssignmentId = assignment.Id, assignment.ShiftSlotId, assignment.VolunteerId })));
-                return (assignment.Id, volunteer.Email, Commitment: BuildCommitment(shift, settings, slot, SlotLabel(slot)));
+                return (assignment.Id, VolunteerId: volunteer.Id, Commitment: BuildCommitment(shift, settings, slot, SlotLabel(slot)));
             },
             cancellationToken);
 
 
 
 
-        var notification = await NotifySafelyAsync(new NotificationMessage(result.Id, "AssignmentCreated", result.Email), cancellationToken);
+        var notification = await NotifySafelyAsync(new NotificationMessage(result.Id, "AssignmentCreated", result.VolunteerId), cancellationToken);
         return new AssignmentResult(result.Id, notification.Warning, result.Commitment);
     }
 
@@ -591,11 +629,11 @@ public sealed class VolunteerCoordinatorService
                 var volunteer = await RequireVolunteerAsync(request.VolunteerId, token);
                 request.Reject(actor, now);
                 _store.AddAuditEntry(AuditEntry.Create(now, actor, "RequestRejected", nameof(ShiftRequest), request.Id, "{}"));
-                return (request.Id, volunteer.Email);
+                return (request.Id, VolunteerId: volunteer.Id);
             },
             cancellationToken);
 
-        var notification = await NotifySafelyAsync(new NotificationMessage(result.Id, "RequestRejected", result.Email), cancellationToken);
+        var notification = await NotifySafelyAsync(new NotificationMessage(result.Id, "RequestRejected", result.VolunteerId), cancellationToken);
         return new CommandResult<bool>(true, notification.Warning);
     }
 
@@ -615,12 +653,16 @@ public sealed class VolunteerCoordinatorService
                 var preflightSlot = await RequireSlotAsync(slotId, token);
                 var preflightShift = await RequireShiftAsync(preflightSlot.ShiftId, token);
                 var normalizedEmail = Volunteer.NormalizeEmail(volunteerEmail);
-                var preflightVolunteer = await _store.GetVolunteerByNormalizedEmailAsync(normalizedEmail, token);
+                var preflightVolunteerId = await _store.GetVolunteerIdByNormalizedEmailAsync(normalizedEmail, token);
                 var lockedAssignmentSlots = await LockAssignmentSlotsAsync(
                     preflightSlot.Id,
                     preflightShift.Id,
-                    preflightVolunteer?.Id,
+                    preflightVolunteerId,
                     token);
+                if (preflightVolunteerId.HasValue)
+                {
+                    await _store.LockVolunteerAsync(preflightVolunteerId.Value, token);
+                }
 
                 var slot = await RequireSlotAsync(slotId, token);
                 var shift = await RequireShiftAsync(slot.ShiftId, token);
@@ -631,15 +673,22 @@ public sealed class VolunteerCoordinatorService
                     throw new DomainException("An inactive or ended slot cannot be assigned.");
                 }
 
-                var volunteer = await _store.GetVolunteerByNormalizedEmailAsync(normalizedEmail, token);
-                if (volunteer is null)
+                var volunteerId = await _store.GetVolunteerIdByNormalizedEmailAsync(normalizedEmail, token);
+                Volunteer volunteer;
+                if (volunteerId.HasValue)
                 {
-                    volunteer = Volunteer.Create(volunteerName, volunteerEmail, volunteerPhone, now);
-                    _store.AddVolunteer(volunteer);
+                    if (!preflightVolunteerId.HasValue || volunteerId.Value != preflightVolunteerId.Value)
+                    {
+                        await _store.LockVolunteerAsync(volunteerId.Value, token);
+                    }
+
+                    volunteer = await RequireVolunteerAsync(volunteerId.Value, token);
+                    volunteer.UpdateContact(volunteerName, volunteerEmail, volunteerPhone, now);
                 }
                 else
                 {
-                    volunteer.UpdateContact(volunteerName, volunteerEmail, volunteerPhone, now);
+                    volunteer = Volunteer.Create(volunteerName, volunteerEmail, volunteerPhone, now);
+                    _store.AddVolunteer(volunteer);
                 }
 
                 await SupersedeConflictingAssignmentsAsync(
@@ -654,10 +703,10 @@ public sealed class VolunteerCoordinatorService
                 _store.AddAssignment(assignment);
                 await SupersedeOtherRequestsAsync(slot.Id, null, actor, now, token);
                 _store.AddAuditEntry(AuditEntry.Create(now, actor, "AssignmentCreatedOrReassigned", nameof(Assignment), assignment.Id, Detail(new { assignment.ShiftSlotId, assignment.VolunteerId })));
-                return (assignment.Id, volunteer.Email, Commitment: BuildCommitment(shift, settings, slot, SlotLabel(slot)));
+                return (assignment.Id, VolunteerId: volunteer.Id, Commitment: BuildCommitment(shift, settings, slot, SlotLabel(slot)));
             },
             cancellationToken);
-        var notification = await NotifySafelyAsync(new NotificationMessage(result.Id, "AssignmentCreated", result.Email), cancellationToken);
+        var notification = await NotifySafelyAsync(new NotificationMessage(result.Id, "AssignmentCreated", result.VolunteerId), cancellationToken);
         return new AssignmentResult(result.Id, notification.Warning, result.Commitment);
     }
 
@@ -692,13 +741,245 @@ public sealed class VolunteerCoordinatorService
             cancellationToken);
     }
 
-
     public async Task<IReadOnlyList<VolunteerDto>> ListVolunteersAsync(CancellationToken cancellationToken)
     {
         var volunteers = await _store.GetVolunteersAsync(cancellationToken);
-        return volunteers.OrderBy(x => x.Name).Select(x => new VolunteerDto(x.Id, x.Name, x.Email, x.Phone)).ToArray();
+        return volunteers
+            .OrderBy(x => x.Name)
+            .Select(x => new VolunteerDto(
+                x.Id,
+                x.AnonymizedAtUtc.HasValue ? "Removed volunteer" : x.Name,
+                x.AnonymizedAtUtc.HasValue ? string.Empty : x.Email,
+                x.AnonymizedAtUtc.HasValue ? null : x.Phone)
+            {
+                IsAnonymized = x.AnonymizedAtUtc.HasValue
+            })
+            .ToArray();
     }
 
+    public async Task<VolunteerAnonymizationResult> AnonymizeVolunteerAsync(
+        Guid volunteerId,
+        VolunteerAnonymizationReason reason,
+        string actor,
+        CancellationToken cancellationToken)
+    {
+        var auditActor = reason == VolunteerAnonymizationReason.RetentionExpired
+            ? "retention-worker"
+            : RequireCoordinator(actor);
+        return await _store.ExecuteInTransactionAsync(
+            token => AnonymizeVolunteerInTransactionAsync(
+                volunteerId,
+                reason,
+                auditActor,
+                VolunteerRetentionDays,
+                token),
+            cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<RetentionSweepResult>> RunRetentionSweepAsync(
+        int retentionDays,
+        int batchSize,
+        CancellationToken cancellationToken,
+        Guid? afterVolunteerId = null) =>
+        await RunRetentionSweepCoreAsync(
+            retentionDays,
+            batchSize,
+            afterVolunteerId,
+            cancellationToken);
+
+    public async Task RunInitialRetentionSweepAsync(
+        int retentionDays,
+        int batchSize,
+        CancellationToken cancellationToken)
+    {
+        ValidateRetentionSettings(retentionDays, batchSize);
+        Guid? afterVolunteerId = null;
+        while (true)
+        {
+            var results = await RunRetentionSweepCoreAsync(
+                retentionDays,
+                batchSize,
+                afterVolunteerId,
+                cancellationToken);
+            if (results.Count == 0)
+            {
+                return;
+            }
+
+            afterVolunteerId = results[^1].VolunteerId;
+        }
+    }
+
+    private async Task<IReadOnlyList<RetentionSweepResult>> RunRetentionSweepCoreAsync(
+        int retentionDays,
+        int batchSize,
+        Guid? afterVolunteerId,
+        CancellationToken cancellationToken)
+    {
+        ValidateRetentionSettings(retentionDays, batchSize);
+
+        var now = _clock.UtcNow;
+        var candidateIds = await _store.GetRetentionCandidateIdsAsync(
+            now.Subtract(TimeSpan.FromDays(retentionDays)),
+            afterVolunteerId,
+            batchSize,
+            cancellationToken);
+        var results = new List<RetentionSweepResult>(candidateIds.Count);
+        foreach (var candidateId in candidateIds)
+        {
+            try
+            {
+                var result = await _store.ExecuteInTransactionAsync(
+                    token => AnonymizeVolunteerInTransactionAsync(
+                        candidateId,
+                        VolunteerAnonymizationReason.RetentionExpired,
+                        "retention-worker",
+                        retentionDays,
+                        token),
+                    cancellationToken);
+                results.Add(new RetentionSweepResult(candidateId, result, false));
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (DomainException exception)
+            {
+                results.Add(new RetentionSweepResult(
+                    candidateId,
+                    null,
+                    true,
+                    RetentionFailureReason(exception)));
+            }
+        }
+
+        return results;
+    }
+
+    private static string RetentionFailureReason(DomainException exception)
+    {
+        var reason = exception.Message.Trim();
+        return string.IsNullOrEmpty(reason)
+            ? "Domain validation failed."
+            : reason.Length <= 500
+                ? reason
+                : reason[..500];
+    }
+
+    public async Task<VolunteerRemovalLookup?> LookupVolunteerRemovalAsync(
+        string email,
+        CancellationToken cancellationToken)
+    {
+        var normalizedEmail = Volunteer.NormalizeEmail(email);
+        if (string.IsNullOrWhiteSpace(normalizedEmail))
+        {
+            return null;
+        }
+
+        var projection = await _store.GetVolunteerRemovalProjectionByNormalizedEmailAsync(
+            normalizedEmail,
+            cancellationToken);
+        var settings = projection is null
+            ? null
+            : await _store.GetGroupSettingsAsync(cancellationToken);
+        if (projection is null || settings is null)
+        {
+            return null;
+        }
+
+        return new VolunteerRemovalLookup(
+            projection.VolunteerId,
+            projection.Commitments
+                .Select(commitment => new VolunteerRemovalCommitment(
+                    commitment.ShiftId,
+                    new CommitmentDto(
+                        commitment.ShiftId,
+                        commitment.SlotId,
+                        commitment.ShiftTitle,
+                        commitment.StartsAtUtc,
+                        commitment.EndsAtUtc,
+                        settings.TimeZoneId,
+                        commitment.Location,
+                        SlotLabel(commitment.SlotKind, commitment.SlotPosition),
+                        commitment.VolunteerInstructions),
+                    commitment.AssignmentStatus.HasValue
+                        ? $"Assignment {commitment.AssignmentStatus.Value}"
+                        : $"Request {commitment.RequestStatus!.Value}"))
+                .ToArray());
+    }
+
+    public async Task<VolunteerAnonymizationResult> ConfirmVolunteerRemovalAsync(
+        Guid volunteerId,
+        Guid selectedShiftId,
+        string normalizedEmail,
+        string coordinatorEmail,
+        CancellationToken cancellationToken)
+    {
+        var actor = RequireCoordinator(coordinatorEmail);
+        var expectedNormalizedEmail = Volunteer.NormalizeEmail(normalizedEmail);
+        if (string.IsNullOrWhiteSpace(expectedNormalizedEmail))
+        {
+            return new VolunteerAnonymizationResult(
+                VolunteerAnonymizationOutcome.NotFound,
+                VolunteerAnonymizationBlocker.None,
+                0,
+                null,
+                0,
+                0,
+                0);
+        }
+
+        var result = await _store.ExecuteInTransactionAsync(
+            async token =>
+            {
+                await _store.LockVolunteerAsync(volunteerId, token);
+                var state = await LoadVolunteerPrivacyStateAsync(volunteerId, token);
+                if (state.Volunteer is null ||
+                    state.Volunteer.AnonymizedAtUtc.HasValue ||
+                    !string.Equals(
+                        state.Volunteer.NormalizedEmail,
+                        expectedNormalizedEmail,
+                        StringComparison.Ordinal))
+                {
+                    return new VolunteerAnonymizationResult(
+                        VolunteerAnonymizationOutcome.NotFound,
+                        VolunteerAnonymizationBlocker.None,
+                        0,
+                        null,
+                        0,
+                        0,
+                        0);
+                }
+
+                var boundedLookup = await _store
+                    .GetVolunteerRemovalProjectionByNormalizedEmailAsync(
+                        expectedNormalizedEmail,
+                        token);
+                if (boundedLookup is null ||
+                    boundedLookup.VolunteerId != volunteerId ||
+                    !boundedLookup.Commitments.Any(commitment => commitment.ShiftId == selectedShiftId))
+                {
+                    return new VolunteerAnonymizationResult(
+                        VolunteerAnonymizationOutcome.NotFound,
+                        VolunteerAnonymizationBlocker.None,
+                        0,
+                        null,
+                        0,
+                        0,
+                        0);
+                }
+
+                return await AnonymizeVolunteerInTransactionAsync(
+                    volunteerId,
+                    VolunteerAnonymizationReason.CoordinatorRequest,
+                    actor,
+                    VolunteerRetentionDays,
+                    token,
+                    state);
+            },
+            cancellationToken);
+        return result;
+    }
     public async Task<ActionLinkBundle> GenerateActionLinksAsync(Guid assignmentId, string coordinatorEmail, CancellationToken cancellationToken)
     {
         var actor = RequireCoordinator(coordinatorEmail);
@@ -802,11 +1083,11 @@ public sealed class VolunteerCoordinatorService
 
                 var volunteer = await RequireVolunteerAsync(assignment.VolunteerId, tokenCancellation);
                 _store.AddAuditEntry(AuditEntry.Create(now, "volunteer-token", $"Assignment{actionToken.Action}", nameof(Assignment), assignment.Id, Detail(new { assignment.Status })));
-                return (assignment.Id, volunteer.Email, Action: actionToken.Action.ToString());
+                return (assignment.Id, VolunteerId: volunteer.Id, Action: actionToken.Action.ToString());
             },
             cancellationToken);
 
-        var notification = await NotifySafelyAsync(new NotificationMessage(result.Id, $"Assignment{result.Action}", result.Email), cancellationToken);
+        var notification = await NotifySafelyAsync(new NotificationMessage(result.Id, $"Assignment{result.Action}", result.VolunteerId), cancellationToken);
         return new CommandResult<string>(result.Action, notification.Warning);
     }
 
@@ -848,8 +1129,8 @@ public sealed class VolunteerCoordinatorService
                     assignment?.Id,
                     BuildCommitment(shift, settings, slot, SlotLabel(slot)),
                     state,
-                    volunteer?.Name,
-                    volunteer?.Email));
+                    volunteer?.AnonymizedAtUtc.HasValue == true ? "Removed volunteer" : volunteer?.Name,
+                    volunteer?.AnonymizedAtUtc.HasValue == true ? null : volunteer?.Email));
             }
         }
 
@@ -861,6 +1142,255 @@ public sealed class VolunteerCoordinatorService
         var entries = await _store.GetAuditEntriesAsync(Math.Clamp(limit, 1, 500), cancellationToken);
         return entries.Select(x => new AuditDto(x.OccurredAtUtc, x.Actor, x.Action, x.EntityKind, x.EntityId, x.DetailJson)).ToArray();
     }
+
+    private async Task<VolunteerAnonymizationResult> AnonymizeVolunteerInTransactionAsync(
+        Guid volunteerId,
+        VolunteerAnonymizationReason reason,
+        string actor,
+        int retentionDays,
+        CancellationToken cancellationToken,
+        VolunteerPrivacyState? knownState = null)
+    {
+        var state = knownState;
+        if (state is null)
+        {
+            await _store.LockVolunteerAsync(volunteerId, cancellationToken);
+            state = await LoadVolunteerPrivacyStateAsync(volunteerId, cancellationToken);
+        }
+
+        if (state.Volunteer is null)
+        {
+            return new VolunteerAnonymizationResult(
+                VolunteerAnonymizationOutcome.NotFound,
+                VolunteerAnonymizationBlocker.None,
+                0,
+                null,
+                0,
+                0,
+                0);
+        }
+
+        if (state.Volunteer.AnonymizedAtUtc.HasValue)
+        {
+            return new VolunteerAnonymizationResult(
+                VolunteerAnonymizationOutcome.AlreadyAnonymized,
+                VolunteerAnonymizationBlocker.None,
+                0,
+                state.Volunteer.AnonymizedAtUtc,
+                0,
+                0,
+                0);
+        }
+
+        var now = _clock.UtcNow;
+        var pendingCount = state.Requests.Count(x => x.Status == RequestStatus.Pending);
+        if (pendingCount > 0)
+        {
+            return BlockedResult(
+                VolunteerAnonymizationBlocker.PendingRequests,
+                pendingCount,
+                CalculatePrivacyAnchor(state));
+        }
+
+        var activeAssignmentCount = state.Assignments.Count(x => x.IsActive);
+        if (activeAssignmentCount > 0)
+        {
+            return BlockedResult(
+                VolunteerAnonymizationBlocker.ActiveAssignments,
+                activeAssignmentCount,
+                CalculatePrivacyAnchor(state));
+        }
+
+        var futureCommitmentCount = state.Shifts
+            .Where(x => x.EndsAtUtc > now)
+            .Select(x => x.Id)
+            .Distinct()
+            .Count();
+        if (futureCommitmentCount > 0)
+        {
+            return BlockedResult(
+                VolunteerAnonymizationBlocker.FutureCommitments,
+                futureCommitmentCount,
+                CalculatePrivacyAnchor(state));
+        }
+
+        var anchor = CalculatePrivacyAnchor(state);
+        if (reason == VolunteerAnonymizationReason.RetentionExpired &&
+            anchor > now.Subtract(TimeSpan.FromDays(retentionDays)))
+        {
+            return BlockedResult(
+                VolunteerAnonymizationBlocker.TooRecent,
+                1,
+                anchor);
+        }
+
+        var invalidatedStatusTokens = 0;
+        foreach (var request in state.Requests)
+        {
+            if (request.InvalidateStatusToken(now))
+            {
+                invalidatedStatusTokens++;
+            }
+        }
+
+        var invalidatedActionTokens = 0;
+        foreach (var actionToken in state.UnusedActionTokens)
+        {
+            actionToken.Invalidate(now);
+            invalidatedActionTokens++;
+        }
+
+        var redactedNotifications = 0;
+        foreach (var notification in state.Notifications)
+        {
+            if (notification.RedactDestination())
+            {
+                redactedNotifications++;
+            }
+        }
+
+        if (!state.Volunteer.Anonymize(now))
+        {
+            return new VolunteerAnonymizationResult(
+                VolunteerAnonymizationOutcome.AlreadyAnonymized,
+                VolunteerAnonymizationBlocker.None,
+                0,
+                anchor,
+                0,
+                0,
+                0);
+        }
+
+        _store.AddAuditEntry(AuditEntry.Create(
+            now,
+            actor,
+            "VolunteerAnonymized",
+            nameof(Volunteer),
+            state.Volunteer.Id,
+            Detail(new
+            {
+                VolunteerId = state.Volunteer.Id,
+                Reason = reason.ToString(),
+                AnchorUtc = anchor,
+                RequestCount = state.Requests.Count,
+                AssignmentCount = state.Assignments.Count,
+                StatusTokensInvalidated = invalidatedStatusTokens,
+                ActionTokensInvalidated = invalidatedActionTokens,
+                NotificationDestinationsRedacted = redactedNotifications
+            })));
+
+        return new VolunteerAnonymizationResult(
+            VolunteerAnonymizationOutcome.Anonymized,
+            VolunteerAnonymizationBlocker.None,
+            0,
+            anchor,
+            invalidatedStatusTokens,
+            invalidatedActionTokens,
+            redactedNotifications)
+        {
+            RequestCount = state.Requests.Count,
+            AssignmentCount = state.Assignments.Count
+        };
+    }
+
+    private async Task<VolunteerPrivacyState> LoadVolunteerPrivacyStateAsync(
+        Guid volunteerId,
+        CancellationToken cancellationToken)
+    {
+        var volunteer = await _store.GetVolunteerAsync(volunteerId, cancellationToken);
+        if (volunteer is null)
+        {
+            return new VolunteerPrivacyState(null, [], [], [], [], []);
+        }
+
+        var requests = await _store.GetRequestsForVolunteerAsync(volunteerId, cancellationToken);
+        var assignments = await _store.GetAssignmentsForVolunteerAsync(volunteerId, cancellationToken);
+        var slotIds = requests
+            .Select(x => x.ShiftSlotId)
+            .Concat(assignments.Select(x => x.ShiftSlotId))
+            .Distinct()
+            .ToArray();
+        var shifts = await _store.GetShiftsForSlotIdsAsync(slotIds, cancellationToken);
+        var orderedShiftIds = shifts
+            .Select(x => x.Id)
+            .Distinct()
+            .OrderBy(x => x)
+            .ToArray();
+        foreach (var shiftId in orderedShiftIds)
+        {
+            await _store.LockShiftAsync(shiftId, cancellationToken);
+        }
+
+        // Schedule mutations use the same shift-row lock. Re-read after every related
+        // shift is locked so timing and anchor checks cannot use a pre-lock snapshot.
+        shifts = await _store.GetShiftsForSlotIdsAsync(slotIds, cancellationToken);
+        var transitionIds = requests
+            .Select(x => x.Id)
+            .Concat(assignments.Select(x => x.Id))
+            .ToArray();
+        var notifications = await _store.GetNotificationAttemptsAsync(transitionIds, cancellationToken);
+        var actionTokens = await _store.GetUnusedActionTokensAsync(
+            assignments.Select(x => x.Id).ToArray(),
+            cancellationToken);
+        return new VolunteerPrivacyState(
+            volunteer,
+            requests,
+            assignments,
+            shifts,
+            actionTokens,
+            notifications);
+    }
+
+
+
+
+    private static DateTimeOffset CalculatePrivacyAnchor(VolunteerPrivacyState state)
+    {
+        var anchor = state.Volunteer?.UpdatedAtUtc ?? DateTimeOffset.MinValue;
+        foreach (var request in state.Requests)
+        {
+            anchor = Max(anchor, request.RequestedAtUtc);
+            anchor = Max(anchor, request.ResolvedAtUtc);
+        }
+
+        foreach (var assignment in state.Assignments)
+        {
+            anchor = Max(anchor, assignment.AssignedAtUtc);
+            anchor = Max(anchor, assignment.ConfirmedAtUtc);
+            anchor = Max(anchor, assignment.EndedAtUtc);
+        }
+
+        foreach (var notification in state.Notifications)
+        {
+            anchor = Max(anchor, notification.CreatedAtUtc);
+            anchor = Max(anchor, notification.CompletedAtUtc);
+        }
+
+        foreach (var shift in state.Shifts)
+        {
+            anchor = Max(anchor, shift.EndsAtUtc);
+        }
+
+        return anchor;
+    }
+
+    private static DateTimeOffset Max(DateTimeOffset current, DateTimeOffset? candidate) =>
+        candidate.HasValue && candidate.Value > current ? candidate.Value : current;
+
+    private static VolunteerAnonymizationResult BlockedResult(
+        VolunteerAnonymizationBlocker blocker,
+        int count,
+        DateTimeOffset anchor) =>
+        new(
+            VolunteerAnonymizationOutcome.Blocked,
+            blocker,
+            count,
+            anchor,
+            0,
+            0,
+            0);
+
+
 
     private async Task<int> CancelAssignmentsAsync(
         IReadOnlyCollection<Assignment> assignments,
@@ -1181,6 +1711,23 @@ public sealed class VolunteerCoordinatorService
     }
 
     private static string SlotLabel(ShiftSlot slot) => slot.Kind == SlotKind.Primary ? "Primary" : $"Backup {slot.Position}";
+    private static string SlotLabel(SlotKind kind, int position) =>
+        kind == SlotKind.Primary ? "Primary" : $"Backup {position}";
+
+    private static void ValidateRetentionSettings(int retentionDays, int batchSize)
+    {
+        if (retentionDays != VolunteerRetentionPolicy.MinimumRetentionDays)
+        {
+            throw new DomainException(
+                $"Retention days must be exactly {VolunteerRetentionPolicy.MinimumRetentionDays}.");
+        }
+
+        if (batchSize is < VolunteerRetentionPolicy.MinimumBatchSize or > VolunteerRetentionPolicy.MaximumBatchSize)
+        {
+            throw new DomainException(
+                $"Retention batch size must be between {VolunteerRetentionPolicy.MinimumBatchSize} and {VolunteerRetentionPolicy.MaximumBatchSize}.");
+        }
+    }
 
     private static int SlotOrder(ShiftSlot slot) => slot.Kind == SlotKind.Primary ? 0 : slot.Position;
 

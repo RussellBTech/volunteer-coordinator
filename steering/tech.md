@@ -44,6 +44,14 @@ Volunteer Coordinator is a .NET modular monolith: one deployable ASP.NET Core we
 - Store all instants as UTC. Convert to the applicable display time zone only at presentation boundaries.
 - State transitions and their audit records commit independently of notification delivery. A notification failure must not roll back or misreport a successful transition.
 
+## Volunteer Contact Privacy
+
+Volunteer name, email, normalized email, and phone are confidential identifying contact data. Notification destinations carry the same classification and are redacted with the owning volunteer. Raw status and assignment links are secret bearer credentials and are transient only; their hashes are sensitive authentication metadata and remain only as unusable historical metadata after anonymization. Volunteer surrogate IDs, request/assignment/status timestamps, notification outcomes, and anonymized workflow history are non-identifying operational history retained indefinitely. Audit action, actor, entity ID, and non-identifying counts are integrity history retained indefinitely; coordinator identity retention is governed by its separate unchanged policy.
+
+Identifying contact data remains while a live request or assignment requires it and for exactly 365 elapsed UTC days after the deterministic maximum of volunteer, request, assignment, notification, and related shift-end timestamps. A future related shift and pending or active workflow state block removal. Verified earlier removal is allowed only after coordinator verification. Anonymization is irreversible, preserves surrogate relationships, invalidates private links, redacts destinations, and writes one minimal audit in the same PostgreSQL transaction. Protected backups follow existing rotation and restored environments rerun retention before use; provider infrastructure-log deletion and legal certification are outside this policy.
+
+The application records service scheduling only and must not characterize volunteers as organizational members or attendees. Public privacy text uses the configured removal contact and does not claim membership or attendance.
+
 ## External Services
 
 Transactional email is an Application port with an Infrastructure adapter. No email provider is selected during onboarding. Provider selection, delivery policy, and operational configuration require an approved issue and spec.
