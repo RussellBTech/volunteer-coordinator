@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Testcontainers.PostgreSql;
 using VolunteerCoordinator.Infrastructure.Persistence;
 using Xunit;
@@ -16,10 +17,10 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
 
     public string ConnectionString => _container.GetConnectionString();
 
-    public VolunteerCoordinatorDbContext CreateContext()
+    public VolunteerCoordinatorDbContext CreateContext(string? connectionString = null)
     {
         var options = new DbContextOptionsBuilder<VolunteerCoordinatorDbContext>()
-            .UseNpgsql(ConnectionString)
+            .UseNpgsql(connectionString ?? ConnectionString)
             .Options;
         return new VolunteerCoordinatorDbContext(options);
     }
@@ -39,4 +40,38 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
     }
 
     public Task DisposeAsync() => _container.DisposeAsync().AsTask();
+
+    public async Task<string> CreateEmptyDatabaseAsync()
+    {
+        var databaseName = $"vc_process_{Guid.NewGuid():N}";
+        var adminConnectionString = new NpgsqlConnectionStringBuilder(ConnectionString)
+        {
+            Database = "postgres"
+        };
+        await using var connection = new NpgsqlConnection(adminConnectionString.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"CREATE DATABASE \"{databaseName}\"";
+        await command.ExecuteNonQueryAsync();
+
+        var databaseConnectionString = new NpgsqlConnectionStringBuilder(ConnectionString)
+        {
+            Database = databaseName
+        };
+        return databaseConnectionString.ConnectionString;
+    }
+
+    public async Task DropDatabaseAsync(string connectionString)
+    {
+        var databaseName = new NpgsqlConnectionStringBuilder(connectionString).Database;
+        var adminConnectionString = new NpgsqlConnectionStringBuilder(ConnectionString)
+        {
+            Database = "postgres"
+        };
+        await using var connection = new NpgsqlConnection(adminConnectionString.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"DROP DATABASE \"{databaseName}\" WITH (FORCE)";
+        await command.ExecuteNonQueryAsync();
+    }
 }

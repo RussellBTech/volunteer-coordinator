@@ -1,11 +1,15 @@
-using System.Security.Claims;
+using System.Globalization;
 using System.Text.Encodings.Web;
+using System.Security.Claims;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
@@ -22,6 +26,69 @@ builder.Services.AddVolunteerCoordinatorInfrastructure(connectionString);
 builder.Services.AddRazorPages(options =>
     options.Conventions.AuthorizeFolder("/Coordinator", "CoordinatorOnly"));
 builder.Services.AddAntiforgery(options => options.HeaderName = "X-CSRF-TOKEN");
+var rateLimitConfiguration = builder.Configuration.GetSection(AnonymousRateLimitOptions.SectionName);
+var configuredRateLimits = rateLimitConfiguration.Get<AnonymousRateLimitOptions>()
+    ?? new AnonymousRateLimitOptions();
+if (!configuredRateLimits.IsValid())
+{
+    throw new InvalidOperationException(
+        "AnonymousRateLimits permit limits and windows must all be positive.");
+}
+
+builder.Services.AddOptions<AnonymousRateLimitOptions>()
+    .Bind(rateLimitConfiguration)
+    .Validate(
+        static options => options.IsValid(),
+        "AnonymousRateLimits permit limits and windows must all be positive.")
+    .ValidateOnStart();
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+    {
+        var tier = GetAnonymousRateLimitTier(context);
+        if (tier is null)
+        {
+            return RateLimitPartition.GetNoLimiter<string>("unlimited");
+        }
+
+        var tierOptions = tier switch
+        {
+            "request-mutation" => configuredRateLimits.RequestMutation,
+            "private-token-read" => configuredRateLimits.PrivateTokenRead,
+            "assignment-action-mutation" => configuredRateLimits.AssignmentActionMutation,
+            _ => throw new InvalidOperationException($"Unknown anonymous rate-limit tier '{tier}'.")
+        };
+        var clientAddress = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var partitionKey = $"{tier}:{clientAddress}";
+
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey,
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = tierOptions.PermitLimit,
+                Window = tierOptions.Window,
+                QueueLimit = 0,
+                AutoReplenishment = true
+            });
+    });
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = static async (context, cancellationToken) =>
+    {
+        var retryAfterSeconds = 1;
+        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out TimeSpan retryAfter))
+        {
+            retryAfterSeconds = Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds));
+        }
+
+        context.HttpContext.Response.Headers.RetryAfter =
+            retryAfterSeconds.ToString(CultureInfo.InvariantCulture);
+        context.HttpContext.Response.ContentType = "text/plain";
+        await context.HttpContext.Response.WriteAsync(
+            "Too many requests. Try again later.",
+            cancellationToken);
+    };
+});
 builder.Services.Configure<CoordinatorOptions>(builder.Configuration.GetSection("Coordinator"));
 builder.Services.AddSingleton<IAuthorizationHandler, CoordinatorAuthorizationHandler>();
 builder.Services.AddAuthorization(options =>
@@ -84,11 +151,13 @@ builder.Services.AddHealthChecks()
 
 var app = builder.Build();
 
-if (builder.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
+if (args.Any(argument => string.Equals(argument, "--migrate-only", StringComparison.Ordinal)))
 {
     await using var scope = app.Services.CreateAsyncScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<VolunteerCoordinatorDbContext>();
     await dbContext.Database.MigrateAsync();
+    app.Logger.LogInformation("Database migration completed in migrate-only mode.");
+    return;
 }
 
 if (!app.Environment.IsDevelopment())
@@ -96,9 +165,11 @@ if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/Error");
     app.UseHsts();
 }
+app.UseForwardedHeaders();
 
 app.UseStaticFiles();
 app.UseRouting();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
@@ -120,6 +191,52 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 app.MapRazorPages();
 
 app.Run();
+static string? GetAnonymousRateLimitTier(HttpContext context)
+{
+    var path = context.Request.Path.Value;
+    if (HttpMethods.IsPost(context.Request.Method))
+    {
+        if (HasSingleRouteValue(path, "/Shifts/Request") &&
+            !IsRequestCompletionPath(path))
+        {
+            return "request-mutation";
+        }
+
+        if (HasSingleRouteValue(path, "/Actions"))
+        {
+            return "assignment-action-mutation";
+        }
+    }
+    else if (HttpMethods.IsGet(context.Request.Method))
+    {
+        if (HasSingleRouteValue(path, "/Requests/Status") ||
+            HasSingleRouteValue(path, "/Actions"))
+        {
+            return "private-token-read";
+        }
+    }
+
+    return null;
+}
+
+static bool HasSingleRouteValue(string? path, string routePrefix)
+{
+    if (path is null ||
+        path.Length <= routePrefix.Length + 1 ||
+        !path.StartsWith(routePrefix, StringComparison.OrdinalIgnoreCase) ||
+        path[routePrefix.Length] != '/')
+    {
+        return false;
+    }
+
+    var valueStart = routePrefix.Length + 1;
+    var valueEnd = path.IndexOf('/', valueStart);
+    return valueEnd < 0 || (valueEnd == path.Length - 1 && valueEnd > valueStart);
+}
+
+static bool IsRequestCompletionPath(string? path) =>
+    string.Equals(path, "/Shifts/Request/Complete", StringComparison.OrdinalIgnoreCase) ||
+    string.Equals(path, "/Shifts/Request/Complete/", StringComparison.OrdinalIgnoreCase);
 
 static Task<IResult> DevelopmentLoginFormAsync(HttpContext context, IAntiforgery antiforgery)
 {

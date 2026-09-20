@@ -1,12 +1,16 @@
+using System.Globalization;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using VolunteerCoordinator.Web.Security;
 
 namespace VolunteerCoordinator.IntegrationTests;
 
@@ -14,20 +18,61 @@ public sealed class CoordinatorWebFactory : WebApplicationFactory<Program>
 {
     private readonly string _connectionString;
     private readonly bool _authenticateNonCoordinator;
+    private readonly IReadOnlyList<string> _allowedEmails;
+    private readonly AnonymousRateLimitOptions? _rateLimits;
 
-    public CoordinatorWebFactory(string connectionString, bool authenticateNonCoordinator = false)
+    public CoordinatorWebFactory(
+        string connectionString,
+        bool authenticateNonCoordinator = false,
+        IReadOnlyList<string>? allowedEmails = null,
+        AnonymousRateLimitOptions? rateLimits = null)
     {
         _connectionString = connectionString;
         _authenticateNonCoordinator = authenticateNonCoordinator;
+        _allowedEmails = allowedEmails ?? ["coordinator@example.org"];
+        _rateLimits = rateLimits;
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
         builder.UseSetting("ConnectionStrings:Postgres", _connectionString);
-        builder.UseSetting("Database:MigrateOnStartup", "false");
         builder.UseSetting("DevelopmentAuth:Enabled", "true");
-        builder.UseSetting("Coordinator:AllowedEmails:0", "coordinator@example.org");
+        builder.UseSetting("ASPNETCORE_FORWARDEDHEADERS_ENABLED", "true");
+        for (var index = 0; index < _allowedEmails.Count; index++)
+        {
+            builder.UseSetting($"Coordinator:AllowedEmails:{index}", _allowedEmails[index]);
+        }
+
+        builder.ConfigureTestServices(services =>
+            services.Configure<ForwardedHeadersOptions>(options =>
+            {
+                options.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+                options.KnownIPNetworks.Clear();
+                options.KnownProxies.Clear();
+            }));
+
+        if (_rateLimits is not null)
+        {
+            builder.UseSetting(
+                "AnonymousRateLimits:RequestMutation:PermitLimit",
+                _rateLimits.RequestMutation.PermitLimit.ToString(CultureInfo.InvariantCulture));
+            builder.UseSetting(
+                "AnonymousRateLimits:RequestMutation:Window",
+                _rateLimits.RequestMutation.Window.ToString("c", CultureInfo.InvariantCulture));
+            builder.UseSetting(
+                "AnonymousRateLimits:PrivateTokenRead:PermitLimit",
+                _rateLimits.PrivateTokenRead.PermitLimit.ToString(CultureInfo.InvariantCulture));
+            builder.UseSetting(
+                "AnonymousRateLimits:PrivateTokenRead:Window",
+                _rateLimits.PrivateTokenRead.Window.ToString("c", CultureInfo.InvariantCulture));
+            builder.UseSetting(
+                "AnonymousRateLimits:AssignmentActionMutation:PermitLimit",
+                _rateLimits.AssignmentActionMutation.PermitLimit.ToString(CultureInfo.InvariantCulture));
+            builder.UseSetting(
+                "AnonymousRateLimits:AssignmentActionMutation:Window",
+                _rateLimits.AssignmentActionMutation.Window.ToString("c", CultureInfo.InvariantCulture));
+        }
 
         if (_authenticateNonCoordinator)
         {

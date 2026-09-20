@@ -343,6 +343,67 @@ public sealed class AuthorizationIntegrationTests
     }
 
     [Fact]
+    public async Task TwoAllowlistedCoordinatorsCanSignInIndependently()
+    {
+        await _fixture.ResetAsync();
+        using var factory = new CoordinatorWebFactory(
+            _fixture.ConnectionString,
+            allowedEmails:
+            [
+                "incoming@example.org",
+                "outgoing@example.org"
+            ]);
+
+        using var incomingClient = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false
+        });
+        var incomingLogin = await SignInAsync(incomingClient, "incoming@example.org");
+        Assert.Equal(HttpStatusCode.Redirect, incomingLogin.StatusCode);
+        Assert.Equal("/Coordinator/Schedule", incomingLogin.Headers.Location?.OriginalString);
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await incomingClient.GetAsync("/Coordinator/Schedule")).StatusCode);
+
+        using var outgoingClient = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false
+        });
+        var outgoingLogin = await SignInAsync(outgoingClient, "outgoing@example.org");
+        Assert.Equal(HttpStatusCode.Redirect, outgoingLogin.StatusCode);
+        Assert.Equal("/Coordinator/Schedule", outgoingLogin.Headers.Location?.OriginalString);
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await outgoingClient.GetAsync("/Coordinator/Schedule")).StatusCode);
+
+        using var thirdClient = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false
+        });
+        var thirdLogin = await SignInAsync(thirdClient, "third@example.org");
+        Assert.Equal(HttpStatusCode.Redirect, thirdLogin.StatusCode);
+        Assert.Contains("/Account/AccessDenied", thirdLogin.Headers.Location?.OriginalString ?? string.Empty);
+    }
+
+    private static async Task<HttpResponseMessage> SignInAsync(HttpClient client, string email)
+    {
+        var loginForm = await client.GetAsync("/development/login");
+        var loginHtml = await loginForm.Content.ReadAsStringAsync();
+        var loginToken = Regex.Match(
+            loginHtml,
+            "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value;
+        Assert.NotEmpty(loginToken);
+
+        return await client.PostAsync(
+            "/development/login",
+            new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["__RequestVerificationToken"] = loginToken,
+                ["email"] = email
+            }));
+    }
+
+    [Fact]
     public void CoordinatorIdentityRequiresAVerifiedEmailClaim()
     {
         var usernameOnly = new ClaimsPrincipal(new ClaimsIdentity(
