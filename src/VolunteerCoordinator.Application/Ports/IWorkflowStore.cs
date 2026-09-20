@@ -25,6 +25,9 @@ public interface IWorkflowStore
     Task<IReadOnlyList<Shift>> GetPublishedFutureShiftsAsync(
         DateTimeOffset nowUtc,
         CancellationToken cancellationToken);
+    Task<IReadOnlyList<Shift>> GetPublishedCurrentOrFutureShiftsAsync(
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken);
 
     Task<Shift?> GetShiftAsync(Guid shiftId, CancellationToken cancellationToken);
     Task LockShiftAsync(Guid shiftId, CancellationToken cancellationToken);
@@ -57,6 +60,9 @@ public interface IWorkflowStore
         IReadOnlyCollection<Guid> transitionIds,
         CancellationToken cancellationToken);
     Task<IReadOnlyList<Volunteer>> GetVolunteersAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<Volunteer>> GetVolunteersByIdsAsync(
+        IReadOnlyCollection<Guid> volunteerIds,
+        CancellationToken cancellationToken);
 
     Task<ShiftRequest?> GetRequestAsync(Guid requestId, CancellationToken cancellationToken);
 
@@ -117,6 +123,20 @@ public interface IWorkflowStore
 
     Task<IReadOnlyList<AuditEntry>> GetAuditEntriesAsync(
         int limit,
+        CancellationToken cancellationToken);
+
+    Task<CoordinatorHomeProjection> GetCoordinatorHomeProjectionAsync(
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<CoordinatorHomeExample>> GetActionableMessageExamplesAsync(
+        DateTimeOffset nowUtc,
+        int limit,
+        CancellationToken cancellationToken);
+    Task<CoordinatorMessagePageProjection> GetActionableMessagePageAsync(
+        DateTimeOffset nowUtc,
+        int page,
+        int pageSize,
         CancellationToken cancellationToken);
 
     void AddShift(Shift shift);

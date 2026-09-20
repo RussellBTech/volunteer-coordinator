@@ -1,17 +1,25 @@
 @page "/Coordinator/Schedule/Create"
 @using VolunteerCoordinator.Application.Time
+@using VolunteerCoordinator.Web.Presentation
+@inject GroupTimeFormatter Formatter
 @model VolunteerCoordinator.Web.Pages.Coordinator.Schedule.CreateModel
 @{
     ViewData["Title"] = "Create shift";
 }
-<h1>Create shift</h1>
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Schedule setup</p>
+        <h1 tabindex="-1">Create schedule entry</h1>
+        <p class="lead">Enter the real commitment in the group’s local time. Volunteers will see only the details you mark for them.</p>
+    </div>
+</header>
 @if (Model.Settings is not null)
 {
-    <p>Enter local civil times in <strong>@Model.Settings.TimeZoneId</strong>. The application stores the resolved instants in UTC.</p>
+    <p class="field-help">Local time zone: <strong>@Formatter.FriendlyTimeZone(Model.Settings.TimeZoneId)</strong>. If a local time repeats, choose the interpretation that matches the group’s clock.</p>
 }
 <form method="post">
     <input asp-for="ExpectedSettingsVersion" type="hidden">
-    <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+    <div asp-validation-summary="All" class="validation-summary-errors" role="alert" aria-live="assertive" tabindex="-1" data-focus-target="@(ViewData.ModelState.IsValid ? "false" : "true")"></div>
     <div class="form-group"><label asp-for="Title"></label><input asp-for="Title"><span asp-validation-for="Title"></span></div>
     <div class="form-group"><label asp-for="Location"></label><input asp-for="Location"><span asp-validation-for="Location"></span></div>
     <div class="form-group"><label asp-for="VolunteerInstructions">Volunteer instructions</label><textarea asp-for="VolunteerInstructions"></textarea><span asp-validation-for="VolunteerInstructions"></span></div>
@@ -37,5 +45,5 @@
         </fieldset>
     }
     <div class="form-group"><label asp-for="BackupSlotCount">Backup slots</label><select asp-for="BackupSlotCount"><option value="0">0</option><option value="1">1</option><option value="2">2</option></select><span asp-validation-for="BackupSlotCount"></span></div>
-    <div class="actions"><button type="submit">Create shift</button><a asp-page="/Coordinator/Schedule/Index">Cancel</a></div>
+    <div class="actions"><button type="submit">Create shift</button><a class="button button-secondary" asp-page="/Coordinator/Schedule/Index">Cancel</a></div>
 </form>

@@ -27,6 +27,8 @@ var connectionString = builder.Configuration.GetConnectionString("Postgres")
     ?? throw new InvalidOperationException("ConnectionStrings:Postgres is required.");
 
 builder.Services.AddVolunteerCoordinatorInfrastructure(connectionString);
+builder.Services.AddDataProtection();
+builder.Services.AddSingleton<CoordinatorReviewStateProtector>();
 builder.Services.AddSingleton<GroupTimeFormatter>();
 builder.Services.AddRazorPages(options =>
     options.Conventions.AuthorizeFolder("/Coordinator", "CoordinatorOnly"));
@@ -339,7 +341,7 @@ static async Task<IResult> DevelopmentLoginAsync(
         ],
         CookieAuthenticationDefaults.AuthenticationScheme));
     await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
-    return Results.Redirect("/Coordinator/Schedule");
+    return Results.Redirect("/Coordinator");
 }
 
 public partial class Program

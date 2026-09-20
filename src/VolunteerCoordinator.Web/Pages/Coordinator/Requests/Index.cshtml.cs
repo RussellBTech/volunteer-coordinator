@@ -18,14 +18,20 @@ public sealed class IndexModel : PageModel
 
     public IReadOnlyList<CoordinatorRequestDto> Requests { get; private set; } = [];
 
-    public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
+    public bool IsFiltered { get; private set; }
+
+    public async Task<IActionResult> OnGetAsync(string? attention, CancellationToken cancellationToken)
     {
         if (await _service.GetGroupSettingsAsync(cancellationToken) is null)
         {
             return RedirectToPage("/Coordinator/Settings");
         }
 
-        Requests = await _service.ListRequestsAsync(cancellationToken);
+        IsFiltered = string.Equals(attention, "pending", StringComparison.Ordinal);
+        var requests = await _service.ListRequestsAsync(cancellationToken);
+        Requests = IsFiltered
+            ? requests.Where(x => x.Status == "Pending" && x.SlotState != "Ended" && x.SlotState != "Inactive").ToArray()
+            : requests;
         return Page();
     }
 

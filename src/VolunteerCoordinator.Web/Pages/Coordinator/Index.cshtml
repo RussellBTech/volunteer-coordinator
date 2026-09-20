@@ -1,0 +1,108 @@
+@page "/Coordinator"
+@using VolunteerCoordinator.Web.Presentation
+@model VolunteerCoordinator.Web.Pages.Coordinator.IndexModel
+@inject GroupTimeFormatter Formatter
+@{
+    ViewData["Title"] = "Coordinator home";
+}
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Coordinator home</p>
+        <h1 tabindex="-1">@(Model.Home.IsSetupMode ? "Set up your schedule" : "Today’s coordination")</h1>
+        <p class="lead">@(Model.Home.IsSetupMode
+            ? "Follow the short checklist to prepare and publish your first commitments."
+            : "The most urgent work is collected here so you can resolve it without searching.")</p>
+    </div>
+    @if (!Model.Home.IsSetupMode)
+    {
+        <a class="button button-secondary" asp-page="/Coordinator/Schedule/Index">Open schedule</a>
+    }
+</header>
+
+@if (Model.Home.IsSetupMode)
+{
+    <section class="setup-panel card" aria-labelledby="setup-heading">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">First setup</p>
+                <h2 id="setup-heading">One step at a time</h2>
+            </div>
+            <span class="status-chip">Guided setup</span>
+        </div>
+        <ol class="setup-list">
+        @foreach (var step in Model.Home.SetupSteps)
+        {
+            <li class="setup-step @(step.IsCurrent ? "is-current" : step.IsComplete ? "is-complete" : string.Empty)">
+                <div class="step-number" aria-hidden="true">@step.Number</div>
+                <div class="step-content">
+                    <div class="step-title-row">
+                        <h3>@step.Title</h3>
+                        <span class="step-status">@step.Status</span>
+                    </div>
+                    <p>@step.Description</p>
+                    @if (step.IsCurrent && string.Equals(step.Url, Model.Home.RecommendedActionUrl, StringComparison.Ordinal))
+                    {
+                        <span class="current-step-note">Next step</span>
+                    }
+                    else if (step.Url is not null && !step.IsComplete && !string.Equals(step.Url, Model.Home.RecommendedActionUrl, StringComparison.Ordinal))
+                    {
+                        <a class="text-link" href="@step.Url">Open this step</a>
+                    }
+                </div>
+            </li>
+        }
+        </ol>
+        @if (Model.Home.RecommendedActionUrl is not null)
+        {
+            <div class="primary-action">
+                <a class="button" href="@Model.Home.RecommendedActionUrl">@Model.Home.RecommendedActionLabel</a>
+            </div>
+        }
+    </section>
+}
+else if (Model.Home.IsCaughtUp)
+{
+    <section class="empty-state attention-empty" aria-labelledby="caught-up-heading" role="status">
+        <p class="eyebrow">All clear</p>
+        <h2 id="caught-up-heading">You’re caught up</h2>
+        <p>No coordinator action is needed right now.</p>
+        <a class="button button-secondary" asp-page="/Coordinator/Schedule/Index">View the schedule</a>
+    </section>
+}
+else
+{
+    <section aria-labelledby="attention-heading">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Needs attention</p>
+                <h2 id="attention-heading">Resolve the next important item</h2>
+            </div>
+        </div>
+        <div class="attention-grid">
+        @foreach (var card in Model.Home.Attention)
+        {
+            <article class="attention-card card" aria-labelledby="attention-@card.Key">
+                <div class="attention-card-heading">
+                    <h3 id="attention-@card.Key">@card.Label</h3>
+                    <span class="attention-count" aria-label="@card.Count item@(card.Count == 1 ? string.Empty : "s")">@card.Count</span>
+                </div>
+                <ul class="attention-examples">
+                @foreach (var example in card.Examples)
+                {
+                    <li>
+                        <strong>@example.Commitment.ShiftTitle</strong>
+                        <span>@example.Commitment.SlotLabel@(example.PersonName is null ? string.Empty : $" — {example.PersonName}")</span>
+                        <time datetime="@Formatter.UtcDateTime(example.Commitment.StartsAtUtc)">@Formatter.FormatLocal(example.Commitment.StartsAtUtc, example.Commitment.GroupTimeZoneId)</time>
+                        @if (example.MessagePurpose is not null)
+                        {
+                            <span class="example-note">@example.MessagePurpose</span>
+                        }
+                    </li>
+                }
+                </ul>
+                <a class="text-link" href="@card.Url">@card.ActionLabel<span class="visually-hidden"> for @card.Label</span></a>
+            </article>
+        }
+        </div>
+    </section>
+}

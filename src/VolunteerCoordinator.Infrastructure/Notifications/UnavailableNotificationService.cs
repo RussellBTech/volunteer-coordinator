@@ -54,7 +54,7 @@ public sealed class UnavailableNotificationService : INotificationService
             await transaction.CommitAsync(persistenceTimeout.Token);
             return new NotificationResult(
                 false,
-                "The workflow succeeded; notification delivery is not configured.");
+                "The workflow succeeded, but the message could not be sent. Contact the volunteer another way.");
         }
         catch
         {

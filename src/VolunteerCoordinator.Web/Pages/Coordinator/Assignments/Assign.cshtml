@@ -1,31 +1,113 @@
 @page "/Coordinator/Assignments/Assign/{slotId:guid}"
+@using VolunteerCoordinator.Application.Models
 @model VolunteerCoordinator.Web.Pages.Coordinator.Assignments.AssignModel
 @{
-    ViewData["Title"] = "Assign volunteer";
+    ViewData["Title"] = Model.CurrentAssignmentId.HasValue ? "Replace volunteer" : "Assign volunteer";
 }
-<h1>@(Model.CurrentAssignmentId.HasValue ? "Reassign slot" : "Assign slot")</h1>
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Coverage action</p>
+        <h1 tabindex="-1">@(Model.CurrentAssignmentId.HasValue ? "Replace volunteer" : "Assign volunteer")</h1>
+        <p class="lead">Choose a known volunteer without retyping contact details, or add someone new. Review the consequence before anything changes.</p>
+    </div>
+</header>
 @if (Model.Coverage is not null)
 {
-    <div class="card"><partial name="_CommitmentDetails" model="Model.Coverage.Commitment" /><p>Current state: @Model.Coverage.State</p></div>
+    <section class="card assignment-context" aria-labelledby="assignment-context-heading">
+        <h2 id="assignment-context-heading" class="visually-hidden">Commitment being assigned</h2>
+        <partial name="_CommitmentDetails" model="Model.Coverage.Commitment" />
+        <p><span class="status-chip">@(Model.Coverage.State switch { "Unconfirmed" => "Waiting for confirmation", "Uncovered" => "Open", _ => Model.Coverage.State })</span></p>
+    </section>
 }
-<p>Entering an existing email updates that volunteer's contact details. Reassignment ends the previous active assignment atomically.</p>
-@if (Model.ExistingVolunteers.Count > 0)
+
+<div asp-validation-summary="All" class="validation-summary-errors" role="alert" aria-live="assertive" tabindex="-1" data-focus-target="@(ViewData.ModelState.IsValid ? "false" : "true")"></div>
+
+@if (Model.Recovery is not null)
 {
-<details class="card">
-    <summary><strong>Known volunteers (@Model.ExistingVolunteers.Count)</strong></summary>
-    <ul>
-    @foreach (var volunteer in Model.ExistingVolunteers)
-    {
-        <li>@volunteer.Name @if (!volunteer.IsAnonymized) { <span>— @volunteer.Email @if (volunteer.Phone is not null) { <span>— @volunteer.Phone</span> }</span> }</li>
-    }
-    </ul>
-</details>
+    <partial name="_PreviewRecovery" model="Model.Recovery" />
 }
-<form method="post">
-<div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
-<div class="form-group"><label asp-for="VolunteerName"></label><input asp-for="VolunteerName" autocomplete="name"><span asp-validation-for="VolunteerName"></span></div>
-<div class="form-group"><label asp-for="VolunteerEmail"></label><input asp-for="VolunteerEmail" autocomplete="email"><span asp-validation-for="VolunteerEmail"></span></div>
-<div class="form-group"><label asp-for="VolunteerPhone"></label><input asp-for="VolunteerPhone" autocomplete="tel"><span asp-validation-for="VolunteerPhone"></span></div>
-<partial name="_VolunteerPrivacyNotice" />
-<div class="actions"><button type="submit">@(Model.CurrentAssignmentId.HasValue ? "Reassign" : "Assign") volunteer</button><a asp-page="/Coordinator/Coverage/Index">Cancel</a></div>
-</form>
+else if (Model.Review is not null)
+{
+    <partial name="_ConsequencePreview" model="Model.Review" />
+}
+else
+{
+    <section id="assignment-options" class="choice-grid" aria-labelledby="assignment-options-heading">
+        <h2 id="assignment-options-heading" class="visually-hidden">Choose assignment path</h2>
+        <article class="card choice-card">
+            <p class="eyebrow">Known volunteer</p>
+            <h2>Choose known volunteer</h2>
+            <p>Select a saved name and email. The contact details are loaded by the server and do not need to be retyped.</p>
+            <a class="button" href="@Url.Page("/Coordinator/Assignments/Assign", new { slotId = Model.SlotId, mode = "known" })">Choose known volunteer</a>
+        </article>
+        <article class="card choice-card">
+            <p class="eyebrow">New contact</p>
+            <h2>Add someone new</h2>
+            <p>Enter contact details for someone who is not already in the volunteer list. We will show the result before assigning.</p>
+            <a class="button button-secondary" href="@Url.Page("/Coordinator/Assignments/Assign", new { slotId = Model.SlotId, mode = "new" })">Add someone new</a>
+        </article>
+    </section>
+
+    @if (Model.Mode == "known")
+    {
+        <section class="form-panel card" aria-labelledby="known-heading">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Known volunteer</p>
+                    <h2 id="known-heading">Choose a person</h2>
+                </div>
+                <a class="text-link" href="@Url.Page("/Coordinator/Assignments/Assign", new { slotId = Model.SlotId })">Choose another path</a>
+            </div>
+            <form method="post" asp-page-handler="Review">
+                <input type="hidden" name="Mode" value="known" />
+                <div class="form-group">
+                    <label asp-for="KnownVolunteerId">Volunteer</label>
+                    <select asp-for="KnownVolunteerId" aria-describedby="known-help">
+                        <option value="">Choose a volunteer</option>
+                        @foreach (var volunteer in Model.ExistingVolunteers)
+                        {
+                            <option value="@volunteer.Id">@volunteer.Name — @volunteer.Email</option>
+                        }
+                    </select>
+                    <p id="known-help" class="field-help">Only eligible saved volunteers appear here. Their contact details remain unchanged.</p>
+                    <span asp-validation-for="KnownVolunteerId"></span>
+                </div>
+                <div class="actions"><button type="submit">Review assignment</button><a class="button button-secondary" href="@Url.Page("/Coordinator/Coverage/Index")">Cancel</a></div>
+            </form>
+        </section>
+    }
+    else if (Model.Mode == "new")
+    {
+        <section class="form-panel card" aria-labelledby="new-heading">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">New contact</p>
+                    <h2 id="new-heading">Add someone new</h2>
+                </div>
+                <a class="text-link" href="@Url.Page("/Coordinator/Assignments/Assign", new { slotId = Model.SlotId })">Choose another path</a>
+            </div>
+            <form method="post" asp-page-handler="Review">
+                <input type="hidden" name="Mode" value="new" />
+                <div class="form-group">
+                    <label asp-for="VolunteerName"></label>
+                    <input asp-for="VolunteerName" autocomplete="name" aria-describedby="new-name-help" />
+                    <p id="new-name-help" class="field-help">Use the name the volunteer wants coordinators to see.</p>
+                    <span asp-validation-for="VolunteerName"></span>
+                </div>
+                <div class="form-group">
+                    <label asp-for="VolunteerEmail"></label>
+                    <input asp-for="VolunteerEmail" autocomplete="email" aria-describedby="new-email-help" />
+                    <p id="new-email-help" class="field-help">We use this only to coordinate the commitment.</p>
+                    <span asp-validation-for="VolunteerEmail"></span>
+                </div>
+                <div class="form-group">
+                    <label asp-for="VolunteerPhone"></label>
+                    <input asp-for="VolunteerPhone" autocomplete="tel" />
+                    <span asp-validation-for="VolunteerPhone"></span>
+                </div>
+                <partial name="_VolunteerPrivacyNotice" />
+                <div class="actions"><button type="submit">Review assignment</button><a class="button button-secondary" href="@Url.Page("/Coordinator/Coverage/Index")">Cancel</a></div>
+            </form>
+        </section>
+    }
+}

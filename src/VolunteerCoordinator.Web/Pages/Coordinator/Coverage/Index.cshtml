@@ -2,35 +2,53 @@
 @model VolunteerCoordinator.Web.Pages.Coordinator.Coverage.IndexModel
 @{
     ViewData["Title"] = "Coverage";
+    var heading = Model.AppliedAttention switch
+    {
+        "uncovered" => "Open commitments",
+        "unconfirmed" => "Waiting for confirmation",
+        _ => "Coverage"
+    };
 }
-<h1>Coverage monitoring</h1>
-<p class="lead">Upcoming published slots are ordered by local time, with uncovered and unconfirmed work called out in text.</p>
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Routine work</p>
+        <h1 tabindex="-1">@heading</h1>
+        <p class="lead">Upcoming published commitments are ordered by local time. Each state is written out so you can act without relying on color.</p>
+    </div>
+    @if (Model.AppliedAttention is not null)
+    {
+        <a class="button button-secondary" asp-page="/Coordinator/Coverage/Index">Show all coverage</a>
+    }
+</header>
 @if (TempData["Error"] is string error) { <div class="alert alert-error" role="alert">@error</div> }
 @if (Model.Coverage.Count == 0)
 {
-    <div class="empty-state"><h2>No published upcoming slots</h2><p>Create and publish shifts from schedule setup to monitor coverage.</p><a class="button" asp-page="/Coordinator/Schedule/Index">Open schedule setup</a></div>
+    <div class="empty-state">
+        <p class="eyebrow">No matching work</p>
+        <h2>@(Model.AppliedAttention is null ? "No published upcoming commitments" : "Nothing needs attention here")</h2>
+        <p>@(Model.AppliedAttention is null ? "Create and publish schedule entries to monitor coverage." : "This attention category is clear.")</p>
+        <a class="button button-secondary" asp-page="/Coordinator">Back to coordinator home</a>
+    </div>
 }
 else
 {
 <div class="table-scroll"><table class="responsive">
-<thead><tr><th>Commitment</th><th>Coverage state</th><th>Volunteer</th><th>Intervene</th></tr></thead>
+<caption class="visually-hidden">Coverage commitments</caption>
+<thead><tr><th>Commitment</th><th>Coverage state</th><th>Volunteer</th><th>Next action</th></tr></thead>
 <tbody>
 @foreach (var item in Model.Coverage)
 {
 <tr>
 <td data-label="Commitment"><partial name="_CommitmentDetails" model="item.Commitment" /></td>
-<td data-label="Coverage state"><span class="badge badge-@item.State.ToLowerInvariant()">@item.State</span></td>
+<td data-label="Coverage state"><span class="status-chip status-chip-@item.State.ToLowerInvariant()">@(item.State switch { "Unconfirmed" => "Waiting for confirmation", "Uncovered" => "Open", _ => "Confirmed" })</span></td>
 <td data-label="Volunteer">@(item.VolunteerName ?? "No volunteer assigned") @if (item.VolunteerEmail is not null) { <small>@item.VolunteerEmail</small> }</td>
-<td data-label="Intervene">
+<td data-label="Next action">
     <div class="actions">
-        <a class="button button-secondary" asp-page="/Coordinator/Assignments/Assign" asp-route-slotId="@item.SlotId">@(item.AssignmentId.HasValue ? "Reassign" : "Assign")</a>
+        <a class="button button-secondary" asp-page="/Coordinator/Assignments/Assign" asp-route-slotId="@item.SlotId">@(item.AssignmentId.HasValue ? "Replace volunteer" : "Assign volunteer")</a>
         @if (item.AssignmentId is Guid assignmentId)
         {
-            <a class="button" asp-page="/Coordinator/Assignments/Links" asp-route-assignmentId="@assignmentId">Action links</a>
-            <form method="post" asp-page-handler="Cancel" class="inline">
-                <input type="hidden" name="assignmentId" value="@assignmentId">
-                <button type="submit" class="button-danger">Cancel assignment</button>
-            </form>
+            <a class="button button-secondary" asp-page="/Coordinator/Assignments/Links" asp-route-assignmentId="@assignmentId">Volunteer action links</a>
+            <a class="button button-danger" asp-page="/Coordinator/Assignments/Cancel" asp-route-assignmentId="@assignmentId">Review cancellation</a>
         }
     </div>
 </td>

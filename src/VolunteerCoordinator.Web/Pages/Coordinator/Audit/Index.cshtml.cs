@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using VolunteerCoordinator.Application;
 using VolunteerCoordinator.Application.Models;
@@ -15,8 +16,14 @@ public sealed class IndexModel : PageModel
 
     public IReadOnlyList<AuditDto> Entries { get; private set; } = [];
 
-    public async Task OnGetAsync(CancellationToken cancellationToken)
+    public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
     {
+        if (await _service.GetGroupSettingsAsync(cancellationToken) is null)
+        {
+            return RedirectToPage("/Coordinator/Settings");
+        }
+
         Entries = await _service.ListAuditAsync(200, cancellationToken);
+        return Page();
     }
 }

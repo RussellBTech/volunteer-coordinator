@@ -1,39 +1,56 @@
 @page "/Coordinator/Requests"
+@using VolunteerCoordinator.Web.Presentation
 @model VolunteerCoordinator.Web.Pages.Coordinator.Requests.IndexModel
+@inject GroupTimeFormatter Formatter
 @{
-    ViewData["Title"] = "Volunteer requests";
+    ViewData["Title"] = "Requests to review";
 }
-<h1>Volunteer requests</h1>
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Routine work</p>
+        <h1 tabindex="-1">@(Model.IsFiltered ? "Requests to review" : "Volunteer requests")</h1>
+        <p class="lead">Review each volunteer request before anyone is assigned. Local dates and commitment details stay visible beside the decision.</p>
+    </div>
+    @if (Model.IsFiltered)
+    {
+        <a class="button button-secondary" asp-page="/Coordinator/Requests/Index">Show all requests</a>
+    }
+</header>
 @if (TempData["Error"] is string error) { <div class="alert alert-error" role="alert">@error</div> }
 @if (Model.Requests.Count == 0)
 {
-    <div class="empty-state"><h2>No requests</h2><p>Volunteer requests will appear here after published openings are requested.</p></div>
+    <div class="empty-state">
+        <p class="eyebrow">No matching work</p>
+        <h2>@(Model.IsFiltered ? "No requests need review" : "No volunteer requests")</h2>
+        <p>@(Model.IsFiltered ? "Every current and future request is resolved or already assigned." : "Requests will appear here after published openings are requested.")</p>
+        <a class="button button-secondary" asp-page="/Coordinator">Back to coordinator home</a>
+    </div>
 }
 else
 {
 <div class="table-scroll"><table class="responsive">
-<thead><tr><th>Volunteer</th><th>Commitment</th><th>Requested</th><th>Request status</th><th>Slot state</th><th>Actions</th></tr></thead>
+<caption class="visually-hidden">Volunteer requests</caption>
+<thead><tr><th>Volunteer</th><th>Commitment</th><th>Requested</th><th>Request status</th><th>Commitment state</th><th>Next action</th></tr></thead>
 <tbody>
 @foreach (var request in Model.Requests)
 {
 <tr>
 <td data-label="Volunteer">@request.VolunteerName<br><small>@request.VolunteerEmail</small></td>
 <td data-label="Commitment"><partial name="_CommitmentDetails" model="request.Commitment" /></td>
-<td data-label="Requested">@request.RequestedAtUtc.ToString("yyyy-MM-dd HH:mm 'UTC'")</td>
-<td data-label="Request status"><span class="badge badge-@request.Status.ToLowerInvariant()">@request.Status</span></td>
-<td data-label="Slot state">@request.SlotState</td>
-<td data-label="Actions">
+<td data-label="Requested"><time datetime="@Formatter.UtcDateTime(request.RequestedAtUtc)">@Formatter.FormatLocal(request.RequestedAtUtc, request.Commitment.GroupTimeZoneId)</time></td>
+<td data-label="Request status"><span class="status-chip status-chip-@request.Status.ToLowerInvariant()">@(request.Status switch { "Pending" => "Request to review", "Approved" => "Approved", "Rejected" => "Declined", "Superseded" => "Resolved", _ => "Resolved" })</span></td>
+<td data-label="Next action">
 @if (request.Status == "Pending")
 {
 <div class="actions">
 @if (request.CanApprove)
 {
-<form method="post" asp-page-handler="Approve" class="inline"><input type="hidden" name="id" value="@request.RequestId"><button type="submit">Approve</button></form>
+<form method="post" asp-page-handler="Approve" class="inline"><input type="hidden" name="id" value="@request.RequestId"><button type="submit">Approve and assign</button></form>
 }
-<form method="post" asp-page-handler="Reject" class="inline"><input type="hidden" name="id" value="@request.RequestId"><button type="submit" class="button-danger">Reject</button></form>
+<form method="post" asp-page-handler="Reject" class="inline"><input type="hidden" name="id" value="@request.RequestId"><button type="submit" class="button-danger">Decline request</button></form>
 </div>
 }
-else { <span>No pending action</span> }
+else { <span>No action needed</span> }
 </td>
 </tr>
 }

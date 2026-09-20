@@ -1,20 +1,33 @@
 @page "/Coordinator/Audit"
+@using VolunteerCoordinator.Web.Presentation
 @model VolunteerCoordinator.Web.Pages.Coordinator.Audit.IndexModel
+@inject GroupTimeFormatter Formatter
 @{
-    ViewData["Title"] = "Audit trail";
+    ViewData["Title"] = "History";
 }
-<h1>Audit trail</h1>
-<p class="lead">Recent coordinator and token-driven state transitions, newest first.</p>
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Coordinator record</p>
+        <h1 tabindex="-1">History</h1>
+        <p class="lead">Recent schedule and volunteer-work changes, shown in the group’s local time.</p>
+    </div>
+</header>
 @if (Model.Entries.Count == 0)
 {
-<div class="empty-state"><h2>No audit entries</h2><p>Auditable workflow actions will appear here.</p></div>
+    <div class="empty-state"><h2>No history yet</h2><p>Coordinator actions will appear here as work is completed.</p></div>
 }
 else
 {
-<div class="table-scroll"><table class="responsive"><thead><tr><th>Occurred</th><th>Actor</th><th>Action</th><th>Entity</th><th>Detail</th></tr></thead><tbody>
+<div class="table-scroll"><table class="responsive">
+<caption class="visually-hidden">Coordinator history</caption>
+<thead><tr><th>When</th><th>Coordinator</th><th>What happened</th></tr></thead><tbody>
 @foreach (var entry in Model.Entries)
 {
-<tr><td data-label="Occurred">@entry.OccurredAtUtc.ToString("yyyy-MM-dd HH:mm:ss 'UTC'")</td><td data-label="Actor">@entry.Actor</td><td data-label="Action">@entry.Action</td><td data-label="Entity">@entry.EntityKind @entry.EntityId</td><td data-label="Detail"><code>@entry.DetailJson</code></td></tr>
+<tr>
+    <td data-label="When"><time datetime="@Formatter.UtcDateTime(entry.OccurredAtUtc)">@Formatter.FormatLocal(entry.OccurredAtUtc, entry.GroupTimeZoneId)</time></td>
+    <td data-label="Coordinator">@entry.ActorDisplay</td>
+    <td data-label="What happened">@entry.Summary</td>
+</tr>
 }
 </tbody></table></div>
 }

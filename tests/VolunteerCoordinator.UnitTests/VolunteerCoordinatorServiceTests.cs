@@ -221,6 +221,7 @@ public sealed class VolunteerCoordinatorServiceTests
 
         public Task LockGroupSettingsAsync(CancellationToken cancellationToken) => Task.CompletedTask;
         public Task<IReadOnlyList<Shift>> GetPublishedFutureShiftsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) => Unsupported<IReadOnlyList<Shift>>();
+        public Task<IReadOnlyList<Shift>> GetPublishedCurrentOrFutureShiftsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) => Unsupported<IReadOnlyList<Shift>>();
 
         public Task<Volunteer?> GetVolunteerAsync(Guid volunteerId, CancellationToken cancellationToken) =>
             Task.FromResult<Volunteer?>(_volunteer);
@@ -247,6 +248,10 @@ public sealed class VolunteerCoordinatorServiceTests
             CancellationToken cancellationToken) =>
             Unsupported<IReadOnlyList<NotificationAttempt>>();
         public Task<IReadOnlyList<Volunteer>> GetVolunteersAsync(CancellationToken cancellationToken) =>
+            Unsupported<IReadOnlyList<Volunteer>>();
+        public Task<IReadOnlyList<Volunteer>> GetVolunteersByIdsAsync(
+            IReadOnlyCollection<Guid> volunteerIds,
+            CancellationToken cancellationToken) =>
             Unsupported<IReadOnlyList<Volunteer>>();
 
 
@@ -279,6 +284,34 @@ public sealed class VolunteerCoordinatorServiceTests
         public Task<IReadOnlyList<ActionToken>> GetUnusedActionTokensAsync(IReadOnlyCollection<Guid> assignmentIds, CancellationToken cancellationToken) => Unsupported<IReadOnlyList<ActionToken>>();
 
         public Task<IReadOnlyList<AuditEntry>> GetAuditEntriesAsync(int limit, CancellationToken cancellationToken) => Unsupported<IReadOnlyList<AuditEntry>>();
+        public Task<CoordinatorHomeProjection> GetCoordinatorHomeProjectionAsync(
+            DateTimeOffset nowUtc,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CoordinatorHomeProjection(
+                GroupSettings.Create("Etc/UTC"),
+                false,
+                null,
+                0,
+                [],
+                0,
+                [],
+                0,
+                [],
+                0,
+                []));
+
+        public Task<IReadOnlyList<CoordinatorHomeExample>> GetActionableMessageExamplesAsync(
+            DateTimeOffset nowUtc,
+            int limit,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<CoordinatorHomeExample>>([]);
+        public Task<CoordinatorMessagePageProjection> GetActionableMessagePageAsync(
+            DateTimeOffset nowUtc,
+            int page,
+            int pageSize,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CoordinatorMessagePageProjection(1, pageSize, 0, []));
+
 
         public void AddShift(Shift shift) => throw new NotSupportedException();
         public void AddGroupSettings(GroupSettings settings) => throw new NotSupportedException();

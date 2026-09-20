@@ -102,7 +102,7 @@ public static class LocalScheduleResolver
             var selected = candidates.SingleOrDefault(x => x.UtcOffset == selectedOffset.Value);
             if (selected is null)
             {
-                errors.Add($"The selected {boundaryName} UTC offset is no longer valid. Choose one of the displayed interpretations.");
+                errors.Add($"The selected interpretation for the {boundaryName} time is no longer valid. Choose one of the displayed interpretations.");
                 return new BoundaryResult(null, candidates);
             }
 
@@ -112,7 +112,7 @@ public static class LocalScheduleResolver
         var derivedOffset = timeZone.GetUtcOffset(localTime);
         if (selectedOffset.HasValue && selectedOffset.Value != derivedOffset)
         {
-            errors.Add($"The selected {boundaryName} UTC offset does not match this local time. Choose another interpretation.");
+            errors.Add($"The selected interpretation does not match the {boundaryName} time. Choose another interpretation.");
             return new BoundaryResult(null, []);
         }
 

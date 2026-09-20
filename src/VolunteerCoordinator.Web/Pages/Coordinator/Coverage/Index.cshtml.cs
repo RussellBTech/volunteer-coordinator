@@ -18,14 +18,28 @@ public sealed class IndexModel : PageModel
 
     public IReadOnlyList<CoverageDto> Coverage { get; private set; } = [];
 
-    public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
+    public string? AppliedAttention { get; private set; }
+
+    public async Task<IActionResult> OnGetAsync(string? attention, CancellationToken cancellationToken)
     {
         if (await _service.GetGroupSettingsAsync(cancellationToken) is null)
         {
             return RedirectToPage("/Coordinator/Settings");
         }
 
-        Coverage = await _service.GetCoverageAsync(cancellationToken);
+        AppliedAttention = attention switch
+        {
+            "uncovered" => "uncovered",
+            "unconfirmed" => "unconfirmed",
+            _ => null
+        };
+        var allCoverage = await _service.GetCoverageAsync(cancellationToken);
+        Coverage = AppliedAttention switch
+        {
+            "uncovered" => allCoverage.Where(x => x.State == "Uncovered").ToArray(),
+            "unconfirmed" => allCoverage.Where(x => x.State == "Unconfirmed").ToArray(),
+            _ => allCoverage
+        };
         return Page();
     }
 
@@ -36,19 +50,6 @@ public sealed class IndexModel : PageModel
             return RedirectToPage("/Coordinator/Settings");
         }
 
-        try
-        {
-            await _service.CancelAssignmentAsync(
-                assignmentId,
-                CoordinatorIdentity.GetEmail(User)!,
-                cancellationToken);
-            TempData["Message"] = "Assignment cancelled. The slot is now uncovered.";
-        }
-        catch (DomainException exception)
-        {
-            TempData["Error"] = exception.Message;
-        }
-
-        return RedirectToPage();
+        return RedirectToPage("/Coordinator/Assignments/Cancel", new { assignmentId });
     }
 }

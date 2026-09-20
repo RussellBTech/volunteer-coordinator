@@ -1,0 +1,14 @@
+@using VolunteerCoordinator.Web.Presentation
+@model PreviewRecoveryViewModel
+<section class="preview-recovery card" role="alert" aria-labelledby="preview-recovery-heading" tabindex="-1" data-focus-target="true">
+    <p class="eyebrow">Review required</p>
+    <h2 id="preview-recovery-heading">This review is no longer current</h2>
+    <p>@Model.Message</p>
+    <div class="actions">
+        @if (Model.EditUrl is not null)
+        {
+            <a class="button" href="@Model.EditUrl">Edit schedule entry</a>
+        }
+        <a class="button button-secondary" href="@Model.BackUrl">Return without changes</a>
+    </div>
+</section>

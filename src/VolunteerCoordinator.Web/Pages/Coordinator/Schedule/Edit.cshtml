@@ -1,22 +1,30 @@
 @page "/Coordinator/Schedule/Edit/{id:guid}"
 @using VolunteerCoordinator.Application.Time
+@using VolunteerCoordinator.Web.Presentation
+@inject GroupTimeFormatter Formatter
 @model VolunteerCoordinator.Web.Pages.Coordinator.Schedule.EditModel
 @{
-    ViewData["Title"] = "Edit shift";
+    ViewData["Title"] = "Edit schedule entry";
 }
-<h1>Edit shift</h1>
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Schedule correction</p>
+        <h1 tabindex="-1">Edit schedule entry</h1>
+        <p class="lead">Correct the commitment in the group’s local time. A backup slot with active work cannot be removed.</p>
+    </div>
+</header>
 @if (Model.Commitment is not null)
 {
     <div class="card"><partial name="_CommitmentDetails" model="Model.Commitment" /></div>
 }
 @if (Model.Settings is not null)
 {
-    <p>Enter local civil times in <strong>@Model.Settings.TimeZoneId</strong>. Stored UTC instants are recalculated only from an explicit local interpretation. A backup slot with active work cannot be removed.</p>
+    <p class="field-help">Local time zone: <strong>@Formatter.FriendlyTimeZone(Model.Settings.TimeZoneId)</strong>. Choose an interpretation if a local time repeats.</p>
 }
 <form method="post">
     <input asp-for="ExpectedVersion" type="hidden">
     <input asp-for="ExpectedSettingsVersion" type="hidden">
-    <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+    <div asp-validation-summary="All" class="validation-summary-errors" role="alert" aria-live="assertive" tabindex="-1" data-focus-target="@(ViewData.ModelState.IsValid ? "false" : "true")"></div>
     <div class="form-group"><label asp-for="Title"></label><input asp-for="Title"><span asp-validation-for="Title"></span></div>
     <div class="form-group"><label asp-for="Location"></label><input asp-for="Location"><span asp-validation-for="Location"></span></div>
     <div class="form-group"><label asp-for="VolunteerInstructions">Volunteer instructions</label><textarea asp-for="VolunteerInstructions"></textarea><span asp-validation-for="VolunteerInstructions"></span></div>
@@ -42,5 +50,5 @@
         </fieldset>
     }
     <div class="form-group"><label asp-for="BackupSlotCount">Backup slots</label><select asp-for="BackupSlotCount"><option value="0">0</option><option value="1">1</option><option value="2">2</option></select><span asp-validation-for="BackupSlotCount"></span></div>
-    <div class="actions"><button type="submit">Save corrections</button><a asp-page="/Coordinator/Schedule/Index">Cancel</a></div>
+    <div class="actions"><button type="submit">Save corrections</button><a class="button button-secondary" asp-page="/Coordinator/Schedule/Index">Cancel</a></div>
 </form>
