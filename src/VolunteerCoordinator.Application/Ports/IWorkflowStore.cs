@@ -1,5 +1,7 @@
+using VolunteerCoordinator.Application.Models;
 using VolunteerCoordinator.Domain.Assignments;
 using VolunteerCoordinator.Domain.Auditing;
+using VolunteerCoordinator.Domain.Notifications;
 using VolunteerCoordinator.Domain.Requests;
 using VolunteerCoordinator.Domain.Schedules;
 using VolunteerCoordinator.Domain.Settings;
@@ -25,17 +27,35 @@ public interface IWorkflowStore
         CancellationToken cancellationToken);
 
     Task<Shift?> GetShiftAsync(Guid shiftId, CancellationToken cancellationToken);
+    Task LockShiftAsync(Guid shiftId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<Shift>> GetShiftsForSlotIdsAsync(
+        IReadOnlyCollection<Guid> slotIds,
+        CancellationToken cancellationToken);
 
     Task<ShiftSlot?> GetSlotAsync(Guid slotId, CancellationToken cancellationToken);
     Task LockSlotAsync(Guid slotId, CancellationToken cancellationToken);
-
-
     Task<Volunteer?> GetVolunteerAsync(Guid volunteerId, CancellationToken cancellationToken);
-
-    Task<Volunteer?> GetVolunteerByNormalizedEmailAsync(
+    Task LockVolunteerAsync(Guid volunteerId, CancellationToken cancellationToken);
+    Task<Guid?> GetVolunteerIdByNormalizedEmailAsync(
         string normalizedEmail,
         CancellationToken cancellationToken);
-
+    Task<VolunteerRemovalLookupProjection?> GetVolunteerRemovalProjectionByNormalizedEmailAsync(
+        string normalizedEmail,
+        CancellationToken cancellationToken);
+    Task<IReadOnlyList<Guid>> GetRetentionCandidateIdsAsync(
+        DateTimeOffset coarseCutoffUtc,
+        Guid? afterVolunteerId,
+        int batchSize,
+        CancellationToken cancellationToken);
+    Task<IReadOnlyList<ShiftRequest>> GetRequestsForVolunteerAsync(
+        Guid volunteerId,
+        CancellationToken cancellationToken);
+    Task<IReadOnlyList<Assignment>> GetAssignmentsForVolunteerAsync(
+        Guid volunteerId,
+        CancellationToken cancellationToken);
+    Task<IReadOnlyList<NotificationAttempt>> GetNotificationAttemptsAsync(
+        IReadOnlyCollection<Guid> transitionIds,
+        CancellationToken cancellationToken);
     Task<IReadOnlyList<Volunteer>> GetVolunteersAsync(CancellationToken cancellationToken);
 
     Task<ShiftRequest?> GetRequestAsync(Guid requestId, CancellationToken cancellationToken);
@@ -103,7 +123,6 @@ public interface IWorkflowStore
 
     void AddGroupSettings(GroupSettings settings);
     void AddShiftSlots(IReadOnlyCollection<ShiftSlot> slots);
-
 
     void AddVolunteer(Volunteer volunteer);
 

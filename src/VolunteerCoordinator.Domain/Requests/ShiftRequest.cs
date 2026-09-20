@@ -55,6 +55,8 @@ public sealed class ShiftRequest
 
     public DateTimeOffset StatusTokenExpiresAtUtc { get; private set; }
 
+    public DateTimeOffset? StatusTokenInvalidatedAtUtc { get; private set; }
+
     public static ShiftRequest Create(
         Guid shiftSlotId,
         Guid volunteerId,
@@ -72,7 +74,24 @@ public sealed class ShiftRequest
     public void Supersede(string coordinatorEmail, DateTimeOffset nowUtc) =>
         Resolve(RequestStatus.Superseded, coordinatorEmail, nowUtc);
 
-    public bool IsStatusTokenUsable(DateTimeOffset nowUtc) => nowUtc <= StatusTokenExpiresAtUtc;
+    public bool IsStatusTokenUsable(DateTimeOffset nowUtc) =>
+        StatusTokenInvalidatedAtUtc is null && nowUtc <= StatusTokenExpiresAtUtc;
+
+    public bool InvalidateStatusToken(DateTimeOffset nowUtc)
+    {
+        if (nowUtc.Offset != TimeSpan.Zero)
+        {
+            throw new DomainException("Request timestamps must be UTC.");
+        }
+
+        if (StatusTokenInvalidatedAtUtc.HasValue)
+        {
+            return false;
+        }
+
+        StatusTokenInvalidatedAtUtc = nowUtc;
+        return true;
+    }
 
     private void Resolve(RequestStatus status, string coordinatorEmail, DateTimeOffset nowUtc)
     {

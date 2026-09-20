@@ -1,0 +1,7 @@
+@using Microsoft.Extensions.Options
+@using VolunteerCoordinator.Web.Privacy
+@inject IOptions<PrivacyOptions> PrivacyOptions
+<div class="privacy-notice card" role="note">
+    <p><strong>Privacy before submission:</strong> We use your name and email only to coordinate this service commitment. Phone is optional. Authorized coordinators can see these details. We remove identifying contact data one year after your latest related activity when no live commitment needs it, or sooner after a verified request to <a href="mailto:@PrivacyOptions.Value.ContactEmail">@PrivacyOptions.Value.ContactEmail</a>. Protected backups expire through their normal rotation. This records service scheduling only; it does not indicate AA membership or attendance.</p>
+    <p><a asp-page="/Privacy">Read the complete privacy and removal policy</a>.</p>
+</div>

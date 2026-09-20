@@ -13,9 +13,12 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using VolunteerCoordinator.Application;
+using VolunteerCoordinator.Application.Models;
 using VolunteerCoordinator.Infrastructure.DependencyInjection;
 using VolunteerCoordinator.Infrastructure.Health;
 using VolunteerCoordinator.Infrastructure.Persistence;
+using VolunteerCoordinator.Web.Privacy;
 using VolunteerCoordinator.Web.Security;
 using VolunteerCoordinator.Web.Presentation;
 
@@ -27,6 +30,41 @@ builder.Services.AddVolunteerCoordinatorInfrastructure(connectionString);
 builder.Services.AddSingleton<GroupTimeFormatter>();
 builder.Services.AddRazorPages(options =>
     options.Conventions.AuthorizeFolder("/Coordinator", "CoordinatorOnly"));
+var privacyConfiguration = builder.Configuration.GetSection(PrivacyOptions.SectionName);
+var configuredPrivacy = privacyConfiguration.Get<PrivacyOptions>() ?? new PrivacyOptions();
+if (!configuredPrivacy.IsValid(builder.Environment.EnvironmentName))
+{
+    throw new InvalidOperationException(
+        "Privacy:ContactEmail must be a valid configured removal-contact address.");
+}
+
+builder.Services.AddOptions<PrivacyOptions>()
+    .Bind(privacyConfiguration)
+    .Validate(
+        options => options.IsValid(builder.Environment.EnvironmentName),
+        "Privacy:ContactEmail must be a valid configured removal-contact address.")
+    .ValidateOnStart();
+
+var retentionConfiguration = builder.Configuration.GetSection(VolunteerRetentionOptions.SectionName);
+var configuredRetention = retentionConfiguration.Get<VolunteerRetentionOptions>()
+    ?? new VolunteerRetentionOptions();
+if (!configuredRetention.IsValid())
+{
+    throw new InvalidOperationException(
+        $"VolunteerRetention requires exactly {VolunteerRetentionPolicy.MinimumRetentionDays} retention days and " +
+        $"a {VolunteerRetentionPolicy.MinimumSweepIntervalHours}-hour interval, with a batch size between " +
+        $"{VolunteerRetentionPolicy.MinimumBatchSize} and {VolunteerRetentionPolicy.MaximumBatchSize}.");
+}
+
+builder.Services.AddOptions<VolunteerRetentionOptions>()
+    .Bind(retentionConfiguration)
+    .Validate(
+        static options => options.IsValid(),
+        "VolunteerRetention settings exceed the approved safe bounds.")
+    .ValidateOnStart();
+builder.Services.AddSingleton<VolunteerRetentionInitializationState>();
+builder.Services.AddHostedService<VolunteerRetentionHostedService>();
+
 builder.Services.AddAntiforgery(options => options.HeaderName = "X-CSRF-TOKEN");
 var rateLimitConfiguration = builder.Configuration.GetSection(AnonymousRateLimitOptions.SectionName);
 var configuredRateLimits = rateLimitConfiguration.Get<AnonymousRateLimitOptions>()
@@ -149,7 +187,10 @@ if (hasOidcAuthority || hasOidcClientId || hasOidcClientSecret)
 }
 
 builder.Services.AddHealthChecks()
-    .AddCheck("postgres", new PostgresReadyHealthCheck(connectionString), tags: ["ready"]);
+    .AddCheck("postgres", new PostgresReadyHealthCheck(connectionString), tags: ["ready"])
+    .AddCheck<VolunteerRetentionInitializationHealthCheck>(
+        "volunteer-retention-initialization",
+        tags: ["ready"]);
 
 var app = builder.Build();
 
@@ -161,6 +202,8 @@ if (args.Any(argument => string.Equals(argument, "--migrate-only", StringCompari
     app.Logger.LogInformation("Database migration completed in migrate-only mode.");
     return;
 }
+var retentionInitializationState = app.Services
+    .GetRequiredService<VolunteerRetentionInitializationState>();
 
 if (!app.Environment.IsDevelopment())
 {
@@ -171,6 +214,19 @@ app.UseForwardedHeaders();
 
 app.UseStaticFiles();
 app.UseRouting();
+app.Use(async (context, next) =>
+{
+    if (!retentionInitializationState.IsCompleted && !IsHealthPath(context.Request.Path))
+    {
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        context.Response.Headers.RetryAfter = "1";
+        context.Response.ContentType = "text/plain; charset=utf-8";
+        await context.Response.WriteAsync("Service initialization is in progress.");
+        return;
+    }
+
+    await next();
+});
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -239,6 +295,11 @@ static bool HasSingleRouteValue(string? path, string routePrefix)
 static bool IsRequestCompletionPath(string? path) =>
     string.Equals(path, "/Shifts/Request/Complete", StringComparison.OrdinalIgnoreCase) ||
     string.Equals(path, "/Shifts/Request/Complete/", StringComparison.OrdinalIgnoreCase);
+static bool IsHealthPath(PathString path) =>
+    string.Equals(path.Value, "/health", StringComparison.OrdinalIgnoreCase) ||
+    string.Equals(path.Value, "/health/", StringComparison.OrdinalIgnoreCase) ||
+    string.Equals(path.Value, "/health/ready", StringComparison.OrdinalIgnoreCase) ||
+    string.Equals(path.Value, "/health/ready/", StringComparison.OrdinalIgnoreCase);
 
 static Task<IResult> DevelopmentLoginFormAsync(HttpContext context, IAntiforgery antiforgery)
 {

@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using VolunteerCoordinator.Application.Models;
 using VolunteerCoordinator.Application.Ports;
 using VolunteerCoordinator.Domain;
 using VolunteerCoordinator.Domain.Assignments;
 using VolunteerCoordinator.Domain.Auditing;
+using VolunteerCoordinator.Domain.Notifications;
 using VolunteerCoordinator.Domain.Requests;
 using VolunteerCoordinator.Domain.Schedules;
 using VolunteerCoordinator.Domain.Settings;
@@ -13,6 +15,8 @@ namespace VolunteerCoordinator.Infrastructure.Persistence;
 
 public sealed class EfWorkflowStore : IWorkflowStore
 {
+    private const int RemovalLookupFetchLimit = 20;
+    private const int RemovalLookupResultLimit = 10;
     private readonly VolunteerCoordinatorDbContext _dbContext;
 
     public EfWorkflowStore(VolunteerCoordinatorDbContext dbContext)
@@ -32,19 +36,22 @@ public sealed class EfWorkflowStore : IWorkflowStore
             await transaction.CommitAsync(cancellationToken);
             return result;
         }
-        catch (DbUpdateConcurrencyException exception)
+        catch (DbUpdateConcurrencyException)
         {
             await transaction.RollbackAsync(CancellationToken.None);
-            throw new DomainException($"The record changed while it was being saved. Reload and try again. {exception.Message}");
+            _dbContext.ChangeTracker.Clear();
+            throw new DomainException("The record changed while it was being saved. Reload and try again.");
         }
         catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
         {
             await transaction.RollbackAsync(CancellationToken.None);
+            _dbContext.ChangeTracker.Clear();
             throw new DomainException("The requested change conflicts with current schedule state. Reload and try again.");
         }
         catch
         {
             await transaction.RollbackAsync(CancellationToken.None);
+            _dbContext.ChangeTracker.Clear();
             throw;
         }
     }
@@ -98,6 +105,27 @@ public sealed class EfWorkflowStore : IWorkflowStore
 
         return await _dbContext.Shifts.Include(x => x.Slots).SingleOrDefaultAsync(x => x.Id == shiftId, cancellationToken);
     }
+    public Task LockShiftAsync(Guid shiftId, CancellationToken cancellationToken) =>
+        _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""SELECT 1 FROM "Shifts" WHERE "Id" = {shiftId} FOR UPDATE""",
+            cancellationToken);
+
+    public async Task<IReadOnlyList<Shift>> GetShiftsForSlotIdsAsync(
+        IReadOnlyCollection<Guid> slotIds,
+        CancellationToken cancellationToken)
+    {
+        if (slotIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await _dbContext.Shifts
+            .AsNoTracking()
+            .Include(x => x.Slots)
+            .Where(x => x.Slots.Any(slot => slotIds.Contains(slot.Id)))
+            .ToListAsync(cancellationToken);
+    }
+
 
     public async Task<ShiftSlot?> GetSlotAsync(Guid slotId, CancellationToken cancellationToken)
     {
@@ -127,7 +155,6 @@ public sealed class EfWorkflowStore : IWorkflowStore
         return await _dbContext.ShiftRequests.SingleOrDefaultAsync(x => x.Id == requestId, cancellationToken);
     }
 
-
     public async Task LockSlotAsync(Guid slotId, CancellationToken cancellationToken)
     {
         await _dbContext.Database.ExecuteSqlInterpolatedAsync(
@@ -135,14 +162,157 @@ public sealed class EfWorkflowStore : IWorkflowStore
             cancellationToken);
     }
 
+    public async Task<Volunteer?> GetVolunteerAsync(Guid volunteerId, CancellationToken cancellationToken)
+    {
+        var trackedEntry = _dbContext.ChangeTracker
+            .Entries<Volunteer>()
+            .SingleOrDefault(x => x.Entity.Id == volunteerId);
+        if (trackedEntry is not null)
+        {
+            await trackedEntry.ReloadAsync(cancellationToken);
+            return trackedEntry.State == EntityState.Detached ? null : trackedEntry.Entity;
+        }
 
-    public Task<Volunteer?> GetVolunteerAsync(Guid volunteerId, CancellationToken cancellationToken) =>
-        _dbContext.Volunteers.SingleOrDefaultAsync(x => x.Id == volunteerId, cancellationToken);
-
-    public Task<Volunteer?> GetVolunteerByNormalizedEmailAsync(
+        return await _dbContext.Volunteers.SingleOrDefaultAsync(x => x.Id == volunteerId, cancellationToken);
+    }
+    public Task<Guid?> GetVolunteerIdByNormalizedEmailAsync(
         string normalizedEmail,
         CancellationToken cancellationToken) =>
-        _dbContext.Volunteers.SingleOrDefaultAsync(x => x.NormalizedEmail == normalizedEmail, cancellationToken);
+        _dbContext.Volunteers
+            .AsNoTracking()
+            .Where(x => x.NormalizedEmail == normalizedEmail)
+            .Select(x => (Guid?)x.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+
+
+    public async Task<VolunteerRemovalLookupProjection?> GetVolunteerRemovalProjectionByNormalizedEmailAsync(
+        string normalizedEmail,
+        CancellationToken cancellationToken)
+    {
+        var volunteerId = await _dbContext.Volunteers
+            .AsNoTracking()
+            .Where(x => x.AnonymizedAtUtc == null && x.NormalizedEmail == normalizedEmail)
+            .Select(x => (Guid?)x.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (!volunteerId.HasValue)
+        {
+            return null;
+        }
+
+        var requestCommitments = await (
+            from request in _dbContext.ShiftRequests.AsNoTracking()
+            join slot in _dbContext.ShiftSlots.AsNoTracking() on request.ShiftSlotId equals slot.Id
+            join shift in _dbContext.Shifts.AsNoTracking() on slot.ShiftId equals shift.Id
+            where request.VolunteerId == volunteerId.Value
+            orderby shift.EndsAtUtc descending, request.RequestedAtUtc descending, request.Id
+            select new VolunteerRemovalCommitmentProjection(
+                shift.Id,
+                slot.Id,
+                shift.Title,
+                shift.StartsAtUtc,
+                shift.EndsAtUtc,
+                shift.Location,
+                shift.VolunteerInstructions,
+                slot.Kind,
+                slot.Position,
+                request.Status,
+                null))
+            .Take(RemovalLookupFetchLimit)
+            .ToListAsync(cancellationToken);
+
+        var assignmentCommitments = await (
+            from assignment in _dbContext.Assignments.AsNoTracking()
+            join slot in _dbContext.ShiftSlots.AsNoTracking() on assignment.ShiftSlotId equals slot.Id
+            join shift in _dbContext.Shifts.AsNoTracking() on assignment.ShiftId equals shift.Id
+            where assignment.VolunteerId == volunteerId.Value
+            orderby shift.EndsAtUtc descending, assignment.AssignedAtUtc descending, assignment.Id
+            select new VolunteerRemovalCommitmentProjection(
+                shift.Id,
+                slot.Id,
+                shift.Title,
+                shift.StartsAtUtc,
+                shift.EndsAtUtc,
+                shift.Location,
+                shift.VolunteerInstructions,
+                slot.Kind,
+                slot.Position,
+                null,
+                assignment.Status))
+            .Take(RemovalLookupFetchLimit)
+            .ToListAsync(cancellationToken);
+
+        var commitments = requestCommitments
+            .Concat(assignmentCommitments)
+            .GroupBy(x => (x.ShiftId, x.SlotId))
+            .Select(group => group
+                .OrderByDescending(x => x.AssignmentStatus.HasValue)
+                .ThenByDescending(x => x.EndsAtUtc)
+                .First())
+            .OrderByDescending(x => x.EndsAtUtc)
+            .ThenByDescending(x => x.ShiftId)
+            .Take(RemovalLookupResultLimit)
+            .ToArray();
+
+        return new VolunteerRemovalLookupProjection(volunteerId.Value, commitments);
+    }
+
+    public Task LockVolunteerAsync(Guid volunteerId, CancellationToken cancellationToken) =>
+        _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""SELECT 1 FROM "Volunteers" WHERE "Id" = {volunteerId} FOR UPDATE""",
+            cancellationToken);
+
+    public async Task<IReadOnlyList<Guid>> GetRetentionCandidateIdsAsync(
+        DateTimeOffset coarseCutoffUtc,
+        Guid? afterVolunteerId,
+        int batchSize,
+        CancellationToken cancellationToken)
+    {
+        if (batchSize is < VolunteerRetentionPolicy.MinimumBatchSize or > VolunteerRetentionPolicy.MaximumBatchSize)
+        {
+            throw new ArgumentOutOfRangeException(nameof(batchSize));
+        }
+        var query = _dbContext.Volunteers
+            .AsNoTracking()
+            .Where(x => x.AnonymizedAtUtc == null && x.UpdatedAtUtc <= coarseCutoffUtc);
+        if (afterVolunteerId.HasValue)
+        {
+            query = query.Where(x => x.Id > afterVolunteerId.Value);
+        }
+
+        return await query
+            .OrderBy(x => x.Id)
+            .Take(batchSize)
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ShiftRequest>> GetRequestsForVolunteerAsync(
+        Guid volunteerId,
+        CancellationToken cancellationToken) =>
+        await _dbContext.ShiftRequests
+            .Where(x => x.VolunteerId == volunteerId)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<Assignment>> GetAssignmentsForVolunteerAsync(
+        Guid volunteerId,
+        CancellationToken cancellationToken) =>
+        await _dbContext.Assignments
+            .Where(x => x.VolunteerId == volunteerId)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<NotificationAttempt>> GetNotificationAttemptsAsync(
+        IReadOnlyCollection<Guid> transitionIds,
+        CancellationToken cancellationToken)
+    {
+        if (transitionIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await _dbContext.NotificationAttempts
+            .Where(x => transitionIds.Contains(x.TransitionId))
+            .ToListAsync(cancellationToken);
+    }
 
     public async Task<IReadOnlyList<Volunteer>> GetVolunteersAsync(CancellationToken cancellationToken) =>
         await _dbContext.Volunteers.ToListAsync(cancellationToken);

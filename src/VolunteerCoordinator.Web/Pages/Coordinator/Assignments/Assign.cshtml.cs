@@ -29,7 +29,7 @@ public sealed class AssignModel : PageModel
     [BindProperty, Required, EmailAddress, StringLength(320)]
     public string VolunteerEmail { get; set; } = string.Empty;
 
-    [BindProperty, Phone, StringLength(40)]
+    [BindProperty, Display(Name = "Phone (optional)"), Phone, StringLength(40)]
     public string? VolunteerPhone { get; set; }
 
     public async Task<IActionResult> OnGetAsync(Guid slotId, CancellationToken cancellationToken)

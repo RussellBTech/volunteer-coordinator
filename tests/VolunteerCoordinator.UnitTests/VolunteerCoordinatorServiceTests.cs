@@ -1,9 +1,11 @@
 using VolunteerCoordinator.Application;
+using VolunteerCoordinator.Application.Models;
 using VolunteerCoordinator.Application.Notifications;
 using VolunteerCoordinator.Application.Ports;
 using VolunteerCoordinator.Domain;
 using VolunteerCoordinator.Domain.Assignments;
 using VolunteerCoordinator.Domain.Auditing;
+using VolunteerCoordinator.Domain.Notifications;
 using VolunteerCoordinator.Domain.Requests;
 using VolunteerCoordinator.Domain.Schedules;
 using VolunteerCoordinator.Domain.Volunteers;
@@ -54,6 +56,47 @@ public sealed class VolunteerCoordinatorServiceTests
         Assert.Equal(3, store.TransactionAttempts);
         Assert.Equal(3, store.RollbackCount);
         Assert.Equal(3, store.SlotLockAttempts);
+    }
+
+    [Theory]
+    [InlineData(364, 1)]
+    [InlineData(int.MaxValue, 1)]
+    [InlineData(365, 0)]
+    [InlineData(365, int.MaxValue)]
+    public async Task RetentionSweepRejectsUnsafeBoundsBeforeQuery(
+        int retentionDays,
+        int batchSize)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var shift = Shift.Create(
+            "Retention bounds",
+            null,
+            null,
+            now.AddDays(1),
+            now.AddDays(1).AddHours(1),
+            0);
+        var slot = shift.Slots.Single();
+        var volunteer = Volunteer.Create("Volunteer", "volunteer@example.org", null, now);
+        var store = new RestartingAssignmentLockStore(
+            shift,
+            slot,
+            volunteer,
+            Assignment.Create(
+                Guid.NewGuid(),
+                shift.Id,
+                volunteer.Id,
+                null,
+                "coordinator@example.org",
+                now));
+        var service = new VolunteerCoordinatorService(
+            store,
+            new FixedClock(now),
+            new FixedTokenService(),
+            new SuccessfulNotificationService());
+
+        await Assert.ThrowsAsync<DomainException>(() =>
+            service.RunRetentionSweepAsync(retentionDays, batchSize, default));
+        Assert.Equal(0, store.TransactionAttempts);
     }
 
     private sealed class FixedClock : IClock
@@ -126,6 +169,13 @@ public sealed class VolunteerCoordinatorServiceTests
 
         public Task<Shift?> GetShiftAsync(Guid shiftId, CancellationToken cancellationToken) =>
             Task.FromResult<Shift?>(_shift);
+        public Task LockShiftAsync(Guid shiftId, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task<IReadOnlyList<Shift>> GetShiftsForSlotIdsAsync(
+            IReadOnlyCollection<Guid> slotIds,
+            CancellationToken cancellationToken) =>
+            Unsupported<IReadOnlyList<Shift>>();
 
         public Task<ShiftSlot?> GetSlotAsync(Guid slotId, CancellationToken cancellationToken) =>
             Task.FromResult<ShiftSlot?>(_slot);
@@ -136,12 +186,20 @@ public sealed class VolunteerCoordinatorServiceTests
             _slotLockHeld = true;
             return Task.CompletedTask;
         }
+        public Task LockVolunteerAsync(Guid volunteerId, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
 
-        public Task<Volunteer?> GetVolunteerByNormalizedEmailAsync(
+        public Task<Guid?> GetVolunteerIdByNormalizedEmailAsync(
             string normalizedEmail,
             CancellationToken cancellationToken) =>
-            Task.FromResult<Volunteer?>(_volunteer);
+            Task.FromResult<Guid?>(_volunteer.Id);
 
+
+        public Task<VolunteerRemovalLookupProjection?> GetVolunteerRemovalProjectionByNormalizedEmailAsync(
+            string normalizedEmail,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<VolunteerRemovalLookupProjection?>(
+                new VolunteerRemovalLookupProjection(_volunteer.Id, []));
         public Task<Assignment?> GetActiveAssignmentForSlotAsync(
             Guid slotId,
             CancellationToken cancellationToken) =>
@@ -164,9 +222,33 @@ public sealed class VolunteerCoordinatorServiceTests
         public Task LockGroupSettingsAsync(CancellationToken cancellationToken) => Task.CompletedTask;
         public Task<IReadOnlyList<Shift>> GetPublishedFutureShiftsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) => Unsupported<IReadOnlyList<Shift>>();
 
-        public Task<Volunteer?> GetVolunteerAsync(Guid volunteerId, CancellationToken cancellationToken) => Unsupported<Volunteer?>();
+        public Task<Volunteer?> GetVolunteerAsync(Guid volunteerId, CancellationToken cancellationToken) =>
+            Task.FromResult<Volunteer?>(_volunteer);
 
-        public Task<IReadOnlyList<Volunteer>> GetVolunteersAsync(CancellationToken cancellationToken) => Unsupported<IReadOnlyList<Volunteer>>();
+        public Task<IReadOnlyList<Guid>> GetRetentionCandidateIdsAsync(
+            DateTimeOffset coarseCutoffUtc,
+            Guid? afterVolunteerId,
+            int batchSize,
+            CancellationToken cancellationToken) =>
+            Unsupported<IReadOnlyList<Guid>>();
+
+        public Task<IReadOnlyList<ShiftRequest>> GetRequestsForVolunteerAsync(
+            Guid volunteerId,
+            CancellationToken cancellationToken) =>
+            Unsupported<IReadOnlyList<ShiftRequest>>();
+
+        public Task<IReadOnlyList<Assignment>> GetAssignmentsForVolunteerAsync(
+            Guid volunteerId,
+            CancellationToken cancellationToken) =>
+            Unsupported<IReadOnlyList<Assignment>>();
+
+        public Task<IReadOnlyList<NotificationAttempt>> GetNotificationAttemptsAsync(
+            IReadOnlyCollection<Guid> transitionIds,
+            CancellationToken cancellationToken) =>
+            Unsupported<IReadOnlyList<NotificationAttempt>>();
+        public Task<IReadOnlyList<Volunteer>> GetVolunteersAsync(CancellationToken cancellationToken) =>
+            Unsupported<IReadOnlyList<Volunteer>>();
+
 
         public Task<ShiftRequest?> GetRequestAsync(Guid requestId, CancellationToken cancellationToken) => Unsupported<ShiftRequest?>();
 

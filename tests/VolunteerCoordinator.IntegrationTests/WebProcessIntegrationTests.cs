@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using VolunteerCoordinator.Domain.Volunteers;
 using Xunit;
 
 namespace VolunteerCoordinator.IntegrationTests;
@@ -158,14 +159,33 @@ public sealed class WebProcessIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task OrdinaryStartupDoesNotCreateMigrationHistory()
+    public async Task OrdinaryStartupRemainsLiveAndUnreadyWhenSchemaIsMissing()
     {
         var connectionString = await _fixture.CreateEmptyDatabaseAsync();
         var port = GetUnusedPort();
-        using var process = StartProcess(connectionString, port);
         try
         {
-            await WaitForLivenessAsync(port, process);
+            using var process = StartProcess(connectionString, port);
+            try
+            {
+                await WaitForLivenessAsync(port, process);
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+                using var liveness = await client.GetAsync($"http://127.0.0.1:{port}/health");
+                using var readiness = await client.GetAsync($"http://127.0.0.1:{port}/health/ready");
+                using var product = await client.GetAsync($"http://127.0.0.1:{port}/Privacy");
+                Assert.Equal(HttpStatusCode.OK, liveness.StatusCode);
+                Assert.Equal(HttpStatusCode.ServiceUnavailable, readiness.StatusCode);
+                Assert.Equal(HttpStatusCode.ServiceUnavailable, product.StatusCode);
+            }
+            finally
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync();
+                }
+            }
+
             await using var connection = new NpgsqlConnection(connectionString);
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
@@ -178,12 +198,147 @@ public sealed class WebProcessIntegrationTests : IAsyncLifetime
         }
         finally
         {
-            if (!process.HasExited)
+            await _fixture.DropDatabaseAsync(connectionString);
+        }
+    }
+
+    [Fact]
+    public async Task OrdinaryStartupSweepsExpiredDataBeforeReadiness()
+    {
+        var connectionString = await _fixture.CreateEmptyDatabaseAsync();
+        var port = GetUnusedPort();
+        try
+        {
+            var migration = await RunToExitAsync(connectionString, port, "--migrate-only");
+            Assert.Equal(0, migration.ExitCode);
+
+            Guid volunteerId;
+            await using (var context = _fixture.CreateContext(connectionString))
             {
-                process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync();
+                var volunteer = Volunteer.Create(
+                    "Restored volunteer",
+                    "restored-before-serving@example.org",
+                    null,
+                    DateTimeOffset.UtcNow.AddDays(-400));
+                context.Volunteers.Add(volunteer);
+                await context.SaveChangesAsync();
+                volunteerId = volunteer.Id;
             }
 
+            using var process = StartProcess(connectionString, port);
+            try
+            {
+                await WaitForLivenessAsync(port, process);
+                await WaitForReadinessAsync(port, process);
+
+                await using var verification = _fixture.CreateContext(connectionString);
+                var volunteerState = await verification.Volunteers.SingleAsync(x => x.Id == volunteerId);
+                Assert.NotNull(volunteerState.AnonymizedAtUtc);
+                Assert.Equal("Removed volunteer", volunteerState.Name);
+                Assert.DoesNotContain(
+                    "restored-before-serving@example.org",
+                    await verification.Volunteers.Select(x => x.Email).ToListAsync());
+            }
+            finally
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync();
+                }
+            }
+        }
+        finally
+        {
+            await _fixture.DropDatabaseAsync(connectionString);
+        }
+    }
+
+    [Fact]
+    public async Task InitialRetentionFailureKeepsLivenessAndBlocksProductRoutes()
+    {
+        var connectionString = await _fixture.CreateEmptyDatabaseAsync();
+        var port = GetUnusedPort();
+        try
+        {
+            var migration = await RunToExitAsync(connectionString, port, "--migrate-only");
+            Assert.Equal(0, migration.ExitCode);
+            await using (var seed = _fixture.CreateContext(connectionString))
+            {
+                seed.Volunteers.Add(Volunteer.Create(
+                    "Retention failure",
+                    "retention-startup-failure@example.org",
+                    null,
+                    DateTimeOffset.UtcNow.AddDays(-400)));
+                await seed.SaveChangesAsync();
+            }
+
+            await using (var triggerContext = _fixture.CreateContext(connectionString))
+            {
+                await triggerContext.Database.ExecuteSqlRawAsync(
+                    """
+                    CREATE OR REPLACE FUNCTION issue16_startup_failure()
+                    RETURNS trigger
+                    LANGUAGE plpgsql
+                    AS $$
+                    BEGIN
+                        IF NEW."Action" = 'VolunteerAnonymized' THEN
+                            RAISE EXCEPTION 'issue sixteen startup sweep failure';
+                        END IF;
+                        RETURN NEW;
+                    END;
+                    $$;
+                    CREATE TRIGGER issue16_startup_failure_trigger
+                    BEFORE INSERT ON "AuditEntries"
+                    FOR EACH ROW
+                    EXECUTE FUNCTION issue16_startup_failure();
+                    """);
+            }
+
+            using var process = StartProcess(connectionString, port);
+            try
+            {
+                await WaitForLivenessAsync(port, process);
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+                using var liveness = await client.GetAsync($"http://127.0.0.1:{port}/health");
+                using var readiness = await client.GetAsync($"http://127.0.0.1:{port}/health/ready");
+                using var product = await client.GetAsync($"http://127.0.0.1:{port}/Privacy");
+                Assert.Equal(HttpStatusCode.OK, liveness.StatusCode);
+                Assert.Equal(HttpStatusCode.ServiceUnavailable, readiness.StatusCode);
+                Assert.Equal(HttpStatusCode.ServiceUnavailable, product.StatusCode);
+
+                using var notificationRoute = await client.PostAsync(
+                    $"http://127.0.0.1:{port}/Shifts/Request/{Guid.NewGuid()}",
+                    new FormUrlEncodedContent(new Dictionary<string, string>()));
+                Assert.Equal(HttpStatusCode.ServiceUnavailable, notificationRoute.StatusCode);
+                using var coordinatorRoute = await client.GetAsync($"http://127.0.0.1:{port}/Coordinator/Privacy");
+                using var privateRoute = await client.GetAsync($"http://127.0.0.1:{port}/Actions/{Guid.NewGuid()}");
+                Assert.Equal(HttpStatusCode.ServiceUnavailable, coordinatorRoute.StatusCode);
+                Assert.Equal(HttpStatusCode.ServiceUnavailable, privateRoute.StatusCode);
+                await using var cleanupContext = _fixture.CreateContext(connectionString);
+                await cleanupContext.Database.ExecuteSqlRawAsync(
+                    """
+                    DROP TRIGGER issue16_startup_failure_trigger ON "AuditEntries";
+                    DROP FUNCTION issue16_startup_failure();
+                    """);
+
+                await WaitForReadinessAsync(port, process);
+                await using var verification = _fixture.CreateContext(connectionString);
+                var volunteer = await verification.Volunteers.SingleAsync();
+                Assert.NotNull(volunteer.AnonymizedAtUtc);
+                Assert.Equal("Removed volunteer", volunteer.Name);
+            }
+            finally
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync();
+                }
+            }
+        }
+        finally
+        {
             await _fixture.DropDatabaseAsync(connectionString);
         }
     }
@@ -295,6 +450,36 @@ public sealed class WebProcessIntegrationTests : IAsyncLifetime
         }
 
         throw new Xunit.Sdk.XunitException("Web liveness did not become available.");
+    }
+    private static async Task WaitForReadinessAsync(int port, Process process)
+    {
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            if (process.HasExited)
+            {
+                throw new Xunit.Sdk.XunitException("Web process exited before readiness was available.");
+            }
+
+            try
+            {
+                using var response = await client.GetAsync($"http://127.0.0.1:{port}/health/ready");
+                if (response.StatusCode == HttpStatusCode.OK)
+                {
+                    return;
+                }
+            }
+            catch (HttpRequestException)
+            {
+            }
+            catch (TaskCanceledException)
+            {
+            }
+
+            await Task.Delay(100);
+        }
+
+        throw new Xunit.Sdk.XunitException("Web readiness did not become available.");
     }
 
     private static int GetUnusedPort()

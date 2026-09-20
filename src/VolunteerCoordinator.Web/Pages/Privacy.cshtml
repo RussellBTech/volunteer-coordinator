@@ -1,0 +1,29 @@
+@page
+@model VolunteerCoordinator.Web.Pages.PrivacyModel
+@using Microsoft.Extensions.Options
+@using VolunteerCoordinator.Web.Privacy
+@inject IOptions<PrivacyOptions> PrivacyOptions
+@{
+    ViewData["Title"] = "Privacy and contact removal";
+}
+<h1>Privacy and contact removal</h1>
+<p class="lead">Volunteer Coordinator records service scheduling so coordinators can organize and communicate about commitments.</p>
+<section class="card">
+    <h2>What we collect</h2>
+    <p>When you request or receive a service commitment, we collect your name and email address. Phone is optional. Authorized coordinators can see these details to coordinate the schedule. This record is for service scheduling only; it does not indicate AA membership or attendance.</p>
+</section>
+<section class="card">
+    <h2>How long identifying data remains</h2>
+    <p>Identifying contact data remains while a pending request or active assignment needs it. When no live dependency exists, the retention anchor is the latest of volunteer updates, request activity, assignment activity, notification activity, and the end of every related shift. Identifying data is retained for exactly 365 elapsed UTC days after that anchor.</p>
+    <p>Pending requests, assigned or confirmed assignments, and future commitments prevent automatic or coordinator-assisted removal. Non-identifying scheduling history, notification outcomes, and audit integrity records remain so the workflow stays understandable.</p>
+</section>
+<section class="card">
+    <h2>Verified earlier removal</h2>
+    <p>To request earlier removal, provide your normalized email and one recent related service commitment to a coordinator out of band. An authorized coordinator must match both values and confirm the request. Live dependencies are not removed until they end. The coordinator-assisted removal page is available to authenticated coordinators.</p>
+    <p>After removal, the contact record is irreversibly anonymized as <strong>Removed volunteer</strong>. Private status and assignment links are invalidated, notification destinations are redacted, and one minimal audit outcome is retained. Original contact values are not hashed, encrypted, or copied as a substitute for removal.</p>
+    <p>Removal contact: <a href="mailto:@PrivacyOptions.Value.ContactEmail">@PrivacyOptions.Value.ContactEmail</a></p>
+</section>
+<section class="card">
+    <h2>Backups and limits</h2>
+    <p>Protected backups expire through the existing backup rotation. If a protected copy is restored, retention runs before the restored data is exposed or used for notification. Provider infrastructure logs and coordinator identity retention follow separate operational policies; this page is not a legal certification.</p>
+</section>

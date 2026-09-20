@@ -71,6 +71,17 @@ public sealed class NotificationAttempt
         ErrorSummary = error.Length <= 500 ? error : error[..500];
     }
 
+    public bool RedactDestination()
+    {
+        if (string.Equals(Destination, "removed", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        Destination = "removed";
+        return true;
+    }
+
     private void EnsurePending(DateTimeOffset nowUtc)
     {
         if (nowUtc.Offset != TimeSpan.Zero)

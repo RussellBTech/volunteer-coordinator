@@ -18,6 +18,7 @@
         <a class="brand" asp-page="/Shifts/Index">Volunteer Coordinator</a>
         <div class="nav-links">
             <a asp-page="/Shifts/Index">Open shifts</a>
+            <a asp-page="/Privacy">Privacy</a>
             @if (canAccessCoordinator)
             {
                 <a asp-page="/Coordinator/Schedule/Index">Schedule</a>
@@ -25,6 +26,7 @@
                 <a asp-page="/Coordinator/Requests/Index">Requests</a>
                 <a asp-page="/Coordinator/Coverage/Index">Coverage</a>
                 <a asp-page="/Coordinator/Audit/Index">Audit</a>
+                <a asp-page="/Coordinator/Privacy/Index">Privacy removal</a>
             }
             @if (User.Identity?.IsAuthenticated == true)
             {
@@ -48,6 +50,6 @@
     }
     @RenderBody()
 </main>
-<footer class="container site-footer">Authoritative volunteer coverage, shown in the group's configured local time.</footer>
+<footer class="container site-footer">Authoritative volunteer coverage, shown in the group's configured local time. <a asp-page="/Privacy">Privacy and contact removal</a>.</footer>
 </body>
 </html>

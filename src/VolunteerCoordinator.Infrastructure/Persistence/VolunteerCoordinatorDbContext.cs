@@ -84,7 +84,10 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
         volunteer.Property(x => x.Phone).HasMaxLength(40);
         volunteer.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
         volunteer.Property(x => x.UpdatedAtUtc).HasColumnType("timestamp with time zone");
+        volunteer.Property(x => x.AnonymizedAtUtc).HasColumnType("timestamp with time zone");
         volunteer.HasIndex(x => x.NormalizedEmail).IsUnique();
+        volunteer.HasIndex(x => x.AnonymizedAtUtc)
+            .HasDatabaseName("IX_Volunteers_AnonymizedAtUtc");
 
         var request = modelBuilder.Entity<ShiftRequest>();
         request.ToTable("ShiftRequests", table => table.HasCheckConstraint(
@@ -97,6 +100,9 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
         request.Property(x => x.ResolvedByCoordinatorEmail).HasMaxLength(320);
         request.Property(x => x.StatusTokenHash).HasColumnType("bytea").IsRequired();
         request.Property(x => x.StatusTokenExpiresAtUtc).HasColumnType("timestamp with time zone");
+        request.Property(x => x.StatusTokenInvalidatedAtUtc)
+            .HasColumnType("timestamp with time zone")
+            .IsConcurrencyToken();
         request.HasOne<ShiftSlot>().WithMany().HasForeignKey(x => x.ShiftSlotId).OnDelete(DeleteBehavior.Restrict);
         request.HasOne<Volunteer>().WithMany().HasForeignKey(x => x.VolunteerId).OnDelete(DeleteBehavior.Restrict);
         request.HasIndex(x => x.StatusTokenHash).IsUnique();
@@ -113,7 +119,6 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
         assignment.Property(x => x.ConfirmedAtUtc).HasColumnType("timestamp with time zone");
         assignment.Property(x => x.EndedAtUtc).HasColumnType("timestamp with time zone");
         assignment.Property(x => x.AssignedByCoordinatorEmail).HasMaxLength(320).IsRequired();
-        assignment.Ignore(x => x.IsActive);
         assignment.HasOne<ShiftSlot>().WithMany().HasForeignKey(x => x.ShiftSlotId).OnDelete(DeleteBehavior.Restrict);
         assignment.HasOne<Shift>().WithMany().HasForeignKey(x => x.ShiftId).OnDelete(DeleteBehavior.Restrict);
         assignment.HasOne<Volunteer>().WithMany().HasForeignKey(x => x.VolunteerId).OnDelete(DeleteBehavior.Restrict);
