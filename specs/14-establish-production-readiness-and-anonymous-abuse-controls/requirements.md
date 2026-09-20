@@ -1,7 +1,7 @@
-# Requirements: Establish Production Readiness and Anonymous Abuse Controls
+# Requirements: Establish Local Runtime Safety and Anonymous Abuse Controls
 
 **Issue**: #14
-**Date**: 2026-09-03
+**Date**: 2026-09-20
 **Status**: Approved
 **Author**: RussellBTech
 
@@ -10,50 +10,62 @@
 ## User Story
 
 **As a** group maintainer
-**I want** deployment health, schema changes, recovery, and public endpoints to fail safely
-**So that** a small volunteer organization can operate the service without hidden infrastructure risk
+**I want** local runtime health, schema changes, and anonymous endpoints to fail safely
+**So that** I can verify the service without hidden local infrastructure or abuse-control risk
+
+---
+
+## Scope Correction
+
+This issue is intentionally local-only. It covers runtime safety and anonymous abuse controls that can be exercised with the repository's local process, Docker Compose, and local authentication. It does not make or require a public host, mutate a Railway project, or perform production operations.
+
+Production deployment admission, Railway IaC/import/plan/apply, production backup and recovery-point-objective work, the production operations runbook, and live OIDC handoff are deferred to one final launch issue created only after every product issue through #22 is delivered. That launch issue is not created by #14.
 
 ---
 
 ## Background
 
-Railway currently probes process liveness even though the application already exposes a PostgreSQL-aware readiness endpoint. Schema migration depends on an opt-in web-startup flag, no backup/restore runbook or recovery objective exists, and accountless request, status, and action endpoints have no explicit abuse control. Production continuity also depends on OIDC and a manually maintained coordinator allowlist.
-
-The approved operational policy separates liveness from deployment admission, runs migrations through an explicit migrate-only process, applies configurable per-IP endpoint tiers, establishes daily backups with a 24-hour recovery-point objective, and documents a two-coordinator handoff without refusing emergency single-coordinator startup. Railway Infrastructure as Code manages the readiness setting. Railway's current IaC DSL cannot manage pre-deploy commands, so that one setting remains an explicitly verified dashboard prerequisite.
+The application must expose database-aware local readiness alongside process liveness, run schema migration through an explicit local process separate from ordinary Web startup, and start the local Docker Compose Web service only after PostgreSQL and the one-shot migration service are ready. Accountless request, status, and action endpoints also need explicit per-IP abuse controls. Local coordinator authorization needs a regression proving that two independently allowlisted identities can operate while an unallowlisted identity remains denied.
 
 ---
 
 ## Acceptance Criteria
 
-### AC1: Database-aware deployment admission
+### AC1: Local database-aware health
 
-**Given** PostgreSQL is unavailable
-**When** Railway evaluates a new deployment through the repository-managed service health check
-**Then** `/health/ready` returns unhealthy and Railway does not admit the deployment, while `/health` remains a separate process-liveness endpoint
+**Given** the local Web process exposes `/health` and `/health/ready`
+**When** local PostgreSQL is unavailable
+**Then** `/health` continues to report process liveness and `/health/ready` reports the database-dependent service as unhealthy
 
-### AC2: Controlled schema migration
+### AC2: Controlled local schema migration
 
-**Given** a production release contains an EF Core migration
-**When** Railway invokes `dotnet VolunteerCoordinator.Web.dll --migrate-only` as its configured pre-deploy command
-**Then** one non-serving process applies pending migrations and exits successfully before the new web process can be admitted, and normal web startup never applies migrations
+**Given** a local release contains a pending EF Core migration
+**When** the documented `--migrate-only` process runs
+**Then** it applies pending migrations and exits without binding an HTTP port, while ordinary Web startup never applies migrations
 
-### AC3: Recoverable database
+### AC3: Local Compose sequencing
 
-**Given** daily production backups satisfy a 24-hour recovery-point objective
-**When** an operator restores a selected backup into an isolated PostgreSQL database by following the runbook
-**Then** migrations and the schedule, volunteer, request, assignment, action-token metadata, notification-attempt, and audit state are restored and verified without connecting the application to production
+**Given** local Docker Compose starts PostgreSQL, migration, and Web services
+**When** the stack starts
+**Then** Web starts only after PostgreSQL is healthy and the one-shot migration service completes successfully; a migration failure prevents Web startup
 
 ### AC4: Anonymous abuse protection
 
-**Given** one client address exceeds the configured tier for anonymous request mutation, private-token reads, or assignment-action mutation
+**Given** one client IP exceeds the configured tier for anonymous request mutation, private-token reads, or assignment-action mutation
 **When** another request reaches that tier
-**Then** the application returns the same generic HTTP 429 response for valid and invalid identifiers, supplies retry guidance, and performs no workflow mutation or token-validity disclosure
+**Then** the excess request receives a generic HTTP 429 response with retry guidance, valid and invalid identifiers receive the same throttling behavior, and no workflow or token state changes
 
-### AC5: Coordinator continuity
+### AC5: Local two-identity authorization regression
 
-**Given** two distinct verified OIDC identities are present in the production allowlist
-**When** each coordinator signs in independently
-**Then** both can operate the existing schedule without shared credentials, and the bootstrap/handoff procedure explains how to add, verify, transfer, and remove coordinator access
+**Given** two distinct identities are locally allowlisted
+**When** each signs in independently and a third identity is not allowlisted
+**Then** both allowlisted identities can access coordinator behavior and the third identity remains unauthorized, without requiring production OIDC
+
+### AC6: Local verification
+
+**Given** the local runtime, Compose, health, migration, authorization, and limiter changes are implemented
+**When** the focused local verification runs
+**Then** it covers readiness/liveness, migrate-only and ordinary-startup behavior, Compose sequencing, independent per-IP limiter tiers, generic throttling with no mutation, and the two-allowlisted-identity regression
 
 ---
 
@@ -61,29 +73,30 @@ The approved operational policy separates liveness from deployment admission, ru
 
 | ID | Requirement | Priority | Notes |
 |----|-------------|----------|-------|
-| FR1 | Replace the deprecated `railway.toml` source with Railway TypeScript IaC imported from the linked project and configure the Web service health check as `/health/ready`. | Must | Preserve imported service names, resources, and sealed values; review a non-destructive Railway plan before apply. |
-| FR2 | Add `--migrate-only` as the sole application-owned production migration mode; it applies EF Core migrations and exits without binding an HTTP port. Remove `Database:MigrateOnStartup` and update Compose to run the same mode as a one-shot dependency before Web starts. | Must | A migration failure exits non-zero and prevents Web startup/deployment admission. |
-| FR3 | Configure Railway's Web-service pre-deploy command as `dotnet VolunteerCoordinator.Web.dll --migrate-only` and record its verification in the operations runbook because the current Railway IaC DSL cannot represent it. | Must | No migration from a public request or ordinary Web startup. |
-| FR4 | Add ASP.NET Core built-in, per-client-IP fixed-window policies with independent configurable tiers: request POSTs default to 5/minute, request-status and assignment-action GETs default to 30/minute, and assignment-action POSTs default to 10/minute. | Must | Invalid or non-positive configuration fails startup; no external rate-limit service is introduced. |
-| FR5 | Resolve the client partition from the proxy-processed remote IP, isolate buckets by policy tier, return a generic plain-text 429 with `Retry-After`, and execute the limiter before antiforgery and page handlers. | Must | Coordinator, health, static-file, and ordinary opening-list traffic are outside these tiers. |
-| FR6 | Add an operator runbook covering Railway IaC plan/apply, the dashboard-only pre-deploy prerequisite, variables/secrets, daily backup retention sufficient for a 24-hour RPO, isolated restore and integrity verification, rollback, and two-coordinator OIDC/allowlist handoff. | Must | Never copy production secrets or raw volunteer tokens into source or runbook output. |
-| FR7 | Add behavior-focused integration coverage for readiness failure, migrate-only execution, Compose sequencing where practical, independent rate-limit tiers, generic throttling, no-mutation on rejection, and two distinct allowlisted coordinators. | Must | Persistence assertions use isolated PostgreSQL. |
+| FR1 | Preserve and verify separate local `/health` liveness and PostgreSQL-aware `/health/ready` readiness behavior. | Must | No public deployment admission or host configuration. |
+| FR2 | Make `--migrate-only` the explicit local migration mode and keep ordinary Web startup non-migrating. | Must | Migration failure is non-zero and blocks dependent local Web startup. |
+| FR3 | Sequence local Docker Compose PostgreSQL, one-shot migration, and Web services deterministically. | Must | Use the same migrate-only process; no public request triggers migration. |
+| FR4 | Enforce configurable per-IP fixed-window anonymous limiter tiers for request mutation, private-token reads, and assignment-action mutation. | Must | Keep tiers independent, generic, and local; no distributed limiter service. |
+| FR5 | Preserve the local authorization regression for two independently allowlisted identities and deny an unallowlisted identity. | Must | Development/local authentication only; no live OIDC handoff. |
+| FR6 | Perform local verification of all in-scope runtime, Compose, health, migration, limiter, and authorization behavior. | Must | Use the repository's existing unit/integration and local smoke conventions. |
 
 ---
 
-## Out of Scope
+## Explicitly Out of Scope
 
-- Volunteer accounts, CAPTCHA, proof-of-work, or a distributed rate-limit store
-- DDoS protection beyond application-level endpoint limits and Railway's platform controls
-- Automatic coordinator provisioning from an identity-provider group
-- Point-in-time recovery beyond the approved daily-backup 24-hour RPO baseline
-- Email provider integration or new scheduling behavior
+- Public host configuration or public deployment admission
+- Railway project mutation, Railway IaC import, plan, apply, or drift verification
+- Production backup configuration, restore exercise, or 24-hour RPO evidence
+- Production operations runbook
+- Live production OIDC configuration, handoff, or identity verification
+- Production deployment or production data access of any kind
+- New volunteer scheduling behavior, volunteer accounts, email-provider integration, or multi-tenant administration
 
 ---
 
 ## Versioning
 
-The `enhancement` label requires one minor version increment from the implementation branch's current root `VERSION`. This avoids assuming whether another approved enhancement has already advanced `0.3.0`.
+This scope-correction specification authorizes no production code or version change. Any later implementation remains subject to the repository's existing enhancement versioning policy.
 
 ---
 
@@ -91,4 +104,5 @@ The `enhancement` label requires one minor version increment from the implementa
 
 | Issue | Date | Summary |
 |-------|------|---------|
-| #14 | 2026-09-03 | Initial feature spec |
+| #14 | 2026-09-03 | Initial production-readiness feature spec |
+| #14 | 2026-09-20 | Scope corrected to local runtime safety and anonymous abuse controls; production launch work deferred until after #22 |
