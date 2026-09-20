@@ -4,9 +4,16 @@ public sealed record CoverageDto(
     Guid SlotId,
     Guid ShiftId,
     Guid? AssignmentId,
-    string ShiftTitle,
-    string SlotLabel,
-    DateTimeOffset StartsAtUtc,
+    CommitmentDto Commitment,
     string State,
     string? VolunteerName,
-    string? VolunteerEmail);
+    string? VolunteerEmail)
+{
+    public string ShiftTitle => Commitment.ShiftTitle;
+
+    public string SlotLabel => Commitment.SlotLabel;
+
+    public DateTimeOffset StartsAtUtc => Commitment.StartsAtUtc;
+
+    public DateTimeOffset EndsAtUtc => Commitment.EndsAtUtc;
+}

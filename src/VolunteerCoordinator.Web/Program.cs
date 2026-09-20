@@ -17,12 +17,14 @@ using VolunteerCoordinator.Infrastructure.DependencyInjection;
 using VolunteerCoordinator.Infrastructure.Health;
 using VolunteerCoordinator.Infrastructure.Persistence;
 using VolunteerCoordinator.Web.Security;
+using VolunteerCoordinator.Web.Presentation;
 
 var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("Postgres")
     ?? throw new InvalidOperationException("ConnectionStrings:Postgres is required.");
 
 builder.Services.AddVolunteerCoordinatorInfrastructure(connectionString);
+builder.Services.AddSingleton<GroupTimeFormatter>();
 builder.Services.AddRazorPages(options =>
     options.Conventions.AuthorizeFolder("/Coordinator", "CoordinatorOnly"));
 builder.Services.AddAntiforgery(options => options.HeaderName = "X-CSRF-TOKEN");

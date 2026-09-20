@@ -4,7 +4,7 @@
     ViewData["Title"] = "Coverage";
 }
 <h1>Coverage monitoring</h1>
-<p class="lead">Upcoming published slots are ordered by time, with uncovered and unconfirmed work called out in text.</p>
+<p class="lead">Upcoming published slots are ordered by local time, with uncovered and unconfirmed work called out in text.</p>
 @if (TempData["Error"] is string error) { <div class="alert alert-error" role="alert">@error</div> }
 @if (Model.Coverage.Count == 0)
 {
@@ -13,13 +13,12 @@
 else
 {
 <div class="table-scroll"><table class="responsive">
-<thead><tr><th>Starts</th><th>Shift and slot</th><th>Coverage state</th><th>Volunteer</th><th>Intervene</th></tr></thead>
+<thead><tr><th>Commitment</th><th>Coverage state</th><th>Volunteer</th><th>Intervene</th></tr></thead>
 <tbody>
 @foreach (var item in Model.Coverage)
 {
 <tr>
-<td data-label="Starts">@item.StartsAtUtc.ToString("yyyy-MM-dd HH:mm 'UTC'")</td>
-<td data-label="Shift and slot">@item.ShiftTitle — @item.SlotLabel</td>
+<td data-label="Commitment"><partial name="_CommitmentDetails" model="item.Commitment" /></td>
 <td data-label="Coverage state"><span class="badge badge-@item.State.ToLowerInvariant()">@item.State</span></td>
 <td data-label="Volunteer">@(item.VolunteerName ?? "No volunteer assigned") @if (item.VolunteerEmail is not null) { <small>@item.VolunteerEmail</small> }</td>
 <td data-label="Intervene">

@@ -2,6 +2,7 @@ using VolunteerCoordinator.Domain.Assignments;
 using VolunteerCoordinator.Domain.Auditing;
 using VolunteerCoordinator.Domain.Requests;
 using VolunteerCoordinator.Domain.Schedules;
+using VolunteerCoordinator.Domain.Settings;
 using VolunteerCoordinator.Domain.Volunteers;
 
 namespace VolunteerCoordinator.Application.Ports;
@@ -15,6 +16,9 @@ public interface IWorkflowStore
     Task FlushAsync(CancellationToken cancellationToken);
 
     Task<IReadOnlyList<Shift>> GetAllShiftsAsync(CancellationToken cancellationToken);
+
+    Task<GroupSettings?> GetGroupSettingsAsync(CancellationToken cancellationToken);
+    Task LockGroupSettingsAsync(CancellationToken cancellationToken);
 
     Task<IReadOnlyList<Shift>> GetPublishedFutureShiftsAsync(
         DateTimeOffset nowUtc,
@@ -96,6 +100,8 @@ public interface IWorkflowStore
         CancellationToken cancellationToken);
 
     void AddShift(Shift shift);
+
+    void AddGroupSettings(GroupSettings settings);
     void AddShiftSlots(IReadOnlyCollection<ShiftSlot> slots);
 
 

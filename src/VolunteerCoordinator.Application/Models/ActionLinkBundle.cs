@@ -4,4 +4,5 @@ public sealed record ActionLinkBundle(
     Guid AssignmentId,
     string? ConfirmToken,
     string? DeclineToken,
-    string CancelToken);
+    string CancelToken,
+    CommitmentDto? Commitment = null);

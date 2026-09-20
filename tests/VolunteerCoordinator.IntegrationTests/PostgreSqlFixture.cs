@@ -36,7 +36,7 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
     {
         await using var context = CreateContext();
         await context.Database.ExecuteSqlRawAsync(
-            """TRUNCATE TABLE "ActionTokens", "Assignments", "ShiftRequests", "ShiftSlots", "Shifts", "Volunteers", "AuditEntries", "NotificationAttempts" CASCADE""");
+            """TRUNCATE TABLE "ActionTokens", "Assignments", "ShiftRequests", "ShiftSlots", "Shifts", "GroupSettings", "Volunteers", "AuditEntries", "NotificationAttempts" CASCADE""");
     }
 
     public Task DisposeAsync() => _container.DisposeAsync().AsTask();

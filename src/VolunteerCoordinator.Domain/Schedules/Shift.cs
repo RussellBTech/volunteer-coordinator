@@ -12,11 +12,12 @@ public sealed class Shift
         string title,
         string? location,
         string? notes,
+        string? volunteerInstructions,
         DateTimeOffset startsAtUtc,
         DateTimeOffset endsAtUtc,
         int backupSlotCount)
     {
-        Validate(title, location, notes, startsAtUtc, endsAtUtc);
+        Validate(title, location, notes, volunteerInstructions, startsAtUtc, endsAtUtc);
         if (backupSlotCount is < 0 or > 2)
         {
             throw new DomainException("A shift may have zero, one, or two backup slots.");
@@ -27,6 +28,7 @@ public sealed class Shift
         Location = NormalizeOptional(location);
         Notes = NormalizeOptional(notes);
         StartsAtUtc = startsAtUtc;
+        VolunteerInstructions = NormalizeOptional(volunteerInstructions);
         EndsAtUtc = endsAtUtc;
         IsActive = true;
         _slots.Add(new ShiftSlot(Id, SlotKind.Primary, 1));
@@ -43,6 +45,8 @@ public sealed class Shift
     public string? Location { get; private set; }
 
     public string? Notes { get; private set; }
+
+    public string? VolunteerInstructions { get; private set; }
 
     public DateTimeOffset StartsAtUtc { get; private set; }
 
@@ -62,15 +66,36 @@ public sealed class Shift
         string title,
         string? location,
         string? notes,
+        string? volunteerInstructions,
         DateTimeOffset startsAtUtc,
         DateTimeOffset endsAtUtc,
         int backupSlotCount) =>
-        new(title, location, notes, startsAtUtc, endsAtUtc, backupSlotCount);
+        new(title, location, notes, volunteerInstructions, startsAtUtc, endsAtUtc, backupSlotCount);
+
+    public static Shift Create(
+        string title,
+        string? location,
+        string? notes,
+        DateTimeOffset startsAtUtc,
+        DateTimeOffset endsAtUtc,
+        int backupSlotCount) =>
+        Create(title, location, notes, null, startsAtUtc, endsAtUtc, backupSlotCount);
+
+    public static Shift Create(
+        string title,
+        string? location,
+        string? notes,
+        DateTimeOffset startsAtUtc,
+        DateTimeOffset endsAtUtc,
+        int backupSlotCount,
+        string? volunteerInstructions) =>
+        Create(title, location, notes, volunteerInstructions, startsAtUtc, endsAtUtc, backupSlotCount);
 
     public void Edit(
         string title,
         string? location,
         string? notes,
+        string? volunteerInstructions,
         DateTimeOffset startsAtUtc,
         DateTimeOffset endsAtUtc,
         DateTimeOffset nowUtc)
@@ -81,7 +106,7 @@ public sealed class Shift
             throw new DomainException("An inactive shift cannot be edited.");
         }
 
-        Validate(title, location, notes, startsAtUtc, endsAtUtc);
+        Validate(title, location, notes, volunteerInstructions, startsAtUtc, endsAtUtc);
         if (PublishedAtUtc.HasValue && endsAtUtc <= nowUtc)
         {
             throw new DomainException("A published shift must end in the future.");
@@ -90,10 +115,30 @@ public sealed class Shift
         Title = title.Trim();
         Location = NormalizeOptional(location);
         Notes = NormalizeOptional(notes);
+        VolunteerInstructions = NormalizeOptional(volunteerInstructions);
         StartsAtUtc = startsAtUtc;
         EndsAtUtc = endsAtUtc;
         UpdatedAtUtc = nowUtc;
     }
+
+    public void Edit(
+        string title,
+        string? location,
+        string? notes,
+        DateTimeOffset startsAtUtc,
+        DateTimeOffset endsAtUtc,
+        DateTimeOffset nowUtc) =>
+        Edit(title, location, notes, null, startsAtUtc, endsAtUtc, nowUtc);
+
+    public void Edit(
+        string title,
+        string? location,
+        string? notes,
+        DateTimeOffset startsAtUtc,
+        DateTimeOffset endsAtUtc,
+        DateTimeOffset nowUtc,
+        string? volunteerInstructions) =>
+        Edit(title, location, notes, volunteerInstructions, startsAtUtc, endsAtUtc, nowUtc);
 
     public void ConfigureBackupSlots(int backupSlotCount)
     {
@@ -145,6 +190,7 @@ public sealed class Shift
         string title,
         string? location,
         string? notes,
+        string? volunteerInstructions,
         DateTimeOffset startsAtUtc,
         DateTimeOffset endsAtUtc)
     {
@@ -153,14 +199,19 @@ public sealed class Shift
             throw new DomainException("Title is required and cannot exceed 120 characters.");
         }
 
+        if (notes?.Trim().Length > 1000)
+        {
+            throw new DomainException("Notes cannot exceed 1000 characters.");
+        }
+
         if (location?.Trim().Length > 200)
         {
             throw new DomainException("Location cannot exceed 200 characters.");
         }
 
-        if (notes?.Trim().Length > 1000)
+        if (volunteerInstructions?.Trim().Length > 1000)
         {
-            throw new DomainException("Notes cannot exceed 1000 characters.");
+            throw new DomainException("Volunteer instructions cannot exceed 1000 characters.");
         }
 
         ValidateUtc(startsAtUtc, nameof(startsAtUtc));

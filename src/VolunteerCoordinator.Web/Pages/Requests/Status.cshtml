@@ -11,9 +11,8 @@
 else if (Model.Status is not null)
 {
     <article class="card">
-        <h2>@Model.Status.ShiftTitle — @Model.Status.SlotLabel</h2>
+        <partial name="_CommitmentDetails" model="Model.Status.Commitment" />
         <p><strong>Volunteer:</strong> @Model.Status.VolunteerName</p>
-        <p><strong>Starts:</strong> <time datetime="@Model.Status.StartsAtUtc.ToString("O")">@Model.Status.StartsAtUtc.ToString("yyyy-MM-dd HH:mm 'UTC'")</time></p>
         <p><strong>Request status:</strong> <span class="badge badge-pending">@Model.Status.RequestStatus</span></p>
         <p><strong>Assignment status:</strong> @(Model.Status.AssignmentStatus ?? "Not assigned")</p>
     </article>

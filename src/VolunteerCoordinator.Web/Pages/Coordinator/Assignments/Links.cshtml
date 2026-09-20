@@ -4,6 +4,14 @@
     ViewData["Title"] = "Volunteer action links";
 }
 <h1>Volunteer action links</h1>
+@if (Model.Error is not null)
+{
+    <div class="alert alert-error" role="alert">@Model.Error</div>
+}
+@if (Model.Commitment is not null)
+{
+    <div class="card"><partial name="_CommitmentDetails" model="Model.Commitment" /></div>
+}
 <p>Generating links invalidates earlier unused links of the same action. Raw links are never stored and are displayed only on the next page load.</p>
 @if (Model.Links.Count > 0)
 {
@@ -13,7 +21,7 @@
 <div class="form-group"><strong>@link.Key</strong><a class="copy-value" href="@link.Value">@link.Value</a></div>
 }
 }
-else
+else if (Model.Error is null)
 {
 <form method="post"><button type="submit">Generate fresh valid action links</button></form>
 }

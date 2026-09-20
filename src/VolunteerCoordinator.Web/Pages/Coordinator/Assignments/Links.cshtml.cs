@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using VolunteerCoordinator.Application;
+using VolunteerCoordinator.Application.Models;
 using VolunteerCoordinator.Domain;
 using VolunteerCoordinator.Web.Security;
 
@@ -17,8 +18,20 @@ public sealed class LinksModel : PageModel
 
     public IReadOnlyDictionary<string, string> Links { get; private set; } = new Dictionary<string, string>();
 
-    public void OnGet()
+    public CommitmentDto? Commitment { get; private set; }
+
+    public string? Error { get; private set; }
+
+    public async Task OnGetAsync(Guid assignmentId, CancellationToken cancellationToken)
     {
+        try
+        {
+            Commitment = await _service.GetAssignmentCommitmentAsync(assignmentId, cancellationToken);
+        }
+        catch (DomainException exception)
+        {
+            Error = exception.Message;
+        }
     }
 
     public async Task<IActionResult> OnPostAsync(Guid assignmentId, CancellationToken cancellationToken)
@@ -26,6 +39,7 @@ public sealed class LinksModel : PageModel
         try
         {
             var generated = await _service.GenerateActionLinksAsync(assignmentId, CoordinatorIdentity.GetEmail(User)!, cancellationToken);
+            Commitment = generated.Commitment;
             var links = new Dictionary<string, string>();
             if (generated.ConfirmToken is not null)
             {

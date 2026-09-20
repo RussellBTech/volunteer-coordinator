@@ -32,7 +32,15 @@ public sealed class WorkflowIntegrationTests
         await using var context = _fixture.CreateContext();
         var service = CreateService(context);
         var starts = DateTimeOffset.UtcNow.AddDays(2);
-        var shiftId = await service.CreateShiftAsync("Food service", "Community hall", "Bring badge", starts, starts.AddHours(2), 1, Coordinator, default);
+        var shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+            service,
+            "Food service",
+            "Community hall",
+            "Bring badge",
+            starts,
+            starts.AddHours(2),
+            1,
+            Coordinator);
 
         Assert.Empty(await service.ListOpeningsAsync(default));
         var version = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId).Version;
@@ -92,7 +100,15 @@ public sealed class WorkflowIntegrationTests
         await using var context = _fixture.CreateContext();
         var service = CreateService(context);
         var starts = DateTimeOffset.UtcNow.AddDays(2);
-        var shiftId = await service.CreateShiftAsync("Welcome desk", null, null, starts, starts.AddHours(1), 0, Coordinator, default);
+        var shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+            service,
+            "Welcome desk",
+            null,
+            null,
+            starts,
+            starts.AddHours(1),
+            0,
+            Coordinator);
         var version = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId).Version;
         await service.PublishShiftAsync(shiftId, version, Coordinator, default);
         var opening = Assert.Single(await service.ListOpeningsAsync(default));
@@ -118,7 +134,15 @@ public sealed class WorkflowIntegrationTests
         await context.SaveChangesAsync();
         var service = CreateService(context);
         var starts = DateTimeOffset.UtcNow.AddDays(2);
-        var shiftId = await service.CreateShiftAsync("Welcome desk", null, null, starts, starts.AddHours(1), 0, Coordinator, default);
+        var shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+            service,
+            "Welcome desk",
+            null,
+            null,
+            starts,
+            starts.AddHours(1),
+            0,
+            Coordinator);
         var shift = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
         await service.PublishShiftAsync(shiftId, shift.Version, Coordinator, default);
 
@@ -142,7 +166,15 @@ public sealed class WorkflowIntegrationTests
         await using var context = _fixture.CreateContext();
         var service = CreateService(context);
         var starts = DateTimeOffset.UtcNow.AddDays(2);
-        var shiftId = await service.CreateShiftAsync("Food service", null, null, starts, starts.AddHours(1), 1, Coordinator, default);
+        var shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+            service,
+            "Food service",
+            null,
+            null,
+            starts,
+            starts.AddHours(1),
+            1,
+            Coordinator);
         var shift = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
         await service.PublishShiftAsync(shiftId, shift.Version, Coordinator, default);
         var openings = await service.ListOpeningsAsync(default);
@@ -168,7 +200,15 @@ public sealed class WorkflowIntegrationTests
         await using var context = _fixture.CreateContext();
         var service = CreateService(context);
         var starts = DateTimeOffset.UtcNow.AddHours(-1);
-        var shiftId = await service.CreateShiftAsync("In progress", null, null, starts, starts.AddHours(2), 0, Coordinator, default);
+        var shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+            service,
+            "In progress",
+            null,
+            null,
+            starts,
+            starts.AddHours(2),
+            0,
+            Coordinator);
         var shift = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
         await service.PublishShiftAsync(shiftId, shift.Version, Coordinator, default);
 
@@ -186,22 +226,23 @@ public sealed class WorkflowIntegrationTests
         await using (var creationContext = _fixture.CreateContext())
         {
             var creationService = CreateService(creationContext);
-            shiftId = await creationService.CreateShiftAsync(
+            shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+                creationService,
                 "Welcome desk",
                 null,
                 null,
                 starts,
                 starts.AddHours(1),
                 0,
-                Coordinator,
-                default);
+                Coordinator);
             originalVersion = (await creationService.ListShiftsAsync(default)).Single(x => x.Id == shiftId).Version;
         }
 
         await using (var editContext = _fixture.CreateContext())
         {
             var editService = CreateService(editContext);
-            await editService.EditShiftAsync(
+            await ScheduleTestHelpers.EditShiftFromInstantsAsync(
+                editService,
                 shiftId,
                 originalVersion,
                 "Welcome desk",
@@ -210,8 +251,7 @@ public sealed class WorkflowIntegrationTests
                 starts,
                 starts.AddHours(1),
                 1,
-                Coordinator,
-                default);
+                Coordinator);
         }
 
         await using var verificationContext = _fixture.CreateContext();
@@ -232,15 +272,15 @@ public sealed class WorkflowIntegrationTests
         await using (var creationContext = _fixture.CreateContext())
         {
             var creationService = CreateService(creationContext);
-            shiftId = await creationService.CreateShiftAsync(
+            shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+                creationService,
                 "Welcome desk",
                 null,
                 null,
                 starts,
                 starts.AddHours(1),
                 1,
-                Coordinator,
-                default);
+                Coordinator);
             var shift = (await creationService.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
             backupSlotId = shift.Slots.Single(x => x.Kind == "Backup").Id;
             version = shift.Version;
@@ -252,7 +292,8 @@ public sealed class WorkflowIntegrationTests
 
         await using var editContext = _fixture.CreateContext();
         var editService = CreateService(editContext);
-        var editTask = editService.EditShiftAsync(
+        var editTask = ScheduleTestHelpers.EditShiftFromInstantsAsync(
+            editService,
             shiftId,
             version,
             "Welcome desk",
@@ -261,8 +302,7 @@ public sealed class WorkflowIntegrationTests
             starts,
             starts.AddHours(1),
             0,
-            Coordinator,
-            default);
+            Coordinator);
         await AssertBlockedAsync(editTask);
 
         var volunteer = Volunteer.Create("Alex", "alex@example.org", null, DateTimeOffset.UtcNow);
@@ -292,15 +332,15 @@ public sealed class WorkflowIntegrationTests
         await using (var creationContext = _fixture.CreateContext())
         {
             var creationService = CreateService(creationContext);
-            shiftId = await creationService.CreateShiftAsync(
+            shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+                creationService,
                 "Deterministic slot locks",
                 null,
                 null,
                 starts,
                 starts.AddHours(1),
                 2,
-                Coordinator,
-                default);
+                Coordinator);
             var shift = (await creationService.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
             await creationService.PublishShiftAsync(shiftId, shift.Version, Coordinator, default);
             version = (await creationService.ListShiftsAsync(default)).Single(x => x.Id == shiftId).Version;
@@ -334,7 +374,9 @@ public sealed class WorkflowIntegrationTests
         await AssertBlockedAsync(deactivationTask);
 
         await using var editContext = _fixture.CreateContext();
-        var editTask = CreateService(editContext).EditShiftAsync(
+        var editService = CreateService(editContext);
+        var editTask = ScheduleTestHelpers.EditShiftFromInstantsAsync(
+            editService,
             shiftId,
             version,
             "Deterministic slot locks",
@@ -343,8 +385,7 @@ public sealed class WorkflowIntegrationTests
             starts,
             starts.AddHours(1),
             0,
-            Coordinator,
-            default);
+            Coordinator);
         await AssertBlockedAsync(editTask);
 
         await deactivationLockTransaction.CommitAsync();
@@ -367,15 +408,15 @@ public sealed class WorkflowIntegrationTests
         await using (var creationContext = _fixture.CreateContext())
         {
             var creationService = CreateService(creationContext);
-            var shiftId = await creationService.CreateShiftAsync(
+            var shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+                creationService,
                 "Welcome desk",
                 null,
                 null,
                 starts,
                 starts.AddHours(1),
                 0,
-                Coordinator,
-                default);
+                Coordinator);
             var shift = (await creationService.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
             await creationService.PublishShiftAsync(shiftId, shift.Version, Coordinator, default);
             slotId = shift.Slots.Single().Id;
@@ -430,15 +471,15 @@ public sealed class WorkflowIntegrationTests
         {
             var service = CreateService(context);
             var starts = DateTimeOffset.UtcNow.AddDays(2);
-            shiftId = await service.CreateShiftAsync(
+            shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+                service,
                 "Deactivation coverage",
                 null,
                 null,
                 starts,
                 starts.AddHours(2),
                 2,
-                Coordinator,
-                default);
+                Coordinator);
             var shift = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
             await service.PublishShiftAsync(shiftId, shift.Version, Coordinator, default);
             var slots = shift.Slots.OrderBy(x => x.Kind).ThenBy(x => x.Position).ToArray();
@@ -524,15 +565,15 @@ public sealed class WorkflowIntegrationTests
         await using var context = _fixture.CreateContext();
         var service = CreateService(context);
         var starts = DateTimeOffset.UtcNow.AddDays(2);
-        var shiftId = await service.CreateShiftAsync(
+        var shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+            service,
             "Coordinator cancellation",
             null,
             null,
             starts,
             starts.AddHours(1),
             0,
-            Coordinator,
-            default);
+            Coordinator);
         var shift = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
         await service.PublishShiftAsync(shiftId, shift.Version, Coordinator, default);
         var assignmentId = (await service.AssignDirectlyAsync(
@@ -576,15 +617,15 @@ public sealed class WorkflowIntegrationTests
         await using var context = _fixture.CreateContext();
         var service = CreateService(context);
         var starts = DateTimeOffset.UtcNow.AddDays(2);
-        var shiftId = await service.CreateShiftAsync(
+        var shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+            service,
             "Reassignment",
             null,
             null,
             starts,
             starts.AddHours(1),
             0,
-            Coordinator,
-            default);
+            Coordinator);
         var shift = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
         await service.PublishShiftAsync(shiftId, shift.Version, Coordinator, default);
         var slotId = shift.Slots.Single().Id;
@@ -635,15 +676,15 @@ public sealed class WorkflowIntegrationTests
         {
             var service = CreateService(creationContext);
             var starts = DateTimeOffset.UtcNow.AddDays(2);
-            var shiftId = await service.CreateShiftAsync(
+            var shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+                service,
                 "Cross-slot serialization",
                 null,
                 null,
                 starts,
                 starts.AddHours(1),
                 1,
-                Coordinator,
-                default);
+                Coordinator);
             var shift = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
             await service.PublishShiftAsync(shiftId, shift.Version, Coordinator, default);
             var slots = shift.Slots.OrderBy(x => x.Kind).ThenBy(x => x.Position).ToArray();
@@ -716,15 +757,15 @@ public sealed class WorkflowIntegrationTests
         {
             var service = CreateService(creationContext);
             var starts = DateTimeOffset.UtcNow.AddDays(2);
-            var shiftId = await service.CreateShiftAsync(
+            var shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+                service,
                 "Three-slot reassignment",
                 null,
                 null,
                 starts,
                 starts.AddHours(1),
                 2,
-                Coordinator,
-                default);
+                Coordinator);
             var shift = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
             await service.PublishShiftAsync(shiftId, shift.Version, Coordinator, default);
             var slots = shift.Slots.OrderBy(x => x.Id).ToArray();
@@ -811,15 +852,15 @@ public sealed class WorkflowIntegrationTests
         await using var context = _fixture.CreateContext();
         var service = CreateService(context);
         var starts = DateTimeOffset.UtcNow.AddDays(2);
-        var shiftId = await service.CreateShiftAsync(
+        var shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+            service,
             "Projection",
             null,
             null,
             starts,
             starts.AddHours(1),
             1,
-            Coordinator,
-            default);
+            Coordinator);
         var shift = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
         await service.PublishShiftAsync(shiftId, shift.Version, Coordinator, default);
         var primary = shift.Slots.Single(x => x.Kind == "Primary");
@@ -883,15 +924,15 @@ public sealed class WorkflowIntegrationTests
         await using (var creationContext = _fixture.CreateContext())
         {
             var creationService = CreateService(creationContext);
-            shiftId = await creationService.CreateShiftAsync(
+            shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+                creationService,
                 "Serialized deactivation",
                 null,
                 null,
                 starts,
                 starts.AddHours(1),
                 0,
-                Coordinator,
-                default);
+                Coordinator);
             var shift = (await creationService.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
             await creationService.PublishShiftAsync(shiftId, shift.Version, Coordinator, default);
             var published = (await creationService.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
@@ -966,15 +1007,15 @@ public sealed class WorkflowIntegrationTests
         {
             var service = CreateService(creationContext);
             var starts = DateTimeOffset.UtcNow.AddDays(2);
-            var shiftId = await service.CreateShiftAsync(
+            var shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+                service,
                 "Stale token transition",
                 null,
                 null,
                 starts,
                 starts.AddHours(1),
                 0,
-                Coordinator,
-                default);
+                Coordinator);
             var shift = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
             await service.PublishShiftAsync(shiftId, shift.Version, Coordinator, default);
             assignmentId = (await service.AssignDirectlyAsync(
@@ -1040,15 +1081,15 @@ public sealed class WorkflowIntegrationTests
         {
             var service = CreateService(creationContext);
             var starts = DateTimeOffset.UtcNow.AddDays(2);
-            shiftId = await service.CreateShiftAsync(
+            shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+                service,
                 "Stale tracked assignment",
                 null,
                 null,
                 starts,
                 starts.AddHours(1),
                 0,
-                Coordinator,
-                default);
+                Coordinator);
             var shift = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
             await service.PublishShiftAsync(shiftId, shift.Version, Coordinator, default);
             assignmentId = (await service.AssignDirectlyAsync(

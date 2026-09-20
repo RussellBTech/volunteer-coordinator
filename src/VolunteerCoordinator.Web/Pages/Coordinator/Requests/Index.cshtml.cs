@@ -18,13 +18,24 @@ public sealed class IndexModel : PageModel
 
     public IReadOnlyList<CoordinatorRequestDto> Requests { get; private set; } = [];
 
-    public async Task OnGetAsync(CancellationToken cancellationToken)
+    public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
     {
+        if (await _service.GetGroupSettingsAsync(cancellationToken) is null)
+        {
+            return RedirectToPage("/Coordinator/Settings");
+        }
+
         Requests = await _service.ListRequestsAsync(cancellationToken);
+        return Page();
     }
 
     public async Task<IActionResult> OnPostApproveAsync(Guid id, CancellationToken cancellationToken)
     {
+        if (await _service.GetGroupSettingsAsync(cancellationToken) is null)
+        {
+            return RedirectToPage("/Coordinator/Settings");
+        }
+
         try
         {
             var result = await _service.ApproveRequestAsync(id, CoordinatorIdentity.GetEmail(User)!, cancellationToken);
@@ -41,6 +52,11 @@ public sealed class IndexModel : PageModel
 
     public async Task<IActionResult> OnPostRejectAsync(Guid id, CancellationToken cancellationToken)
     {
+        if (await _service.GetGroupSettingsAsync(cancellationToken) is null)
+        {
+            return RedirectToPage("/Coordinator/Settings");
+        }
+
         try
         {
             var result = await _service.RejectRequestAsync(id, CoordinatorIdentity.GetEmail(User)!, cancellationToken);

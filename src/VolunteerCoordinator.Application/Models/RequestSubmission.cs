@@ -1,3 +1,7 @@
 namespace VolunteerCoordinator.Application.Models;
 
-public sealed record RequestSubmission(Guid RequestId, string StatusToken, string? NotificationWarning);
+public sealed record RequestSubmission(
+    Guid RequestId,
+    string StatusToken,
+    string? NotificationWarning,
+    CommitmentDto? Commitment = null);

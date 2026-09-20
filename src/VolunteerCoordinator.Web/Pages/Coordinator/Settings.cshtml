@@ -1,0 +1,31 @@
+@page "/Coordinator/Settings"
+@model VolunteerCoordinator.Web.Pages.Coordinator.SettingsModel
+@{
+    ViewData["Title"] = "Group settings";
+}
+<h1>Group settings</h1>
+<p class="lead">Choose the one IANA time zone used for every schedule and commitment display.</p>
+@if (Model.Settings is not null)
+{
+    <div class="alert alert-warning" role="note">
+        Changing the zone keeps every stored UTC instant fixed. Existing local dates and times may change, so confirm that consequence before saving.
+    </div>
+}
+<form method="post">
+    <input asp-for="ExpectedVersion" type="hidden">
+    <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+    <div class="form-group">
+        <label asp-for="TimeZoneId">IANA time-zone identifier</label>
+        <input asp-for="TimeZoneId" placeholder="America/New_York" autocomplete="off">
+        <p class="field-help">Examples: America/New_York, Europe/London, Asia/Tokyo.</p>
+        <span asp-validation-for="TimeZoneId"></span>
+    </div>
+    @if (Model.Settings is not null)
+    {
+        <div class="form-group">
+            <input asp-for="ConfirmDisplayChange" type="checkbox">
+            <label asp-for="ConfirmDisplayChange">I understand that stored UTC instants stay fixed while local displays change.</label>
+        </div>
+    }
+    <div class="actions"><button type="submit">Save group time zone</button></div>
+</form>

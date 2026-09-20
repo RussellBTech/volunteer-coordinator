@@ -6,7 +6,7 @@
 <h1>@(Model.CurrentAssignmentId.HasValue ? "Reassign slot" : "Assign slot")</h1>
 @if (Model.Coverage is not null)
 {
-<p><strong>@Model.Coverage.ShiftTitle — @Model.Coverage.SlotLabel</strong><br>@Model.Coverage.StartsAtUtc.ToString("yyyy-MM-dd HH:mm 'UTC'")<br>Current state: @Model.Coverage.State</p>
+    <div class="card"><partial name="_CommitmentDetails" model="Model.Coverage.Commitment" /><p>Current state: @Model.Coverage.State</p></div>
 }
 <p>Entering an existing email updates that volunteer's contact details. Reassignment ends the previous active assignment atomically.</p>
 @if (Model.ExistingVolunteers.Count > 0)

@@ -7,6 +7,7 @@ using VolunteerCoordinator.Domain.Auditing;
 using VolunteerCoordinator.Domain.Requests;
 using VolunteerCoordinator.Domain.Schedules;
 using VolunteerCoordinator.Domain.Volunteers;
+using VolunteerCoordinator.Domain.Settings;
 using Xunit;
 
 namespace VolunteerCoordinator.UnitTests;
@@ -157,7 +158,10 @@ public sealed class VolunteerCoordinatorServiceTests
         public Task FlushAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task<IReadOnlyList<Shift>> GetAllShiftsAsync(CancellationToken cancellationToken) => Unsupported<IReadOnlyList<Shift>>();
+        public Task<GroupSettings?> GetGroupSettingsAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<GroupSettings?>(GroupSettings.Create("Etc/UTC"));
 
+        public Task LockGroupSettingsAsync(CancellationToken cancellationToken) => Task.CompletedTask;
         public Task<IReadOnlyList<Shift>> GetPublishedFutureShiftsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) => Unsupported<IReadOnlyList<Shift>>();
 
         public Task<Volunteer?> GetVolunteerAsync(Guid volunteerId, CancellationToken cancellationToken) => Unsupported<Volunteer?>();
@@ -195,6 +199,7 @@ public sealed class VolunteerCoordinatorServiceTests
         public Task<IReadOnlyList<AuditEntry>> GetAuditEntriesAsync(int limit, CancellationToken cancellationToken) => Unsupported<IReadOnlyList<AuditEntry>>();
 
         public void AddShift(Shift shift) => throw new NotSupportedException();
+        public void AddGroupSettings(GroupSettings settings) => throw new NotSupportedException();
 
         public void AddShiftSlots(IReadOnlyCollection<ShiftSlot> slots) => throw new NotSupportedException();
 

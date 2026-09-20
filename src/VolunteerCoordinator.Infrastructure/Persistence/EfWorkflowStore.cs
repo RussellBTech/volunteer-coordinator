@@ -6,6 +6,7 @@ using VolunteerCoordinator.Domain.Assignments;
 using VolunteerCoordinator.Domain.Auditing;
 using VolunteerCoordinator.Domain.Requests;
 using VolunteerCoordinator.Domain.Schedules;
+using VolunteerCoordinator.Domain.Settings;
 using VolunteerCoordinator.Domain.Volunteers;
 
 namespace VolunteerCoordinator.Infrastructure.Persistence;
@@ -53,6 +54,27 @@ public sealed class EfWorkflowStore : IWorkflowStore
 
     public async Task<IReadOnlyList<Shift>> GetAllShiftsAsync(CancellationToken cancellationToken) =>
         await _dbContext.Shifts.Include(x => x.Slots).ToListAsync(cancellationToken);
+
+    public async Task<GroupSettings?> GetGroupSettingsAsync(CancellationToken cancellationToken)
+    {
+        var trackedEntry = _dbContext.ChangeTracker
+            .Entries<GroupSettings>()
+            .SingleOrDefault(x => x.Entity.Id == GroupSettings.SingletonId);
+        if (trackedEntry is not null)
+        {
+            await trackedEntry.ReloadAsync(cancellationToken);
+            return trackedEntry.State == EntityState.Detached ? null : trackedEntry.Entity;
+        }
+
+        return await _dbContext.GroupSettings
+            .SingleOrDefaultAsync(x => x.Id == GroupSettings.SingletonId, cancellationToken);
+    }
+
+    public Task LockGroupSettingsAsync(CancellationToken cancellationToken) =>
+        _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""SELECT 1 FROM "GroupSettings" WHERE "Id" = {GroupSettings.SingletonId} FOR UPDATE""",
+            cancellationToken);
+
 
     public async Task<IReadOnlyList<Shift>> GetPublishedFutureShiftsAsync(
         DateTimeOffset nowUtc,
@@ -293,7 +315,7 @@ public sealed class EfWorkflowStore : IWorkflowStore
             .OrderByDescending(x => x.OccurredAtUtc)
             .Take(limit)
             .ToListAsync(cancellationToken);
-
+    public void AddGroupSettings(GroupSettings settings) => _dbContext.GroupSettings.Add(settings);
     public void AddShift(Shift shift) => _dbContext.Shifts.Add(shift);
     public void AddShiftSlots(IReadOnlyCollection<ShiftSlot> slots) =>
         _dbContext.ShiftSlots.AddRange(slots);

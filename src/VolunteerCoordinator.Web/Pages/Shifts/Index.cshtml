@@ -4,8 +4,11 @@
     ViewData["Title"] = "Open shifts";
 }
 <h1>Open shifts</h1>
-<p class="lead">Published primary and backup opportunities that still need a volunteer. Times are shown in UTC.</p>
-@if (Model.Openings.Count == 0)
+@if (!Model.IsTimeZoneConfigured)
+{
+    <div class="alert alert-warning" role="status">Commitment times are temporarily unavailable. Please contact the coordinator.</div>
+}
+else if (Model.Openings.Count == 0)
 {
     <div class="empty-state">
         <h2>No openings are published</h2>
@@ -14,15 +17,13 @@
 }
 else
 {
+    <p class="lead">Published primary and backup opportunities that still need a volunteer. Times are shown in the group's local time.</p>
     <div class="grid">
     @foreach (var opening in Model.Openings)
     {
         <article class="card">
-            <h2>@opening.ShiftTitle</h2>
-            <p><span class="badge badge-open">@opening.Status</span> <strong>@opening.SlotLabel</strong></p>
-            <p><strong>Starts:</strong> <time datetime="@opening.StartsAtUtc.ToString("O")">@opening.StartsAtUtc.ToString("yyyy-MM-dd HH:mm 'UTC'")</time><br>
-               <strong>Ends:</strong> <time datetime="@opening.EndsAtUtc.ToString("O")">@opening.EndsAtUtc.ToString("yyyy-MM-dd HH:mm 'UTC'")</time></p>
-            @if (opening.Location is not null) { <p><strong>Location:</strong> @opening.Location</p> }
+            <partial name="_CommitmentDetails" model="opening.Commitment" />
+            <p><span class="badge badge-open">@opening.Status</span></p>
             <a class="button" asp-page="/Shifts/Request" asp-route-slotId="@opening.SlotId">Request this @opening.SlotLabel.ToLowerInvariant() slot</a>
         </article>
     }

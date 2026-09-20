@@ -18,6 +18,8 @@ public sealed class RequestModel : PageModel
 
     public OpeningDto? Opening { get; private set; }
 
+    public bool IsTimeZoneConfigured { get; private set; }
+
     [BindProperty]
     [Required, StringLength(120)]
     public string Name { get; set; } = string.Empty;
@@ -32,14 +34,23 @@ public sealed class RequestModel : PageModel
 
     public async Task<IActionResult> OnGetAsync(Guid slotId, CancellationToken cancellationToken)
     {
-        return await LoadOpeningAsync(slotId, cancellationToken) ? Page() : NotFound();
+        if (!await LoadOpeningAsync(slotId, cancellationToken) && IsTimeZoneConfigured)
+        {
+            return NotFound();
+        }
+
+        return Page();
     }
 
     public async Task<IActionResult> OnPostAsync(Guid slotId, CancellationToken cancellationToken)
     {
         if (!await LoadOpeningAsync(slotId, cancellationToken))
         {
-            ModelState.AddModelError(string.Empty, "This slot is no longer available for requests.");
+            if (IsTimeZoneConfigured)
+            {
+                ModelState.AddModelError(string.Empty, "This slot is no longer available for requests.");
+            }
+
             return Page();
         }
 
@@ -72,6 +83,12 @@ public sealed class RequestModel : PageModel
 
     private async Task<bool> LoadOpeningAsync(Guid slotId, CancellationToken cancellationToken)
     {
+        IsTimeZoneConfigured = await _service.GetGroupSettingsAsync(cancellationToken) is not null;
+        if (!IsTimeZoneConfigured)
+        {
+            return false;
+        }
+
         Opening = (await _service.ListOpeningsAsync(cancellationToken)).SingleOrDefault(x => x.SlotId == slotId);
         return Opening is not null;
     }

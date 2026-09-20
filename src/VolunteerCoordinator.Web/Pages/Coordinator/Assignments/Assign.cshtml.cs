@@ -32,11 +32,23 @@ public sealed class AssignModel : PageModel
     [BindProperty, Phone, StringLength(40)]
     public string? VolunteerPhone { get; set; }
 
-    public async Task<IActionResult> OnGetAsync(Guid slotId, CancellationToken cancellationToken) =>
-        await LoadAsync(slotId, cancellationToken) ? Page() : NotFound();
+    public async Task<IActionResult> OnGetAsync(Guid slotId, CancellationToken cancellationToken)
+    {
+        if (await _service.GetGroupSettingsAsync(cancellationToken) is null)
+        {
+            return RedirectToPage("/Coordinator/Settings");
+        }
+
+        return await LoadAsync(slotId, cancellationToken) ? Page() : NotFound();
+    }
 
     public async Task<IActionResult> OnPostAsync(Guid slotId, CancellationToken cancellationToken)
     {
+        if (await _service.GetGroupSettingsAsync(cancellationToken) is null)
+        {
+            return RedirectToPage("/Coordinator/Settings");
+        }
+
         if (!await LoadAsync(slotId, cancellationToken))
         {
             return NotFound();

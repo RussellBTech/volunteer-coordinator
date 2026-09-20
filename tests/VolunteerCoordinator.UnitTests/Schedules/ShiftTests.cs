@@ -48,4 +48,57 @@ public sealed class ShiftTests
         Assert.Equal(3, shift.Slots.Count);
         Assert.Single(shift.Slots, x => x.Kind == SlotKind.Backup && x.IsActive);
     }
+
+    [Fact]
+    public void CreateNormalizesVolunteerInstructionsAndRetainsInternalNotes()
+    {
+        var shift = Shift.Create(
+            "Service",
+            "Hall",
+            "  Coordinator-only  ",
+            "  Arrive at the north entrance.  ",
+            Now.AddHours(1),
+            Now.AddHours(2),
+            0);
+
+        Assert.Equal("Coordinator-only", shift.Notes);
+        Assert.Equal("Arrive at the north entrance.", shift.VolunteerInstructions);
+    }
+
+    [Fact]
+    public void EditNormalizesAndClearsLocation()
+    {
+        var shift = Shift.Create("Service", "Original hall", null, Now.AddHours(1), Now.AddHours(2), 0);
+
+        shift.Edit(
+            "Service",
+            "  Updated hall  ",
+            null,
+            null,
+            Now.AddHours(1),
+            Now.AddHours(2),
+            Now);
+        Assert.Equal("Updated hall", shift.Location);
+
+        shift.Edit(
+            "Service",
+            "  ",
+            null,
+            null,
+            Now.AddHours(1),
+            Now.AddHours(2),
+            Now);
+        Assert.Null(shift.Location);
+    }
+
+    [Fact]
+    public void CreateRejectsOverlongVolunteerInstructions()
+    {
+        var instructions = new string('x', 1001);
+
+        var exception = Assert.Throws<DomainException>(() =>
+            Shift.Create("Service", null, null, instructions, Now.AddHours(1), Now.AddHours(2), 0));
+
+        Assert.Contains("instructions", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }
