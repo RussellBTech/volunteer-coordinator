@@ -137,7 +137,7 @@ public sealed class AuthorizationIntegrationTests
     }
 
     [Fact]
-    public async Task AllowlistedCoordinatorCancelsAssignmentWithAntiforgeryAndSeesFeedback()
+    public async Task AllowlistedCoordinatorReviewsAssignmentCancellationBeforeConfirming()
     {
         await _fixture.ResetAsync();
         Guid assignmentId;
@@ -174,69 +174,53 @@ public sealed class AuthorizationIntegrationTests
         {
             AllowAutoRedirect = false
         });
-        var loginForm = await client.GetAsync("/development/login");
-        var loginHtml = await loginForm.Content.ReadAsStringAsync();
-        var loginToken = Regex.Match(
-            loginHtml,
-            "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value;
-        var signedIn = await client.PostAsync(
-            "/development/login",
-            new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["__RequestVerificationToken"] = loginToken,
-                ["email"] = "coordinator@example.org"
-            }));
+        var signedIn = await SignInAsync(client, "coordinator@example.org");
         Assert.Equal(HttpStatusCode.Redirect, signedIn.StatusCode);
 
         var rejectedWithoutAntiforgery = await client.PostAsync(
-            "/Coordinator/Coverage?handler=Cancel",
+            $"/Coordinator/Assignments/Cancel/{assignmentId}",
             new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["assignmentId"] = assignmentId.ToString()
             }));
         Assert.Equal(HttpStatusCode.BadRequest, rejectedWithoutAntiforgery.StatusCode);
 
-        var coveragePage = await client.GetAsync("/Coordinator/Coverage");
-        var coverageHtml = await coveragePage.Content.ReadAsStringAsync();
-        var cancellationToken = Regex.Match(
-            coverageHtml,
-            "name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"").Groups[1].Value;
-        Assert.NotEmpty(cancellationToken);
+        var reviewPath = $"/Coordinator/Assignments/Cancel/{assignmentId}";
+        var reviewResponse = await client.GetAsync(reviewPath);
+        var reviewHtml = await reviewResponse.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, reviewResponse.StatusCode);
+        Assert.Contains("Go back without changes", reviewHtml);
+        Assert.Contains("Cancel assignment", reviewHtml);
 
-        var response = await client.PostAsync(
-            "/Coordinator/Coverage?handler=Cancel",
+        await using (var beforeConfirm = _fixture.CreateContext())
+        {
+            Assert.Equal(
+                AssignmentStatus.Assigned,
+                (await beforeConfirm.Assignments.SingleAsync(x => x.Id == assignmentId)).Status);
+        }
+
+        var confirmed = await client.PostAsync(
+            reviewPath,
             new FormUrlEncodedContent(new Dictionary<string, string>
             {
-                ["__RequestVerificationToken"] = cancellationToken,
-                ["assignmentId"] = assignmentId.ToString()
+                ["__RequestVerificationToken"] = ExtractHiddenValue(reviewHtml, "__RequestVerificationToken"),
+                ["assignmentId"] = assignmentId.ToString(),
+                ["ExpectedShiftVersion"] = ExtractHiddenValue(reviewHtml, "ExpectedShiftVersion"),
+                ["ExpectedVolunteerId"] = ExtractHiddenValue(reviewHtml, "ExpectedVolunteerId"),
+                ["ExpectedAssignmentState"] = ExtractHiddenValue(reviewHtml, "ExpectedAssignmentState")
             }));
-        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-        Assert.Equal("/Coordinator/Coverage", response.Headers.Location?.OriginalString);
+        Assert.Equal(HttpStatusCode.Redirect, confirmed.StatusCode);
+        Assert.Equal("/Coordinator/Coverage", confirmed.Headers.Location?.OriginalString);
 
-        var redirectedPage = await client.GetAsync(response.Headers.Location);
-        var redirectedHtml = await redirectedPage.Content.ReadAsStringAsync();
-        Assert.Contains("Assignment cancelled. The slot is now uncovered.", redirectedHtml);
-        Assert.Contains(">Uncovered<", redirectedHtml);
+        var coverageHtml = await (await client.GetAsync(confirmed.Headers.Location)).Content.ReadAsStringAsync();
+        Assert.Contains("Assignment cancelled. The commitment is now open.", coverageHtml);
+        Assert.Contains(">Open<", coverageHtml);
 
-        var repeatedResponse = await client.PostAsync(
-            "/Coordinator/Coverage?handler=Cancel",
-            new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["__RequestVerificationToken"] = cancellationToken,
-                ["assignmentId"] = assignmentId.ToString()
-            }));
-        Assert.Equal(HttpStatusCode.Redirect, repeatedResponse.StatusCode);
-        var errorPage = await client.GetAsync(repeatedResponse.Headers.Location);
-        Assert.Contains(
-            "Only an active assignment can be cancelled.",
-            await errorPage.Content.ReadAsStringAsync());
-
-        var schedulePage = await client.GetAsync("/Coordinator/Schedule");
-        var scheduleHtml = await schedulePage.Content.ReadAsStringAsync();
+        var scheduleHtml = await client.GetStringAsync("/Coordinator/Schedule");
         Assert.Contains(
             "Deactivation supersedes pending requests, cancels active assignments, and invalidates their action links.",
             scheduleHtml);
-        Assert.Contains("Deactivate and resolve", scheduleHtml);
+        Assert.Contains("Review deactivation", scheduleHtml);
 
         await using var verificationContext = _fixture.CreateContext();
         Assert.Equal(
@@ -287,6 +271,7 @@ public sealed class AuthorizationIntegrationTests
             AllowAutoRedirect = false
         }))
         {
+            await WaitForReadyAsync(anonymousClient);
             var anonymousResponse = await anonymousClient.PostAsync(
                 "/Coordinator/Coverage?handler=Cancel",
                 new FormUrlEncodedContent(new Dictionary<string, string>
@@ -305,6 +290,7 @@ public sealed class AuthorizationIntegrationTests
             AllowAutoRedirect = false
         }))
         {
+            await WaitForReadyAsync(nonCoordinatorClient);
             var forbiddenResponse = await nonCoordinatorClient.PostAsync(
                 "/Coordinator/Coverage?handler=Cancel",
                 new FormUrlEncodedContent(new Dictionary<string, string>
@@ -371,7 +357,7 @@ public sealed class AuthorizationIntegrationTests
         });
         var outgoingLogin = await SignInAsync(outgoingClient, "outgoing@example.org");
         Assert.Equal(HttpStatusCode.Redirect, outgoingLogin.StatusCode);
-        Assert.Equal("/Coordinator/Schedule", outgoingLogin.Headers.Location?.OriginalString);
+        Assert.Equal("/Coordinator", outgoingLogin.Headers.Location?.OriginalString);
         var outgoingSchedule = await outgoingClient.GetAsync("/Coordinator/Schedule");
         Assert.Equal(HttpStatusCode.Redirect, outgoingSchedule.StatusCode);
         Assert.Equal("/Coordinator/Settings", outgoingSchedule.Headers.Location?.OriginalString);
@@ -385,8 +371,34 @@ public sealed class AuthorizationIntegrationTests
         Assert.Contains("/Account/AccessDenied", thirdLogin.Headers.Location?.OriginalString ?? string.Empty);
     }
 
+    private static string ExtractHiddenValue(string html, string name)
+    {
+        var match = Regex.Match(
+            html,
+            $"name=\"{Regex.Escape(name)}\"[^>]*value=\"([^\"]*)\"");
+        Assert.True(match.Success, $"The page did not contain hidden field '{name}'.");
+        return match.Groups[1].Value;
+    }
+
+    private static async Task WaitForReadyAsync(HttpClient client)
+    {
+        for (var attempt = 0; attempt < 50; attempt++)
+        {
+            using var response = await client.GetAsync("/health/ready");
+            if (response.IsSuccessStatusCode)
+            {
+                return;
+            }
+
+            await Task.Delay(100);
+        }
+
+        Assert.Fail("The Web test host did not become ready.");
+    }
+
     private static async Task<HttpResponseMessage> SignInAsync(HttpClient client, string email)
     {
+        await WaitForReadyAsync(client);
         var loginForm = await client.GetAsync("/development/login");
         var loginHtml = await loginForm.Content.ReadAsStringAsync();
         var loginToken = Regex.Match(

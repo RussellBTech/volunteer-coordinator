@@ -36,17 +36,7 @@ public sealed class IndexModel : PageModel
             return RedirectToPage("/Coordinator/Settings");
         }
 
-        try
-        {
-            await _service.PublishShiftAsync(id, expectedVersion, CoordinatorIdentity.GetEmail(User)!, cancellationToken);
-            TempData["Message"] = "Shift published. Its open slots are now public.";
-        }
-        catch (DomainException exception)
-        {
-            TempData["Error"] = exception.Message;
-        }
-
-        return RedirectToPage();
+        return RedirectToPage("/Coordinator/Schedule/Publish", new { id });
     }
 
     public async Task<IActionResult> OnPostDeactivateAsync(Guid id, uint expectedVersion, CancellationToken cancellationToken)
@@ -56,16 +46,6 @@ public sealed class IndexModel : PageModel
             return RedirectToPage("/Coordinator/Settings");
         }
 
-        try
-        {
-            await _service.DeactivateShiftAsync(id, expectedVersion, CoordinatorIdentity.GetEmail(User)!, cancellationToken);
-            TempData["Message"] = "Shift deactivated. Pending requests, active assignments, and action links were resolved.";
-        }
-        catch (DomainException exception)
-        {
-            TempData["Error"] = exception.Message;
-        }
-
-        return RedirectToPage();
+        return RedirectToPage("/Coordinator/Schedule/Deactivate", new { id });
     }
 }

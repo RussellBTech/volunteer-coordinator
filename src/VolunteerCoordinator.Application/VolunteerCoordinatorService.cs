@@ -17,6 +17,7 @@ namespace VolunteerCoordinator.Application;
 public sealed class VolunteerCoordinatorService
 {
     public const string CommitmentUnavailableMessage = "Commitment times are temporarily unavailable. Please contact the coordinator.";
+    public const string StalePreviewMessage = "This information changed; review the updated details before confirming.";
     private const int VolunteerRetentionDays = VolunteerRetentionPolicy.MinimumRetentionDays;
     private const int MaxAssignmentLockAttempts = 3;
     private const string AssignmentLockConflictMessage = "The requested change conflicts with current schedule state. Reload and try again.";
@@ -56,6 +57,86 @@ public sealed class VolunteerCoordinatorService
         var settings = await _store.GetGroupSettingsAsync(cancellationToken);
         return settings is null ? null : new GroupSettingsDto(settings.TimeZoneId, settings.Version);
     }
+    public async Task<CoordinatorHomeDto> GetCoordinatorHomeAsync(CancellationToken cancellationToken)
+    {
+        var projection = await _store.GetCoordinatorHomeProjectionAsync(
+            _clock.UtcNow,
+            cancellationToken);
+
+        if (projection.Settings is null)
+        {
+            return new CoordinatorHomeDto(
+                true,
+                BuildSetupSteps(projection, settingsConfigured: false),
+                [],
+                "Set your group time zone",
+                "/Coordinator/Settings",
+                null);
+        }
+
+        var settings = projection.Settings!;
+        if (!projection.HasPublishedShift)
+        {
+            var (label, url) = projection.FirstUnpublishedShift is not null
+                ? ("Review and publish the first schedule entry", $"/Coordinator/Schedule/Publish/{projection.FirstUnpublishedShift.Id}")
+                : projection.FirstExpiredUnpublishedShift is not null
+                    ? ("Edit the expired schedule entry", $"/Coordinator/Schedule/Edit/{projection.FirstExpiredUnpublishedShift.Id}")
+                    : ("Create the first schedule entry", "/Coordinator/Schedule/Create");
+            return new CoordinatorHomeDto(
+                true,
+                BuildSetupSteps(projection, settingsConfigured: true),
+                [],
+                label,
+                url,
+                settings.TimeZoneId);
+        }
+
+        var attention = new List<CoordinatorAttentionDto>(4);
+        AddAttention(
+            attention,
+            "pending",
+            "Requests to review",
+            projection.PendingRequestCount,
+            "/Coordinator/Requests?attention=pending",
+            "Review requests",
+            projection.PendingRequestExamples,
+            settings);
+        AddAttention(
+            attention,
+            "uncovered",
+            "Open commitments",
+            projection.UncoveredCommitmentCount,
+            "/Coordinator/Coverage?attention=uncovered",
+            "Open coverage",
+            projection.UncoveredCommitmentExamples,
+            settings);
+        AddAttention(
+            attention,
+            "unconfirmed",
+            "Waiting for confirmation",
+            projection.UnconfirmedAssignmentCount,
+            "/Coordinator/Coverage?attention=unconfirmed",
+            "Review confirmations",
+            projection.UnconfirmedAssignmentExamples,
+            settings);
+        AddAttention(
+            attention,
+            "message",
+            "Messages not sent",
+            projection.FailedMessageCount,
+            "/Coordinator/Messages?attention=message",
+            "Open messages",
+            projection.FailedMessageExamples,
+            settings);
+
+        return new CoordinatorHomeDto(
+            false,
+            [],
+            attention,
+            null,
+            null,
+            settings.TimeZoneId);
+    }
 
     public async Task<GroupSettingsDto> ConfigureGroupTimeZoneAsync(
         string timeZoneId,
@@ -67,7 +148,7 @@ public sealed class VolunteerCoordinatorService
         var actor = RequireCoordinator(coordinatorEmail);
         if (!TimeZoneLabels.TryGetIanaZone(timeZoneId, out var normalizedId, out _))
         {
-            throw new DomainException("Select a valid IANA time-zone identifier.");
+            throw new DomainException("Select a supported group time zone.");
         }
 
         await _store.ExecuteInTransactionAsync(
@@ -108,7 +189,7 @@ public sealed class VolunteerCoordinatorService
                 if (!confirmDisplayChange)
                 {
                     throw new DomainException(
-                        "Changing the group time zone keeps stored UTC instants fixed and changes their displayed local times. Confirm this consequence before saving.");
+                        "Changing the group time zone keeps saved moments fixed and changes their displayed local dates and times. Confirm this consequence before saving.");
                 }
 
                 var oldId = settings.TimeZoneId;
@@ -307,21 +388,37 @@ public sealed class VolunteerCoordinatorService
 
 
 
+    public Task DeactivateShiftAsync(
+        Guid shiftId,
+        uint expectedVersion,
+        string coordinatorEmail,
+        CancellationToken cancellationToken) =>
+        DeactivateShiftAsync(
+            shiftId,
+            expectedVersion,
+            coordinatorEmail,
+            cancellationToken,
+            null,
+            null);
+
     public async Task DeactivateShiftAsync(
         Guid shiftId,
         uint expectedVersion,
         string coordinatorEmail,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? expectedAffectedSet,
+        uint? expectedSettingsVersion = null)
     {
         var actor = RequireCoordinator(coordinatorEmail);
         var now = _clock.UtcNow;
         await _store.ExecuteInTransactionAsync(
             async token =>
             {
+                await EnsureExpectedSettingsVersionAsync(expectedSettingsVersion, token);
                 var shift = await RequireShiftAsync(shiftId, token);
                 if (shift.Version != expectedVersion)
                 {
-                    throw new DomainException("This shift was changed by another coordinator. Reload it and try again.");
+                    throw new DomainException(StalePreviewMessage);
                 }
 
                 var slotIds = shift.Slots.Select(x => x.Id).ToArray();
@@ -330,11 +427,21 @@ public sealed class VolunteerCoordinatorService
                 shift = await RequireShiftAsync(shiftId, token);
                 if (shift.Version != expectedVersion)
                 {
-                    throw new DomainException("This shift was changed by another coordinator. Reload it and try again.");
+                    throw new DomainException(StalePreviewMessage);
                 }
 
                 var pendingRequests = await _store.GetPendingRequestsAsync(slotIds, token);
                 var activeAssignments = await _store.GetActiveAssignmentsAsync(slotIds, token);
+                if (expectedAffectedSet is not null &&
+                    !string.Equals(
+                        expectedAffectedSet,
+                        BuildAffectedSet(
+                            pendingRequests.Select(x => x.Id),
+                            activeAssignments.Select(x => x.Id)),
+                        StringComparison.Ordinal))
+                {
+                    throw new DomainException(StalePreviewMessage);
+                }
                 foreach (var request in pendingRequests)
                 {
                     request.Supersede(actor, now);
@@ -365,22 +472,49 @@ public sealed class VolunteerCoordinatorService
     }
 
 
+    public Task PublishShiftAsync(
+        Guid shiftId,
+        uint expectedVersion,
+        string coordinatorEmail,
+        CancellationToken cancellationToken) =>
+        PublishShiftAsync(
+            shiftId,
+            expectedVersion,
+            coordinatorEmail,
+            cancellationToken,
+            null,
+            null);
+
     public async Task PublishShiftAsync(
         Guid shiftId,
         uint expectedVersion,
         string coordinatorEmail,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? expectedAffectedSet,
+        uint? expectedSettingsVersion = null)
     {
         var actor = RequireCoordinator(coordinatorEmail);
         var now = _clock.UtcNow;
         await _store.ExecuteInTransactionAsync(
             async token =>
             {
+                await EnsureExpectedSettingsVersionAsync(expectedSettingsVersion, token);
                 await _store.LockShiftAsync(shiftId, token);
                 var shift = await RequireShiftAsync(shiftId, token);
                 if (shift.Version != expectedVersion)
                 {
-                    throw new DomainException("This shift was changed by another coordinator. Reload it and try again.");
+                    throw new DomainException(StalePreviewMessage);
+                }
+                var activeAssignments = await _store.GetActiveAssignmentsAsync(
+                    shift.Slots.Select(x => x.Id).ToArray(),
+                    token);
+                if (expectedAffectedSet is not null &&
+                    !string.Equals(
+                        expectedAffectedSet,
+                        BuildAffectedSet([], activeAssignments.Select(x => x.Id)),
+                        StringComparison.Ordinal))
+                {
+                    throw new DomainException(StalePreviewMessage);
                 }
 
                 shift.Publish(now);
@@ -388,6 +522,417 @@ public sealed class VolunteerCoordinatorService
                 return true;
             },
             cancellationToken);
+    }
+
+    public async Task<CoordinatorActionPreviewDto> GetPublishPreviewAsync(
+        Guid shiftId,
+        CancellationToken cancellationToken)
+    {
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken)
+            ?? throw new DomainException(CommitmentUnavailableMessage);
+        var shift = await RequireShiftAsync(shiftId, cancellationToken);
+        if (!shift.IsActive || shift.PublishedAtUtc.HasValue)
+        {
+            throw new DomainException("This schedule entry is no longer waiting for publication.");
+        }
+
+        if (shift.EndsAtUtc <= _clock.UtcNow)
+        {
+            throw new DomainException("This schedule entry has ended. Edit it before reviewing publication.");
+        }
+
+        var slots = shift.Slots.Where(x => x.IsActive).OrderBy(SlotOrder).ToArray();
+        var assignments = await _store.GetActiveAssignmentsAsync(
+            slots.Select(x => x.Id).ToArray(),
+            cancellationToken);
+        var assignmentsBySlot = assignments.ToDictionary(x => x.ShiftSlotId);
+        var volunteers = (await _store.GetVolunteersByIdsAsync(
+                assignments.Select(x => x.VolunteerId).Distinct().ToArray(),
+                cancellationToken))
+            .ToDictionary(x => x.Id);
+        var slotPreviews = slots
+            .Select(slot =>
+            {
+                assignmentsBySlot.TryGetValue(slot.Id, out var assignment);
+                volunteers.TryGetValue(assignment?.VolunteerId ?? Guid.Empty, out var volunteer);
+                return new ConsequenceSlotDto(
+                    SlotLabel(slot),
+                    AssignmentStateLabel(assignment),
+                    DisplayVolunteerName(volunteer),
+                    BuildCommitment(shift, settings, slot, SlotLabel(slot)));
+            })
+            .ToArray();
+
+        var preview = new CoordinatorActionPreviewDto(
+            "publish",
+            shift.Id,
+            shift.Id,
+            null,
+            shift.Version,
+            null,
+            null,
+            null,
+            BuildCommitment(shift, settings, null, "Schedule entry"),
+            slotPreviews,
+            [],
+            null,
+            null,
+            [
+                "The schedule entry will become public.",
+                "Open commitments will be available for volunteers to request.",
+                "The displayed local dates and slots will be visible to volunteers."
+            ]);
+        return preview with
+        {
+            ExpectedAffectedSet = BuildAffectedSet([], assignments.Select(x => x.Id)),
+            ExpectedSettingsVersion = settings.Version
+        };
+    }
+
+    public async Task<CoordinatorActionPreviewDto> GetDeactivatePreviewAsync(
+        Guid shiftId,
+        CancellationToken cancellationToken)
+    {
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken)
+            ?? throw new DomainException(CommitmentUnavailableMessage);
+        var shift = await RequireShiftAsync(shiftId, cancellationToken);
+        if (!shift.IsActive)
+        {
+            throw new DomainException("This schedule entry is already resolved.");
+        }
+
+        var slots = shift.Slots.Where(x => x.IsActive).OrderBy(SlotOrder).ToArray();
+        var slotIds = slots.Select(x => x.Id).ToArray();
+        var assignments = await _store.GetActiveAssignmentsAsync(slotIds, cancellationToken);
+        var requests = await _store.GetPendingRequestsAsync(slotIds, cancellationToken);
+        var volunteerIds = assignments.Select(x => x.VolunteerId)
+            .Concat(requests.Select(x => x.VolunteerId))
+            .Distinct()
+            .ToArray();
+        var volunteers = (await _store.GetVolunteersByIdsAsync(volunteerIds, cancellationToken))
+            .ToDictionary(x => x.Id);
+        var slotsById = slots.ToDictionary(x => x.Id);
+        var people = new List<ConsequencePersonDto>(assignments.Count + requests.Count);
+        foreach (var assignment in assignments)
+        {
+            if (slotsById.TryGetValue(assignment.ShiftSlotId, out var slot))
+            {
+                volunteers.TryGetValue(assignment.VolunteerId, out var volunteer);
+                people.Add(new ConsequencePersonDto(
+                    DisplayVolunteerName(volunteer) ?? "Removed volunteer",
+                    SlotLabel(slot),
+                    BuildCommitment(shift, settings, slot, SlotLabel(slot)),
+                    "The assignment will be cancelled and its action links will stop working."));
+            }
+        }
+
+        foreach (var request in requests)
+        {
+            if (slotsById.TryGetValue(request.ShiftSlotId, out var slot))
+            {
+                volunteers.TryGetValue(request.VolunteerId, out var volunteer);
+                people.Add(new ConsequencePersonDto(
+                    DisplayVolunteerName(volunteer) ?? "Removed volunteer",
+                    SlotLabel(slot),
+                    BuildCommitment(shift, settings, slot, SlotLabel(slot)),
+                    "The request will be resolved without creating an assignment."));
+            }
+        }
+
+        var preview = new CoordinatorActionPreviewDto(
+            "deactivate",
+            shift.Id,
+            shift.Id,
+            null,
+            shift.Version,
+            null,
+            null,
+            null,
+            BuildCommitment(shift, settings, null, "Schedule entry"),
+            [],
+            people,
+            null,
+            null,
+            [
+                "The schedule entry will be removed from public openings.",
+                $"{requests.Count} pending request(s) will be resolved.",
+                $"{assignments.Count} active assignment(s) will be cancelled and their action links invalidated."
+            ]);
+        return preview with
+        {
+            ExpectedAffectedSet = BuildAffectedSet(
+                requests.Select(x => x.Id),
+                assignments.Select(x => x.Id)),
+            ExpectedSettingsVersion = settings.Version
+        };
+    }
+
+    public async Task<CoordinatorActionPreviewDto> GetCancelAssignmentPreviewAsync(
+        Guid assignmentId,
+        CancellationToken cancellationToken)
+    {
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken)
+            ?? throw new DomainException(CommitmentUnavailableMessage);
+        var slotId = await _store.GetAssignmentSlotIdAsync(assignmentId, cancellationToken)
+            ?? throw new DomainException("The assignment was not found.");
+        var assignment = await RequireAssignmentAsync(assignmentId, cancellationToken);
+        if (!assignment.IsActive)
+        {
+            throw new DomainException("Only an active assignment can be cancelled.");
+        }
+
+        var slot = await RequireSlotAsync(slotId, cancellationToken);
+        var shift = await RequireShiftAsync(slot.ShiftId, cancellationToken);
+        var volunteer = await RequireVolunteerAsync(assignment.VolunteerId, cancellationToken);
+        var commitment = BuildCommitment(shift, settings, slot, SlotLabel(slot));
+        return new CoordinatorActionPreviewDto(
+            "cancel",
+            assignment.Id,
+            shift.Id,
+            slot.Id,
+            shift.Version,
+            assignment.Id,
+            assignment.VolunteerId,
+            assignment.Status.ToString(),
+            commitment,
+            [],
+            [
+                new ConsequencePersonDto(
+                    DisplayVolunteerName(volunteer) ?? "Removed volunteer",
+                    SlotLabel(slot),
+                    commitment,
+                    "The assignment will end and its action links will stop working.")
+            ],
+            new PreviewVolunteerDto(
+                DisplayVolunteerName(volunteer) ?? "Removed volunteer",
+                volunteer.AnonymizedAtUtc.HasValue ? null : volunteer.Email),
+            null,
+            [
+                "The commitment will become an open commitment.",
+                "The volunteer's action links will stop working.",
+                "The schedule entry and local date will remain unchanged."
+            ],
+            ExpectedSettingsVersion: settings.Version);
+    }
+
+    public async Task<CoordinatorActionPreviewDto> GetAssignmentPreviewAsync(
+        Guid slotId,
+        Guid? knownVolunteerId,
+        string? volunteerName,
+        string? volunteerEmail,
+        string? volunteerPhone,
+        CancellationToken cancellationToken)
+    {
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken)
+            ?? throw new DomainException(CommitmentUnavailableMessage);
+        var slot = await RequireSlotAsync(slotId, cancellationToken);
+        var shift = await RequireShiftAsync(slot.ShiftId, cancellationToken);
+        if (!slot.IsActive || !shift.IsActive || shift.EndsAtUtc <= _clock.UtcNow)
+        {
+            throw new DomainException("This commitment is no longer available for assignment.");
+        }
+
+        var current = await _store.GetActiveAssignmentForSlotAsync(slotId, cancellationToken);
+        var pendingRequests = await _store.GetPendingRequestsForSlotAsync(slotId, cancellationToken);
+        Volunteer replacement;
+        PreviewVolunteerDto replacementPreview;
+        var replacementReusesExistingVolunteer = false;
+        Guid? expectedSelectedVolunteerId;
+        string expectedSelectedVolunteerNormalizedEmail;
+        if (knownVolunteerId.HasValue)
+        {
+            replacement = await _store.GetVolunteerAsync(knownVolunteerId.Value, cancellationToken)
+                ?? throw new DomainException("That volunteer is no longer available. Choose someone else.");
+            if (replacement.AnonymizedAtUtc.HasValue)
+            {
+                throw new DomainException("That volunteer is no longer available. Choose someone else.");
+            }
+
+            expectedSelectedVolunteerId = replacement.Id;
+            expectedSelectedVolunteerNormalizedEmail = replacement.NormalizedEmail;
+            replacementPreview = new PreviewVolunteerDto(
+                replacement.Name,
+                replacement.Email,
+                replacement.Phone);
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(volunteerName) || string.IsNullOrWhiteSpace(volunteerEmail))
+            {
+                throw new DomainException("Enter the new volunteer's name and email before reviewing the assignment.");
+            }
+
+            var submittedVolunteer = Volunteer.Create(
+                volunteerName,
+                volunteerEmail,
+                volunteerPhone,
+                _clock.UtcNow);
+            expectedSelectedVolunteerNormalizedEmail = submittedVolunteer.NormalizedEmail;
+            var existingId = await _store.GetVolunteerIdByNormalizedEmailAsync(
+                submittedVolunteer.NormalizedEmail,
+                cancellationToken);
+            if (existingId.HasValue)
+            {
+                replacement = await _store.GetVolunteerAsync(existingId.Value, cancellationToken)
+                    ?? throw new DomainException("That volunteer is no longer available. Choose someone else.");
+                if (replacement.AnonymizedAtUtc.HasValue)
+                {
+                    throw new DomainException("That volunteer is no longer available. Choose someone else.");
+                }
+
+                replacementReusesExistingVolunteer = true;
+                expectedSelectedVolunteerId = replacement.Id;
+                replacementPreview = new PreviewVolunteerDto(
+                    submittedVolunteer.Name,
+                    submittedVolunteer.Email,
+                    submittedVolunteer.Phone);
+            }
+            else
+            {
+                replacement = submittedVolunteer;
+                expectedSelectedVolunteerId = null;
+                replacementPreview = new PreviewVolunteerDto(
+                    replacement.Name,
+                    replacement.Email,
+                    replacement.Phone);
+            }
+        }
+
+        var selectedVolunteerAssignment = await _store.GetActiveAssignmentForVolunteerAndShiftAsync(
+            replacement.Id,
+            shift.Id,
+            cancellationToken);
+        var assignmentIds = new[] { current, selectedVolunteerAssignment }
+            .Where(x => x is not null)
+            .Cast<Assignment>()
+            .DistinctBy(x => x.Id)
+            .ToArray();
+        var volunteerIds = pendingRequests
+            .Select(x => x.VolunteerId)
+            .Concat(assignmentIds.Select(x => x.VolunteerId))
+            .Distinct()
+            .ToArray();
+        var volunteers = (await _store.GetVolunteersByIdsAsync(volunteerIds, cancellationToken))
+            .ToDictionary(x => x.Id);
+        volunteers.TryGetValue(current?.VolunteerId ?? Guid.Empty, out var currentVolunteer);
+        var commitment = BuildCommitment(shift, settings, slot, SlotLabel(slot));
+        var actionKey = current is null ? "assign" : "replace";
+        var people = new List<ConsequencePersonDto>(pendingRequests.Count + assignmentIds.Length);
+        if (current is not null)
+        {
+            people.Add(
+                new ConsequencePersonDto(
+                    DisplayVolunteerName(currentVolunteer) ?? "Removed volunteer",
+                    SlotLabel(slot),
+                    commitment,
+                    "The current assignment will be replaced and its action links will stop working.")
+                {
+                    AffectedAssignmentId = current.Id,
+                    AffectedVolunteerId = current.VolunteerId
+                });
+        }
+
+        if (selectedVolunteerAssignment is not null &&
+            selectedVolunteerAssignment.Id != current?.Id &&
+            shift.Slots.FirstOrDefault(x => x.Id == selectedVolunteerAssignment.ShiftSlotId) is { } otherSlot)
+        {
+            volunteers.TryGetValue(selectedVolunteerAssignment.VolunteerId, out var otherVolunteer);
+            people.Add(
+                new ConsequencePersonDto(
+                    DisplayVolunteerName(otherVolunteer) ?? "Removed volunteer",
+                    SlotLabel(otherSlot),
+                    BuildCommitment(shift, settings, otherSlot, SlotLabel(otherSlot)),
+                    "The selected volunteer's other assignment will be replaced so they keep one commitment in this schedule entry.")
+                {
+                    AffectedAssignmentId = selectedVolunteerAssignment.Id,
+                    AffectedVolunteerId = selectedVolunteerAssignment.VolunteerId
+                });
+        }
+
+        foreach (var request in pendingRequests)
+        {
+            volunteers.TryGetValue(request.VolunteerId, out var requestVolunteer);
+            people.Add(
+                new ConsequencePersonDto(
+                    DisplayVolunteerName(requestVolunteer) ?? "Removed volunteer",
+                    SlotLabel(slot),
+                    commitment,
+                    "This pending request will be resolved without creating another assignment.")
+                {
+                    AffectedRequestId = request.Id,
+                    AffectedVolunteerId = request.VolunteerId
+                });
+        }
+
+        var consequences = new List<string>();
+        if (current is not null)
+        {
+            consequences.Add("The current volunteer's action links will stop working.");
+        }
+
+        if (replacementReusesExistingVolunteer)
+        {
+            consequences.Add("The existing volunteer record with this email will be updated and reused.");
+        }
+        else if (!knownVolunteerId.HasValue)
+        {
+            consequences.Add("A new volunteer record will be created with these contact details.");
+        }
+
+        consequences.Add(
+            current is null
+                ? "The selected volunteer will be assigned to this open commitment."
+                : "The selected volunteer will replace the current assignment.");
+        if (selectedVolunteerAssignment is not null &&
+            selectedVolunteerAssignment.Id != current?.Id)
+        {
+            consequences.Add("The selected volunteer's other assignment in this schedule entry will be replaced.");
+        }
+
+        if (pendingRequests.Count > 0)
+        {
+            consequences.Add(
+                $"{pendingRequests.Count} pending request(s) on this commitment will be resolved without creating another assignment.");
+        }
+
+        consequences.Add("The volunteer will receive a commitment message when delivery is available.");
+        var targetSlotPreview = new ConsequenceSlotDto(
+            SlotLabel(slot),
+            AssignmentStateLabel(current),
+            DisplayVolunteerName(currentVolunteer),
+            commitment);
+        var currentPreview = current is null
+            ? null
+            : new PreviewVolunteerDto(
+                DisplayVolunteerName(currentVolunteer) ?? "Removed volunteer",
+                currentVolunteer is not null && !currentVolunteer.AnonymizedAtUtc.HasValue ? currentVolunteer.Email : null,
+                currentVolunteer is not null && !currentVolunteer.AnonymizedAtUtc.HasValue ? currentVolunteer.Phone : null);
+        var preview = new CoordinatorActionPreviewDto(
+            actionKey,
+            slot.Id,
+            shift.Id,
+            slot.Id,
+            shift.Version,
+            current?.Id,
+            current?.VolunteerId,
+            current?.Status.ToString(),
+            commitment,
+            [targetSlotPreview],
+            people,
+            currentPreview,
+            replacementPreview,
+            consequences,
+            ReplacementReusesExistingVolunteer: replacementReusesExistingVolunteer,
+            ExpectedSettingsVersion: settings.Version);
+        return preview with
+        {
+            ExpectedAffectedSet = BuildAssignmentAffectedSet(
+                pendingRequests.Select(x => x.Id),
+                assignmentIds.Select(x => x.Id),
+                expectedSelectedVolunteerId),
+            ExpectedSelectedVolunteerId = expectedSelectedVolunteerId,
+            ExpectedSelectedVolunteerNormalizedEmail = expectedSelectedVolunteerNormalizedEmail
+        };
     }
 
     public async Task<IReadOnlyList<OpeningDto>> ListOpeningsAsync(CancellationToken cancellationToken)
@@ -709,6 +1254,211 @@ public sealed class VolunteerCoordinatorService
         var notification = await NotifySafelyAsync(new NotificationMessage(result.Id, "AssignmentCreated", result.VolunteerId), cancellationToken);
         return new AssignmentResult(result.Id, notification.Warning, result.Commitment);
     }
+    public async Task<AssignmentResult> AssignVolunteerAsync(
+        Guid slotId,
+        Guid? expectedAssignmentId,
+        Guid? expectedVolunteerId,
+        string? expectedAssignmentState,
+        uint expectedShiftVersion,
+        Guid? knownVolunteerId,
+        string? volunteerName,
+        string? volunteerEmail,
+        string? volunteerPhone,
+        string coordinatorEmail,
+        CancellationToken cancellationToken,
+        uint? expectedSettingsVersion = null,
+        string? expectedAffectedSet = null,
+        Guid? expectedSelectedVolunteerId = null,
+        string? expectedSelectedVolunteerNormalizedEmail = null)
+    {
+        var actor = RequireCoordinator(coordinatorEmail);
+        var now = _clock.UtcNow;
+        var result = await ExecuteWithAssignmentLockRetryAsync(
+            async token =>
+            {
+                await EnsureExpectedSettingsVersionAsync(expectedSettingsVersion, token);
+                var preflightSlot = await RequireSlotAsync(slotId, token);
+                var preflightShift = await RequireShiftAsync(preflightSlot.ShiftId, token);
+                var preflightVolunteerId = knownVolunteerId;
+                if (!preflightVolunteerId.HasValue && !string.IsNullOrWhiteSpace(volunteerEmail))
+                {
+                    preflightVolunteerId = await _store.GetVolunteerIdByNormalizedEmailAsync(
+                        Volunteer.NormalizeEmail(volunteerEmail),
+                        token);
+                }
+                var normalizedVolunteerEmail = string.IsNullOrWhiteSpace(volunteerEmail)
+                    ? null
+                    : Volunteer.NormalizeEmail(volunteerEmail);
+                var selectionIdIsBound = expectedSelectedVolunteerId.HasValue || knownVolunteerId.HasValue;
+                if (expectedAffectedSet is not null &&
+                    selectionIdIsBound &&
+                    preflightVolunteerId != (expectedSelectedVolunteerId ?? knownVolunteerId))
+                {
+                    throw new DomainException(StalePreviewMessage);
+                }
+
+                var lockedAssignmentSlots = await LockAssignmentSlotsAsync(
+                    slotId,
+                    preflightShift.Id,
+                    preflightVolunteerId,
+                    token);
+                if (preflightVolunteerId.HasValue)
+                {
+                    await _store.LockVolunteerAsync(preflightVolunteerId.Value, token);
+                }
+
+                await _store.LockShiftAsync(preflightShift.Id, token);
+                var slot = await RequireSlotAsync(slotId, token);
+                var shift = await RequireShiftAsync(slot.ShiftId, token);
+                var settings = await _store.GetGroupSettingsAsync(token)
+                    ?? throw new DomainException(CommitmentUnavailableMessage);
+                var current = await _store.GetActiveAssignmentForSlotAsync(slotId, token);
+                if (!slot.IsActive ||
+                    !shift.IsActive ||
+                    shift.EndsAtUtc <= now ||
+                    shift.Version != expectedShiftVersion ||
+                    !MatchesExpectedAssignment(current, expectedAssignmentId, expectedVolunteerId, expectedAssignmentState))
+                {
+                    throw new DomainException(StalePreviewMessage);
+                }
+
+                var actualSelectedVolunteerId = knownVolunteerId ?? (normalizedVolunteerEmail is null
+                    ? null
+                    : await _store.GetVolunteerIdByNormalizedEmailAsync(normalizedVolunteerEmail, token));
+                if (expectedAffectedSet is not null &&
+                    selectionIdIsBound &&
+                    actualSelectedVolunteerId != (expectedSelectedVolunteerId ?? knownVolunteerId))
+                {
+                    throw new DomainException(StalePreviewMessage);
+                }
+
+                if (expectedAffectedSet is not null &&
+                    !knownVolunteerId.HasValue &&
+                    ((expectedSelectedVolunteerId.HasValue && actualSelectedVolunteerId is null) ||
+                     !string.Equals(
+                         normalizedVolunteerEmail ?? string.Empty,
+                         expectedSelectedVolunteerNormalizedEmail ?? string.Empty,
+                         StringComparison.Ordinal)))
+                {
+                    throw new DomainException(StalePreviewMessage);
+                }
+
+                var selectedVolunteerAssignment = actualSelectedVolunteerId.HasValue
+                    ? await _store.GetActiveAssignmentForVolunteerAndShiftAsync(
+                        actualSelectedVolunteerId.Value,
+                        shift.Id,
+                        token)
+                    : null;
+                var pendingRequests = await _store.GetPendingRequestsForSlotAsync(slotId, token);
+                var actualAffectedSet = BuildAssignmentAffectedSet(
+                    pendingRequests.Select(x => x.Id),
+                    new[] { current, selectedVolunteerAssignment }
+                        .Where(x => x is not null)
+                        .Cast<Assignment>()
+                        .DistinctBy(x => x.Id)
+                        .Select(x => x.Id),
+                    actualSelectedVolunteerId);
+                if (expectedAffectedSet is not null &&
+                    !string.Equals(expectedAffectedSet, actualAffectedSet, StringComparison.Ordinal))
+                {
+                    throw new DomainException(StalePreviewMessage);
+                }
+
+                Volunteer volunteer;
+                if (knownVolunteerId.HasValue)
+                {
+                    volunteer = await _store.GetVolunteerAsync(knownVolunteerId.Value, token)
+                        ?? throw new DomainException("That volunteer is no longer available. Choose someone else.");
+                    if (volunteer.AnonymizedAtUtc.HasValue)
+                    {
+                        throw new DomainException("That volunteer is no longer available. Choose someone else.");
+                    }
+
+                    if (expectedAffectedSet is not null &&
+                        (actualSelectedVolunteerId != volunteer.Id ||
+                         (expectedSelectedVolunteerNormalizedEmail is not null &&
+                          !string.Equals(
+                              volunteer.NormalizedEmail,
+                              expectedSelectedVolunteerNormalizedEmail,
+                              StringComparison.Ordinal))))
+                    {
+                        throw new DomainException(StalePreviewMessage);
+                    }
+                }
+                else
+                {
+                    if (string.IsNullOrWhiteSpace(volunteerName) ||
+                        string.IsNullOrWhiteSpace(volunteerEmail))
+                    {
+                        throw new DomainException("Enter the new volunteer's name and email.");
+                    }
+
+                    var volunteerId = actualSelectedVolunteerId;
+                    if (volunteerId.HasValue)
+                    {
+                        if (!preflightVolunteerId.HasValue || volunteerId.Value != preflightVolunteerId.Value)
+                        {
+                            await _store.LockVolunteerAsync(volunteerId.Value, token);
+                        }
+
+                        volunteer = await RequireVolunteerAsync(volunteerId.Value, token);
+                        if (volunteer.AnonymizedAtUtc.HasValue)
+                        {
+                            throw new DomainException("That volunteer is no longer available. Choose someone else.");
+                        }
+
+                        if (expectedAffectedSet is not null &&
+                            (actualSelectedVolunteerId != volunteer.Id ||
+                             (expectedSelectedVolunteerNormalizedEmail is not null &&
+                              !string.Equals(
+                                  volunteer.NormalizedEmail,
+                                  expectedSelectedVolunteerNormalizedEmail,
+                                  StringComparison.Ordinal))))
+                        {
+                            throw new DomainException(StalePreviewMessage);
+                        }
+
+                        volunteer.UpdateContact(volunteerName, volunteerEmail, volunteerPhone, now);
+                    }
+                    else
+                    {
+                        if (expectedAffectedSet is not null && expectedSelectedVolunteerId.HasValue)
+                        {
+                            throw new DomainException(StalePreviewMessage);
+                        }
+
+                        volunteer = Volunteer.Create(volunteerName, volunteerEmail, volunteerPhone, now);
+                        _store.AddVolunteer(volunteer);
+                    }
+                }
+
+                await SupersedeConflictingAssignmentsAsync(
+                    slot.Id,
+                    shift.Id,
+                    volunteer.Id,
+                    lockedAssignmentSlots,
+                    actor,
+                    now,
+                    token);
+                var assignment = Assignment.Create(slot.Id, shift.Id, volunteer.Id, null, actor, now);
+                _store.AddAssignment(assignment);
+                await SupersedeOtherRequestsAsync(slot.Id, null, actor, now, token);
+                _store.AddAuditEntry(AuditEntry.Create(
+                    now,
+                    actor,
+                    "AssignmentCreatedOrReassigned",
+                    nameof(Assignment),
+                    assignment.Id,
+                    Detail(new { assignment.ShiftSlotId, assignment.VolunteerId })));
+                return (assignment.Id, VolunteerId: volunteer.Id, Commitment: BuildCommitment(shift, settings, slot, SlotLabel(slot)));
+            },
+            cancellationToken);
+
+        var notification = await NotifySafelyAsync(
+            new NotificationMessage(result.Id, "AssignmentCreated", result.VolunteerId),
+            cancellationToken);
+        return new AssignmentResult(result.Id, notification.Warning, result.Commitment);
+    }
 
 
     public async Task CancelAssignmentAsync(
@@ -740,6 +1490,49 @@ public sealed class VolunteerCoordinatorService
             },
             cancellationToken);
     }
+    public async Task CancelAssignmentAsync(
+        Guid assignmentId,
+        uint expectedShiftVersion,
+        Guid? expectedVolunteerId,
+        string? expectedAssignmentState,
+        string coordinatorEmail,
+        CancellationToken cancellationToken,
+        uint? expectedSettingsVersion = null)
+    {
+        var actor = RequireCoordinator(coordinatorEmail);
+        var now = _clock.UtcNow;
+        await _store.ExecuteInTransactionAsync(
+            async token =>
+            {
+                await EnsureExpectedSettingsVersionAsync(expectedSettingsVersion, token);
+                var slotId = await _store.GetAssignmentSlotIdAsync(assignmentId, token)
+                    ?? throw new DomainException("The assignment was not found.");
+                await _store.LockSlotAsync(slotId, token);
+                var slot = await RequireSlotAsync(slotId, token);
+                await _store.LockShiftAsync(slot.ShiftId, token);
+                var shift = await RequireShiftAsync(slot.ShiftId, token);
+                var assignment = await RequireAssignmentAsync(assignmentId, token);
+                if (shift.Version != expectedShiftVersion ||
+                    !MatchesExpectedAssignment(
+                        assignment,
+                        assignmentId,
+                        expectedVolunteerId,
+                        expectedAssignmentState) ||
+                    !assignment.IsActive)
+                {
+                    throw new DomainException(StalePreviewMessage);
+                }
+
+                await CancelAssignmentsAsync(
+                    [assignment],
+                    now,
+                    actor,
+                    "AssignmentCancelledByCoordinator",
+                    token);
+                return true;
+            },
+            cancellationToken);
+    }
 
     public async Task<IReadOnlyList<VolunteerDto>> ListVolunteersAsync(CancellationToken cancellationToken)
     {
@@ -755,6 +1548,76 @@ public sealed class VolunteerCoordinatorService
                 IsAnonymized = x.AnonymizedAtUtc.HasValue
             })
             .ToArray();
+    }
+    public async Task<IReadOnlyList<VolunteerDto>> ListEligibleVolunteersAsync(
+        CancellationToken cancellationToken)
+    {
+        var volunteers = await _store.GetVolunteersAsync(cancellationToken);
+        return volunteers
+            .Where(x => !x.AnonymizedAtUtc.HasValue)
+            .OrderBy(x => x.Name)
+            .ThenBy(x => x.NormalizedEmail)
+            .Select(x => new VolunteerDto(x.Id, x.Name, x.Email, x.Phone))
+            .ToArray();
+    }
+
+    public async Task<IReadOnlyList<CoordinatorMessageDto>> ListActionableMessagesAsync(
+        CancellationToken cancellationToken)
+    {
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken);
+        if (settings is null)
+        {
+            return [];
+        }
+
+        var now = _clock.UtcNow;
+        var examples = await _store.GetActionableMessageExamplesAsync(
+            now,
+            200,
+            cancellationToken);
+        return examples
+            .Select(example => new CoordinatorMessageDto(
+                example.VolunteerName ?? "Removed volunteer",
+                BuildCommitment(example, settings),
+                example.OccurredAtUtc ?? now,
+                MessagePurpose(example.MessageKind) ?? "Commitment update",
+                "Message could not be sent. Contact the volunteer another way.",
+                example.VolunteerEmail,
+                example.VolunteerPhone))
+            .ToArray();
+    }
+
+    public async Task<CoordinatorMessagePageDto> GetActionableMessagesPageAsync(
+        int page,
+        CancellationToken cancellationToken)
+    {
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken);
+        if (settings is null)
+        {
+            return new CoordinatorMessagePageDto(1, 50, 0, []);
+        }
+
+        var now = _clock.UtcNow;
+        var projection = await _store.GetActionableMessagePageAsync(
+            now,
+            page,
+            50,
+            cancellationToken);
+        var messages = projection.Items
+            .Select(example => new CoordinatorMessageDto(
+                example.VolunteerName ?? "Removed volunteer",
+                BuildCommitment(example, settings),
+                example.OccurredAtUtc ?? now,
+                MessagePurpose(example.MessageKind) ?? "Commitment update",
+                "Message could not be sent. Contact the volunteer another way.",
+                example.VolunteerEmail,
+                example.VolunteerPhone))
+            .ToArray();
+        return new CoordinatorMessagePageDto(
+            projection.Page,
+            projection.PageSize,
+            projection.TotalCount,
+            messages);
     }
 
     public async Task<VolunteerAnonymizationResult> AnonymizeVolunteerAsync(
@@ -1100,7 +1963,7 @@ public sealed class VolunteerCoordinatorService
             return [];
         }
 
-        var shifts = await _store.GetPublishedFutureShiftsAsync(_clock.UtcNow, cancellationToken);
+        var shifts = await _store.GetPublishedCurrentOrFutureShiftsAsync(_clock.UtcNow, cancellationToken);
         var slots = shifts.SelectMany(x => x.Slots).Where(x => x.IsActive).ToArray();
         var assignments = await _store.GetActiveAssignmentsAsync(slots.Select(x => x.Id).ToArray(), cancellationToken);
         var assignmentsBySlot = assignments.ToDictionary(x => x.ShiftSlotId);
@@ -1139,8 +2002,22 @@ public sealed class VolunteerCoordinatorService
 
     public async Task<IReadOnlyList<AuditDto>> ListAuditAsync(int limit, CancellationToken cancellationToken)
     {
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken);
+        var timeZoneId = settings?.TimeZoneId ?? "Etc/UTC";
         var entries = await _store.GetAuditEntriesAsync(Math.Clamp(limit, 1, 500), cancellationToken);
-        return entries.Select(x => new AuditDto(x.OccurredAtUtc, x.Actor, x.Action, x.EntityKind, x.EntityId, x.DetailJson)).ToArray();
+        return entries
+            .Select(x => new AuditDto(
+                x.OccurredAtUtc,
+                x.Actor,
+                x.Action,
+                x.EntityKind,
+                x.EntityId,
+                x.DetailJson)
+            {
+                Summary = HumanAuditSummary(x.Action),
+                GroupTimeZoneId = timeZoneId
+            })
+            .ToArray();
     }
 
     private async Task<VolunteerAnonymizationResult> AnonymizeVolunteerInTransactionAsync(
@@ -1613,6 +2490,22 @@ public sealed class VolunteerCoordinatorService
         var shift = await RequireShiftAsync(slot.ShiftId, cancellationToken);
         return BuildCommitment(shift, settings, slot, SlotLabel(slot));
     }
+    private async Task EnsureExpectedSettingsVersionAsync(
+        uint? expectedSettingsVersion,
+        CancellationToken cancellationToken)
+    {
+        if (!expectedSettingsVersion.HasValue)
+        {
+            return;
+        }
+
+        await _store.LockGroupSettingsAsync(cancellationToken);
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken);
+        if (settings is null || settings.Version != expectedSettingsVersion.Value)
+        {
+            throw new DomainException(StalePreviewMessage);
+        }
+    }
 
     private async Task<(DateTimeOffset StartsAtUtc, DateTimeOffset EndsAtUtc)> ResolveForMutationAsync(
         LocalScheduleInput input,
@@ -1632,7 +2525,7 @@ public sealed class VolunteerCoordinatorService
             var messages = resolution.Errors.ToList();
             if (resolution.StartCandidates.Count > 0 || resolution.EndCandidates.Count > 0)
             {
-                messages.Add("Choose one labelled UTC-offset interpretation for each repeated local time.");
+                messages.Add("Choose one labelled interpretation for each repeated local time.");
             }
 
             throw new DomainException(
@@ -1644,6 +2537,126 @@ public sealed class VolunteerCoordinatorService
         return (resolution.StartsAtUtc.GetValueOrDefault(), resolution.EndsAtUtc.GetValueOrDefault());
     }
 
+
+    private static IReadOnlyList<SetupStepDto> BuildSetupSteps(
+        CoordinatorHomeProjection projection,
+        bool settingsConfigured)
+    {
+        var firstShift = projection.FirstUnpublishedShift;
+        var expiredShift = projection.FirstExpiredUnpublishedShift;
+        var hasFirstShift = firstShift is not null || expiredShift is not null;
+        var publishUrl = firstShift is null
+            ? null
+            : $"/Coordinator/Schedule/Publish/{firstShift.Id}";
+        var reviewUrl = publishUrl ?? (expiredShift is null
+            ? null
+            : $"/Coordinator/Schedule/Edit/{expiredShift.Id}");
+        var reviewDescription = firstShift is null && expiredShift is not null
+            ? "Correct the expired schedule entry before reviewing what volunteers will see."
+            : "Check the commitment details and the openings before they become public.";
+
+        return
+        [
+            new SetupStepDto(
+                1,
+                "Set your group time zone",
+                "Choose the local time zone used for every schedule entry and commitment.",
+                settingsConfigured ? "Complete" : "Next",
+                settingsConfigured,
+                !settingsConfigured,
+                false,
+                "/Coordinator/Settings"),
+            new SetupStepDto(
+                2,
+                "Understand volunteer requests",
+                "Volunteers request a commitment. A coordinator reviews each request before anyone is assigned.",
+                "Policy in use",
+                true,
+                false,
+                true,
+                null),
+            new SetupStepDto(
+                3,
+                "Create the first schedule entry",
+                "Enter the first shift, its local times, location, instructions, and slots.",
+                hasFirstShift ? "Complete" : settingsConfigured ? "Next" : "Not started",
+                hasFirstShift,
+                settingsConfigured && !hasFirstShift,
+                false,
+                settingsConfigured ? "/Coordinator/Schedule/Create" : null),
+            new SetupStepDto(
+                4,
+                "Review what volunteers will see",
+                reviewDescription,
+                projection.HasPublishedShift ? "Complete" : hasFirstShift ? "Next" : "Not started",
+                projection.HasPublishedShift,
+                settingsConfigured && hasFirstShift && !projection.HasPublishedShift,
+                false,
+                reviewUrl),
+            new SetupStepDto(
+                5,
+                "Publish open commitments",
+                "Publish the reviewed openings so volunteers can request them.",
+                projection.HasPublishedShift ? "Complete" : "Not started",
+                projection.HasPublishedShift,
+                false,
+                false,
+                publishUrl)
+        ];
+    }
+
+    private static void AddAttention(
+        ICollection<CoordinatorAttentionDto> attention,
+        string key,
+        string label,
+        int count,
+        string url,
+        string actionLabel,
+        IReadOnlyList<CoordinatorHomeExample> examples,
+        GroupSettings settings)
+    {
+        if (count == 0)
+        {
+            return;
+        }
+
+        attention.Add(new CoordinatorAttentionDto(
+            key,
+            label,
+            count,
+            url,
+            actionLabel,
+            examples
+                .Select(example => new CoordinatorAttentionExampleDto(
+                    BuildCommitment(example, settings),
+                    example.VolunteerName,
+                    example.OccurredAtUtc,
+                    MessagePurpose(example.MessageKind)))
+                .ToArray()));
+    }
+
+    private static CommitmentDto BuildCommitment(
+        CoordinatorHomeExample example,
+        GroupSettings settings) =>
+        new(
+            example.ShiftId,
+            example.SlotId,
+            example.ShiftTitle,
+            example.StartsAtUtc,
+            example.EndsAtUtc,
+            settings.TimeZoneId,
+            null,
+            example.SlotLabel,
+            null);
+
+    private static string? MessagePurpose(string? kind) =>
+        string.IsNullOrWhiteSpace(kind)
+            ? null
+            : kind.Contains("Request", StringComparison.OrdinalIgnoreCase)
+                ? "Request update"
+                : kind.Contains("Assignment", StringComparison.OrdinalIgnoreCase)
+                    ? "Assignment update"
+                    : "Commitment update";
 
     private static CommitmentDto BuildCommitment(
         Shift shift,
@@ -1663,6 +2676,27 @@ public sealed class VolunteerCoordinatorService
 
     private static LocalScheduleResolution UnconfiguredResolution(LocalScheduleInput input) =>
         ResolutionWithError(input, CommitmentUnavailableMessage);
+    private static string HumanAuditSummary(string action) => action switch
+    {
+        "GroupTimeZoneConfigured" => "The group time zone was configured.",
+        "GroupTimeZoneChanged" => "The group time zone was changed.",
+        "ShiftCreated" => "A schedule entry was created.",
+        "ShiftEdited" => "A schedule entry was corrected.",
+        "ShiftPublished" => "A schedule entry was published.",
+        "ShiftDeactivated" => "A schedule entry was deactivated and its workflow was resolved.",
+        "RequestSubmitted" => "A volunteer request was received.",
+        "RequestApproved" => "A volunteer request was approved and assigned.",
+        "RequestRejected" => "A volunteer request was declined.",
+        "AssignmentCreatedOrReassigned" => "A volunteer assignment was created or replaced.",
+        "AssignmentReassigned" => "An earlier volunteer assignment was replaced.",
+        "AssignmentCancelledByCoordinator" => "A coordinator cancelled a volunteer assignment.",
+        "AssignmentCancelledByShiftDeactivation" => "A volunteer assignment was cancelled because its schedule entry was deactivated.",
+        "ActionLinksGenerated" => "Volunteer action links were refreshed.",
+        "VolunteerAnonymized" => "A volunteer's identifying contact data was removed.",
+        _ when action.StartsWith("Assignment", StringComparison.Ordinal) => "A volunteer response changed an assignment.",
+        _ => "A recorded coordinator action occurred."
+    };
+
 
     private static LocalScheduleResolution ResolutionWithError(
         LocalScheduleInput input,
@@ -1691,6 +2725,38 @@ public sealed class VolunteerCoordinatorService
 
     private async Task<Assignment> RequireAssignmentAsync(Guid id, CancellationToken cancellationToken) =>
         await _store.GetAssignmentAsync(id, cancellationToken) ?? throw new DomainException("The assignment was not found.");
+
+    private static string? DisplayVolunteerName(Volunteer? volunteer) =>
+        volunteer is null
+            ? null
+            : volunteer.AnonymizedAtUtc.HasValue
+                ? "Removed volunteer"
+                : volunteer.Name;
+
+    private static string AssignmentStateLabel(Assignment? assignment) => assignment?.Status switch
+    {
+        AssignmentStatus.Assigned => "Waiting for confirmation",
+        AssignmentStatus.Confirmed => "Confirmed",
+        _ => "Open"
+    };
+
+    private static bool MatchesExpectedAssignment(
+        Assignment? actual,
+        Guid? expectedAssignmentId,
+        Guid? expectedVolunteerId,
+        string? expectedAssignmentState)
+    {
+        if (!expectedAssignmentId.HasValue)
+        {
+            return actual is null;
+        }
+
+        return actual is not null &&
+               actual.Id == expectedAssignmentId.Value &&
+               (!expectedVolunteerId.HasValue || actual.VolunteerId == expectedVolunteerId.Value) &&
+               (string.IsNullOrWhiteSpace(expectedAssignmentState) ||
+                string.Equals(actual.Status.ToString(), expectedAssignmentState, StringComparison.Ordinal));
+    }
 
     private static bool CanApply(VolunteerAction action, AssignmentStatus status) => action switch
     {
@@ -1728,6 +2794,18 @@ public sealed class VolunteerCoordinatorService
                 $"Retention batch size must be between {VolunteerRetentionPolicy.MinimumBatchSize} and {VolunteerRetentionPolicy.MaximumBatchSize}.");
         }
     }
+    private static string BuildAffectedSet(
+        IEnumerable<Guid> requestIds,
+        IEnumerable<Guid> assignmentIds) =>
+        $"requests:{string.Join(",", requestIds.OrderBy(x => x).Select(x => x.ToString("N")))};" +
+        $"assignments:{string.Join(",", assignmentIds.OrderBy(x => x).Select(x => x.ToString("N")))}";
+    private static string BuildAssignmentAffectedSet(
+        IEnumerable<Guid> requestIds,
+        IEnumerable<Guid> assignmentIds,
+        Guid? selectedVolunteerId) =>
+        BuildAffectedSet(requestIds, assignmentIds) +
+        $";volunteers:{(selectedVolunteerId.HasValue ? selectedVolunteerId.Value.ToString("N") : string.Empty)}";
+
 
     private static int SlotOrder(ShiftSlot slot) => slot.Kind == SlotKind.Primary ? 0 : slot.Position;
 

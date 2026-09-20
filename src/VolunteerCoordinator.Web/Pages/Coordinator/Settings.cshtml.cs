@@ -49,7 +49,7 @@ public sealed class SettingsModel : PageModel
                 ConfirmDisplayChange,
                 CoordinatorIdentity.GetEmail(User)!,
                 cancellationToken);
-            TempData["Message"] = "Group time zone saved. Schedule instants remain stored in UTC.";
+            TempData["Message"] = "Group time zone saved. Schedule times will use this local zone.";
             return RedirectToPage();
         }
         catch (DomainException exception)

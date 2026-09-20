@@ -152,13 +152,13 @@ public sealed class EditModel : PageModel
         var valid = true;
         if (!TryParseOffset(StartsAtOffset, out startOffset))
         {
-            ModelState.AddModelError(nameof(StartsAtOffset), "Choose a valid UTC offset interpretation.");
+            ModelState.AddModelError(nameof(StartsAtOffset), "Choose a valid time interpretation.");
             valid = false;
         }
 
         if (!TryParseOffset(EndsAtOffset, out endOffset))
         {
-            ModelState.AddModelError(nameof(EndsAtOffset), "Choose a valid UTC offset interpretation.");
+            ModelState.AddModelError(nameof(EndsAtOffset), "Choose a valid time interpretation.");
             valid = false;
         }
 
@@ -174,7 +174,7 @@ public sealed class EditModel : PageModel
 
         if (resolution.StartCandidates.Count > 0 || resolution.EndCandidates.Count > 0)
         {
-            ModelState.AddModelError(string.Empty, "Choose one labelled UTC-offset interpretation for each repeated local time.");
+            ModelState.AddModelError(string.Empty, "Choose one labelled interpretation for each repeated local time.");
         }
     }
 

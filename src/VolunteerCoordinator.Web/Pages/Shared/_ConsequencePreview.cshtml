@@ -1,0 +1,111 @@
+@using VolunteerCoordinator.Application.Models
+@using VolunteerCoordinator.Web.Presentation
+@inject GroupTimeFormatter Formatter
+@model ConsequencePreviewViewModel
+<section class="consequence-preview card" aria-labelledby="consequence-heading" tabindex="-1" data-focus-target="true">
+    <div class="eyebrow">Review before changing anything</div>
+    <h2 id="consequence-heading">@Model.Heading</h2>
+    <p>@Model.Description</p>
+    <div class="preview-details">
+        <partial name="_CommitmentDetails" model="Model.Preview.Commitment" />
+        @if (Model.Preview.Slots.Count > 0)
+        {
+            <section aria-labelledby="slot-review-heading">
+                <h3 id="slot-review-heading">Commitments in this schedule entry</h3>
+                <ul class="preview-slots">
+                @foreach (var slot in Model.Preview.Slots)
+                {
+                    <li>
+                        <strong>@slot.SlotLabel</strong>
+                        <span>@slot.State@(slot.VolunteerName is null ? string.Empty : $" — {slot.VolunteerName}")</span>
+                    </li>
+                }
+                </ul>
+            </section>
+        }
+        @if (Model.Preview.CurrentVolunteer is not null || Model.Preview.ReplacementVolunteer is not null)
+        {
+            <dl class="person-change">
+                @if (Model.Preview.CurrentVolunteer is not null)
+                {
+                    <dt>Current volunteer</dt>
+                    <dd>@Model.Preview.CurrentVolunteer.Name</dd>
+                }
+                @if (Model.Preview.ReplacementVolunteer is not null)
+                {
+                    <dt>@(Model.Preview.IsReplacement ? "Replacement volunteer" : "Volunteer")</dt>
+                    <dd>
+                        @Model.Preview.ReplacementVolunteer.Name
+                        @if (Model.Preview.ReplacementVolunteer.Email is not null)
+                        {
+                            <span>— @Model.Preview.ReplacementVolunteer.Email</span>
+                        }
+                        @if (Model.Preview.ReplacementVolunteer.Phone is not null)
+                        {
+                            <span>— @Model.Preview.ReplacementVolunteer.Phone</span>
+                        }
+                    </dd>
+                }
+            </dl>
+        }
+        @if (Model.Preview.AffectedPeople.Count > 0)
+        {
+            <section aria-labelledby="affected-people-heading">
+                <h3 id="affected-people-heading">People affected</h3>
+                <ul class="affected-list">
+                @foreach (var person in Model.Preview.AffectedPeople)
+                {
+                    <li>
+                        <strong>@person.Name</strong>
+                        <span>@person.SlotLabel — @Formatter.FormatLocal(person.Commitment.StartsAtUtc, person.Commitment.GroupTimeZoneId)</span>
+                        <span>@person.Consequence</span>
+                    </li>
+                }
+                </ul>
+            </section>
+        }
+        <section aria-labelledby="consequences-heading">
+            <h3 id="consequences-heading">What will happen</h3>
+            <ul class="consequence-list">
+            @foreach (var consequence in Model.Preview.Consequences)
+            {
+                <li>@consequence</li>
+            }
+            </ul>
+        </section>
+    </div>
+    @if (Model.Errors.Count > 0)
+    {
+        <div class="alert alert-error" role="alert" aria-live="assertive">
+            <p><strong>Review required</strong></p>
+            <ul>
+            @foreach (var error in Model.Errors)
+            {
+                <li>@error</li>
+            }
+            </ul>
+        </div>
+    }
+    <div class="actions preview-actions">
+        @if (Model.EditAction is not null)
+        {
+            <form method="post" action="@Model.EditAction">
+                @Html.AntiForgeryToken()
+                @foreach (var field in Model.EditFields ?? [])
+                {
+                    <input type="hidden" name="@field.Name" value="@field.Value" />
+                }
+                <button type="submit" class="button button-secondary">@Model.EditLabel</button>
+            </form>
+        }
+        <form method="post" action="@Model.ConfirmAction">
+            @Html.AntiForgeryToken()
+            @foreach (var field in Model.HiddenFields)
+            {
+                <input type="hidden" name="@field.Name" value="@field.Value" />
+            }
+            <button type="submit" class="@(Model.Preview.IsCancel || Model.Preview.IsDeactivate ? "button-danger" : string.Empty)">@Model.Preview.ConfirmLabel</button>
+        </form>
+        <a class="button button-secondary" href="@Model.BackUrl">Go back without changes</a>
+    </div>
+</section>

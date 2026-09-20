@@ -1,0 +1,20 @@
+@page "/Coordinator/Assignments/Cancel/{assignmentId:guid}"
+@model VolunteerCoordinator.Web.Pages.Coordinator.Assignments.CancelModel
+@{
+    ViewData["Title"] = "Review assignment cancellation";
+}
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Coverage review</p>
+        <h1 tabindex="-1">Review assignment cancellation</h1>
+        <p class="lead">Cancellation is a visible coverage change. Review the consequence before confirming.</p>
+    </div>
+</header>
+@if (Model.Review is not null)
+{
+    <partial name="_ConsequencePreview" model="Model.Review" />
+}
+else if (Model.Recovery is not null)
+{
+    <partial name="_PreviewRecovery" model="Model.Recovery" />
+}

@@ -45,7 +45,23 @@ public sealed class GroupTimeFormatter
         return string.Join(" ", parts);
     }
 
-    public string FormatTimeZone(CommitmentDto commitment) => commitment.GroupTimeZoneId;
+    public string FormatTimeZone(CommitmentDto commitment) =>
+        FriendlyTimeZone(commitment.GroupTimeZoneId);
+
+    public string FriendlyTimeZone(string ianaTimeZoneId) =>
+        ianaTimeZoneId switch
+        {
+            "America/New_York" => "Eastern time",
+            "America/Chicago" => "Central time",
+            "America/Denver" => "Mountain time",
+            "America/Los_Angeles" => "Pacific time",
+            "America/Phoenix" => "Arizona time",
+            "Europe/London" => "United Kingdom time",
+            "Europe/Berlin" or "Europe/Paris" => "Central European time",
+            "Australia/Sydney" or "Australia/Melbourne" => "Eastern Australia time",
+            "Etc/UTC" or "Etc/GMT" => "Coordinated universal time",
+            _ => "Local group time"
+        };
 
     public string UtcDateTime(DateTimeOffset instantUtc)
     {

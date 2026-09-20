@@ -1,0 +1,20 @@
+@page "/Coordinator/Schedule/Deactivate/{id:guid}"
+@model VolunteerCoordinator.Web.Pages.Coordinator.Schedule.DeactivateModel
+@{
+    ViewData["Title"] = "Review deactivation";
+}
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Schedule review</p>
+        <h1 tabindex="-1">Review deactivation</h1>
+        <p class="lead">Deactivation resolves the schedule entry and its current workflow. Review every consequence first.</p>
+    </div>
+</header>
+@if (Model.Review is not null)
+{
+    <partial name="_ConsequencePreview" model="Model.Review" />
+}
+else if (Model.Recovery is not null)
+{
+    <partial name="_PreviewRecovery" model="Model.Recovery" />
+}

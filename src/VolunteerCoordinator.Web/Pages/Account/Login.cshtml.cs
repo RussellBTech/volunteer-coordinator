@@ -23,7 +23,7 @@ public sealed class LoginModel : PageModel
             return RedirectToPage();
         }
 
-        var redirectUri = Url.IsLocalUrl(returnUrl) ? returnUrl : "/Coordinator/Schedule";
+        var redirectUri = Url.IsLocalUrl(returnUrl) ? returnUrl : "/Coordinator";
         return Challenge(new AuthenticationProperties { RedirectUri = redirectUri }, "oidc");
     }
 }

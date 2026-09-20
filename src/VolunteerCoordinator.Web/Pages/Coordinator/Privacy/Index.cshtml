@@ -3,7 +3,7 @@
 @{
     ViewData["Title"] = "Volunteer contact removal";
 }
-<h1>Volunteer contact removal</h1>
+<h1 tabindex="-1">Volunteer contact removal</h1>
 <p class="lead">Use this page only for a volunteer's verified out-of-band removal request. Match the normalized email and one recent service commitment before continuing.</p>
 <div class="card">
     <h2>Verification and scope</h2>
@@ -19,7 +19,7 @@
     <div class="alert alert-warning" role="alert">@Model.BlockingMessage</div>
 }
 <form method="post" asp-page-handler="Lookup">
-    <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+    <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert" tabindex="-1" data-focus-target="@(ViewData.ModelState.IsValid ? "false" : "true")"></div>
     <div class="form-group"><label asp-for="Email"></label><input asp-for="Email" autocomplete="email"><span asp-validation-for="Email"></span></div>
     <button type="submit">Find removal record</button>
 </form>
@@ -31,7 +31,7 @@
         <form method="post" asp-page-handler="Confirm">
             <input type="hidden" asp-for="VolunteerId">
             <input type="hidden" asp-for="NormalizedEmail">
-            <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+            <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert" tabindex="-1" data-focus-target="@(ViewData.ModelState.IsValid ? "false" : "true")"></div>
             <fieldset class="form-group">
                 <legend>Recent related commitments</legend>
                 @foreach (var commitment in Model.Lookup.Commitments)

@@ -3,7 +3,7 @@
 @{
     ViewData["Title"] = "Request submitted";
 }
-<h1>Request submitted</h1>
+<h1 tabindex="-1">Request submitted</h1>
 @if (Model.StatusUrl is not null)
 {
     <div class="alert alert-success" role="status">Your request is pending.</div>
@@ -14,4 +14,4 @@ else
 {
     <p>The private status link has already been shown. Return to open shifts if you need to submit another request.</p>
 }
-<p><a asp-page="/Shifts/Index">Return to open shifts</a></p>
+<p><a class="button button-secondary" asp-page="/Shifts/Index">Return to open shifts</a></p>

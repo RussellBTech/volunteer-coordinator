@@ -15,18 +15,30 @@
 <a class="skip-link" href="#main-content">Skip to content</a>
 <header class="site-header">
     <nav aria-label="Main navigation" class="container nav-row">
-        <a class="brand" asp-page="/Shifts/Index">Volunteer Coordinator</a>
+        @if (canAccessCoordinator)
+        {
+            <a class="brand" asp-page="/Coordinator">Volunteer Coordinator</a>
+        }
+        else
+        {
+            <a class="brand" asp-page="/Shifts/Index">Volunteer Coordinator</a>
+        }
         <div class="nav-links">
-            <a asp-page="/Shifts/Index">Open shifts</a>
-            <a asp-page="/Privacy">Privacy</a>
             @if (canAccessCoordinator)
             {
+                <a asp-page="/Coordinator">Home</a>
                 <a asp-page="/Coordinator/Schedule/Index">Schedule</a>
-                <a asp-page="/Coordinator/Settings">Settings</a>
                 <a asp-page="/Coordinator/Requests/Index">Requests</a>
                 <a asp-page="/Coordinator/Coverage/Index">Coverage</a>
-                <a asp-page="/Coordinator/Audit/Index">Audit</a>
+                <a asp-page="/Coordinator/Messages">Messages</a>
+                <a asp-page="/Coordinator/Audit/Index">History</a>
+                <a asp-page="/Coordinator/Settings">Settings</a>
                 <a asp-page="/Coordinator/Privacy/Index">Privacy removal</a>
+            }
+            else
+            {
+                <a asp-page="/Shifts/Index">Open shifts</a>
+                <a asp-page="/Privacy">Privacy</a>
             }
             @if (User.Identity?.IsAuthenticated == true)
             {
@@ -51,5 +63,73 @@
     @RenderBody()
 </main>
 <footer class="container site-footer">Authoritative volunteer coverage, shown in the group's configured local time. <a asp-page="/Privacy">Privacy and contact removal</a>.</footer>
+<script>
+    var temporaryHashTarget = null;
+
+    function focusHashTarget() {
+        if (window.location.hash) {
+            var id = window.location.hash.substring(1);
+            try {
+                id = decodeURIComponent(id);
+            } catch {
+                return false;
+            }
+
+            var target = document.getElementById(id);
+            if (!(target instanceof HTMLElement)) {
+                return false;
+            }
+
+            if (temporaryHashTarget && temporaryHashTarget !== target) {
+                if (temporaryHashTarget.dataset.temporaryHashTabindex === "true") {
+                    temporaryHashTarget.removeAttribute("tabindex");
+                    delete temporaryHashTarget.dataset.temporaryHashTabindex;
+                }
+                temporaryHashTarget = null;
+            }
+
+            if (!target.hasAttribute("tabindex")) {
+                target.setAttribute("tabindex", "-1");
+                target.dataset.temporaryHashTabindex = "true";
+                temporaryHashTarget = target;
+                target.addEventListener("blur", function removeTemporaryTabindex() {
+                    if (target.dataset.temporaryHashTabindex === "true") {
+                        target.removeAttribute("tabindex");
+                        delete target.dataset.temporaryHashTabindex;
+                    }
+                    if (temporaryHashTarget === target) {
+                        temporaryHashTarget = null;
+                    }
+                }, { once: true });
+            }
+
+            target.focus();
+            return true;
+        }
+
+        return false;
+    }
+
+    function focusPostTarget() {
+        var target = document.querySelector('[data-focus-target="true"]');
+        if (!(target instanceof HTMLElement)) {
+            target = document.querySelector('main h1[tabindex="-1"]');
+        }
+
+        if (target instanceof HTMLElement) {
+            target.focus();
+        }
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+        if (focusHashTarget()) {
+            return;
+        }
+
+        focusPostTarget();
+    });
+
+    window.addEventListener("hashchange", focusHashTarget);
+</script>
 </body>
 </html>

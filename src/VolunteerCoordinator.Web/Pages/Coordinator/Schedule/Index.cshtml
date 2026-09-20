@@ -3,16 +3,25 @@
 @{
     ViewData["Title"] = "Schedule setup";
 }
-<h1>Schedule setup</h1>
-<p class="lead">Create the real service schedule here. Local times use the configured group time zone.</p>
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Coordinator workspace</p>
+        <h1 tabindex="-1">Schedule</h1>
+        <p class="lead">Create and correct service commitments in the group’s local time, then review them before publication.</p>
+    </div>
+    <div class="actions">
+        <a class="button" asp-page="/Coordinator/Schedule/Create">Create schedule entry</a>
+        <a class="button button-secondary" asp-page="/Coordinator/Settings">Group settings</a>
+    </div>
+</header>
 @if (TempData["Error"] is string error) { <div class="alert alert-error" role="alert">@error</div> }
-<div class="actions"><a class="button" asp-page="/Coordinator/Schedule/Create">Create shift</a><a class="button button-secondary" asp-page="/Coordinator/Settings">Group settings</a></div>
 @if (Model.Shifts.Count == 0)
 {
     <div class="empty-state">
-        <h2>No shifts have been created</h2>
-        <p>Start by entering the first shift, its local interval, and the required backup slots.</p>
-        <a class="button" asp-page="/Coordinator/Schedule/Create">Create the first shift</a>
+        <p class="eyebrow">No schedule entries</p>
+        <h2>Start with the first commitment</h2>
+        <p>Enter the real local date, time, location, instructions, and slots for the service work you need covered.</p>
+        <a class="button" asp-page="/Coordinator/Schedule/Create">Create the first schedule entry</a>
     </div>
 }
 else
@@ -20,32 +29,32 @@ else
     <div class="grid">
     @foreach (var shift in Model.Shifts)
     {
-        <article class="card">
+        <article class="card schedule-card">
             <partial name="_CommitmentDetails" model="shift.Commitment" />
-            <p><span class="badge">@(shift.IsActive ? "Active" : "Inactive")</span> <span class="badge">@(shift.IsPublished ? "Published" : "Unpublished")</span></p>
+            <div class="status-row" aria-label="Schedule entry status">
+                <span class="status-chip">@(shift.IsActive ? "Active" : "Resolved")</span>
+                <span class="status-chip">@(shift.IsPublished ? "Published" : "Not published")</span>
+            </div>
             <p><strong>Internal coordinator notes:</strong> @(shift.InternalCoordinatorNotes ?? "Not provided")</p>
             <ul class="status-list">
             @foreach (var slot in shift.Slots)
             {
-                <li>@(slot.Kind == "Primary" ? "Primary" : $"Backup {slot.Position}"): <strong>@slot.Status</strong></li>
+                <li>@(slot.Kind == "Primary" ? "Primary" : $"Backup {slot.Position}"): <strong>@(slot.Status switch { "Assigned" => "Waiting for confirmation", "Confirmed" => "Confirmed", "Open" => "Open", "Inactive" => "Resolved", _ => "Resolved" })</strong></li>
             }
             </ul>
             <div class="actions">
-                @if (shift.IsActive) { <a class="button button-secondary" asp-page="/Coordinator/Schedule/Edit" asp-route-id="@shift.Id">Edit</a> }
+                @if (shift.IsActive)
+                {
+                    <a class="button button-secondary" asp-page="/Coordinator/Schedule/Edit" asp-route-id="@shift.Id">Edit entry</a>
+                }
                 @if (shift.IsActive && !shift.IsPublished)
                 {
-                    <form method="post" asp-page-handler="Publish" class="inline"><input type="hidden" name="id" value="@shift.Id"><input type="hidden" name="expectedVersion" value="@shift.Version"><button type="submit">Publish</button></form>
+                    <a class="button" asp-page="/Coordinator/Schedule/Publish" asp-route-id="@shift.Id">Review and publish</a>
                 }
                 @if (shift.IsActive)
                 {
-                    <div>
-                        <p>Deactivation supersedes pending requests, cancels active assignments, and invalidates their action links.</p>
-                        <form method="post" asp-page-handler="Deactivate" class="inline">
-                            <input type="hidden" name="id" value="@shift.Id">
-                            <input type="hidden" name="expectedVersion" value="@shift.Version">
-                            <button type="submit" class="button-danger">Deactivate and resolve</button>
-                        </form>
-                    </div>
+                    <p class="field-help">Deactivation supersedes pending requests, cancels active assignments, and invalidates their action links.</p>
+                    <a class="button button-danger" asp-page="/Coordinator/Schedule/Deactivate" asp-route-id="@shift.Id">Review deactivation</a>
                 }
             </div>
         </article>

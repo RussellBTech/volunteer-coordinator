@@ -1,0 +1,86 @@
+@page "/Coordinator/Messages"
+@using VolunteerCoordinator.Web.Presentation
+@model VolunteerCoordinator.Web.Pages.Coordinator.MessagesModel
+@inject GroupTimeFormatter Formatter
+@{
+    ViewData["Title"] = "Messages not sent";
+}
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Routine work</p>
+        <h1 tabindex="-1">Messages not sent</h1>
+        <p class="lead">These current or future commitments need manual follow-up. Workflow state remains authoritative even when a message cannot be sent.</p>
+        @if (Model.AppliedAttention == "message")
+        {
+            <p class="filter-state" role="status">Showing: Messages not sent</p>
+        }
+    </div>
+</header>
+@if (Model.Messages.Count == 0)
+{
+    <div class="empty-state" role="status">
+        <p class="eyebrow">All clear</p>
+        <h2>No messages need follow-up</h2>
+        <p>There are no unsent messages tied to a current or future commitment.</p>
+        <a class="button button-secondary" asp-page="/Coordinator">Back to coordinator home</a>
+    </div>
+}
+else
+{
+    var first = (Model.MessagePage.Page - 1) * Model.MessagePage.PageSize + 1;
+    var last = first + Model.Messages.Count - 1;
+    <p class="result-count" role="status">Showing @first–@last of @Model.MessagePage.TotalCount messages needing follow-up.</p>
+    <div class="message-list">
+    @foreach (var message in Model.Messages)
+    {
+        <article class="card message-card">
+            <div class="message-card-heading">
+                <div>
+                    <p class="eyebrow">@message.Purpose</p>
+                    <h2>@message.VolunteerName</h2>
+                </div>
+                <span class="status-chip status-chip-warning">Message not sent</span>
+            </div>
+            <partial name="_CommitmentDetails" model="message.Commitment" />
+            @if (message.VolunteerEmail is not null || message.VolunteerPhone is not null)
+            {
+                <p>
+                    <strong>Follow up directly:</strong>
+                    @if (message.VolunteerEmail is not null)
+                    {
+                        <a href="mailto:@message.VolunteerEmail">@message.VolunteerEmail</a>
+                    }
+                    @if (message.VolunteerEmail is not null && message.VolunteerPhone is not null)
+                    {
+                        <span> or </span>
+                    }
+                    @if (message.VolunteerPhone is not null)
+                    {
+                        <a href="tel:@message.VolunteerPhone">@message.VolunteerPhone</a>
+                    }
+                </p>
+            }
+            else
+            {
+                <p><strong>Follow up directly:</strong> Contact details are no longer available; use another approved channel.</p>
+            }
+            <p><strong>What to do:</strong> @message.Guidance</p>
+            <p class="field-help">Attempted <time datetime="@Formatter.UtcDateTime(message.OccurredAtUtc)">@Formatter.FormatLocal(message.OccurredAtUtc, message.Commitment.GroupTimeZoneId)</time>.</p>
+        </article>
+    }
+    </div>
+    @if (Model.MessagePage.HasPreviousPage || Model.MessagePage.HasNextPage)
+    {
+        <nav class="pagination" aria-label="Messages pages">
+            @if (Model.MessagePage.HasPreviousPage)
+            {
+                <a class="button button-secondary" asp-page="/Coordinator/Messages" asp-route-page="@(Model.MessagePage.Page - 1)" asp-route-attention="@Model.AppliedAttention">Previous messages</a>
+            }
+            <span aria-current="page">Page @Model.MessagePage.Page of @Model.MessagePage.PageCount</span>
+            @if (Model.MessagePage.HasNextPage)
+            {
+                <a class="button button-secondary" asp-page="/Coordinator/Messages" asp-route-page="@(Model.MessagePage.Page + 1)" asp-route-attention="@Model.AppliedAttention">Next messages</a>
+            }
+        </nav>
+    }
+}

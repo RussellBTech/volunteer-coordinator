@@ -1,0 +1,20 @@
+@page "/Coordinator/Schedule/Publish/{id:guid}"
+@model VolunteerCoordinator.Web.Pages.Coordinator.Schedule.PublishModel
+@{
+    ViewData["Title"] = "Review publication";
+}
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Schedule review</p>
+        <h1 tabindex="-1">Review publication</h1>
+        <p class="lead">Publication is a visible change. Confirm the details once they look right.</p>
+    </div>
+</header>
+@if (Model.Review is not null)
+{
+    <partial name="_ConsequencePreview" model="Model.Review" />
+}
+else if (Model.Recovery is not null)
+{
+    <partial name="_PreviewRecovery" model="Model.Recovery" />
+}
