@@ -14,6 +14,17 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint: ["dotnet", "VolunteerCoordinator.Web.dll", "--migrate-only"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=volunteer_coordinator;Username=postgres;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for local development}
+    depends_on:
+      postgres:
+        condition: service_healthy
   web:
     build:
       context: .
@@ -21,12 +32,13 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=volunteer_coordinator;Username=postgres;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for local development}
-      Database__MigrateOnStartup: "true"
       DevelopmentAuth__Enabled: "true"
       Coordinator__AllowedEmails__0: ${COORDINATOR_EMAIL:?Set COORDINATOR_EMAIL for local development}
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:8080:8080"
 

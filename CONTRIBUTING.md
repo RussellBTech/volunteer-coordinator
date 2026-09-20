@@ -106,7 +106,7 @@ $env:PATH = "$env:LOCALAPPDATA\Microsoft\dotnet;$env:PATH"
 
 ### Docker Compose
 
-Set local-only values in the shell, then start PostgreSQL and the Web process:
+Set local-only values in the shell, then start PostgreSQL, the one-shot migration, and the Web process:
 
 ```powershell
 $env:POSTGRES_PASSWORD = "choose-a-local-password"
@@ -115,7 +115,7 @@ $env:POSTGRES_PORT = "54329"
 docker compose up --build
 ```
 
-Open `http://localhost:8080/development/login`, sign in with the exact allowlisted email, and continue to schedule setup. Compose explicitly enables the Development-only login and opt-in startup migration. It creates no shifts or volunteer data.
+Compose waits for healthy PostgreSQL, runs the Web image once with `--migrate-only`, and starts Web only after migration succeeds. Open `http://localhost:8080/development/login`, sign in with the exact allowlisted email, and continue to schedule setup. It creates no shifts or volunteer data.
 
 ### Native Web Process
 
@@ -125,13 +125,14 @@ With the Compose variables set, start only PostgreSQL:
 docker compose up -d postgres
 $env:ASPNETCORE_ENVIRONMENT = "Development"
 $env:ConnectionStrings__Postgres = "Host=localhost;Port=$env:POSTGRES_PORT;Database=volunteer_coordinator;Username=postgres;Password=$env:POSTGRES_PASSWORD"
-$env:Database__MigrateOnStartup = "true"
 $env:DevelopmentAuth__Enabled = "true"
 $env:Coordinator__AllowedEmails__0 = $env:COORDINATOR_EMAIL
+dotnet run --project src/VolunteerCoordinator.Web/VolunteerCoordinator.Web.csproj -- --migrate-only
 dotnet run --project src/VolunteerCoordinator.Web/VolunteerCoordinator.Web.csproj
 ```
 
-The opt-in migration setting applies the committed PostgreSQL migration during process startup. Leave it `false` after an environment has a separate migration step. Integration tests start an isolated PostgreSQL container and therefore require a Docker-compatible engine.
+The first command applies pending EF Core migrations and exits without binding an HTTP port. Ordinary Web startup never applies migrations. A migration failure is non-zero and must block any dependent Web process. Integration tests start an isolated PostgreSQL container and therefore require a Docker-compatible engine.
+
 
 ### Runtime Variables
 
@@ -143,7 +144,12 @@ The opt-in migration setting applies the committed PostgreSQL migration during p
 | `Oidc__Authority` | Production OIDC issuer/authority. |
 | `Oidc__ClientId` | Production OIDC client identifier. |
 | `Oidc__ClientSecret` | Production OIDC secret; never commit it. |
-| `Database__MigrateOnStartup` | Safe default is `false`; set `true` only for an explicit single-instance migration/startup step. |
 | `DevelopmentAuth__Enabled` | Safe default is `false`; honored only when `ASPNETCORE_ENVIRONMENT=Development`. |
+| `AnonymousRateLimits__RequestMutation__PermitLimit` | Positive per-IP fixed-window limit for `POST /Shifts/Request/{slotId}`; default `5`. |
+| `AnonymousRateLimits__RequestMutation__Window` | Positive request-mutation window; default `00:01:00`. |
+| `AnonymousRateLimits__PrivateTokenRead__PermitLimit` | Positive per-IP fixed-window limit for private-token GETs; default `30`. |
+| `AnonymousRateLimits__PrivateTokenRead__Window` | Positive private-token-read window; default `00:01:00`. |
+| `AnonymousRateLimits__AssignmentActionMutation__PermitLimit` | Positive per-IP fixed-window limit for `POST /Actions/{token}`; default `10`. |
+| `AnonymousRateLimits__AssignmentActionMutation__Window` | Positive assignment-action window; default `00:01:00`. |
 
 Railway builds the root `Dockerfile` and checks `/health`; `/health/ready` additionally verifies PostgreSQL. Configure the PostgreSQL connection, OIDC values, and allowlist as Railway variables. Never enable Development authentication in Railway or commit `.env` files, passwords, client secrets, raw volunteer action tokens, or production schedule data.
