@@ -18,6 +18,13 @@ h2 { line-height:1.2; }
 .lead { color:var(--muted); font-size:1.1rem; }
 .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:1rem; }
 .card { border:1px solid var(--line); border-radius:.5rem; padding:1rem; background:#fff; }
+.commitment-details dl { display:grid; grid-template-columns:max-content 1fr; gap:.35rem 1rem; margin:.5rem 0 0; }
+.commitment-details dt { font-weight:700; }
+.commitment-details dd { margin:0; overflow-wrap:anywhere; }
+fieldset.form-group { border:1px solid var(--line); border-radius:.35rem; padding:1rem; }
+fieldset.form-group label { font-weight:400; }
+fieldset.form-group input { width:auto; }
+.field-help { color:var(--muted); margin:.35rem 0 0; }
 .card h2, .card h3 { margin-top:0; }
 .empty-state { padding:2rem; text-align:center; border:2px dashed var(--line); border-radius:.5rem; background:var(--surface); }
 .badge { display:inline-block; border-radius:99px; padding:.2rem .65rem; font-weight:700; background:#e5eef2; }

@@ -265,15 +265,15 @@ public sealed class AnonymousRateLimitIntegrationTests
         await using var context = _fixture.CreateContext();
         var service = CreateService(context);
         var starts = DateTimeOffset.UtcNow.AddDays(2);
-        var shiftId = await service.CreateShiftAsync(
+        var shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+            service,
             "Rate-limit shift",
             null,
             null,
             starts,
             starts.AddHours(1),
             0,
-            "coordinator@example.org",
-            default);
+            "coordinator@example.org");
         var shift = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
         await service.PublishShiftAsync(shiftId, shift.Version, "coordinator@example.org", default);
         return (await service.ListOpeningsAsync(default)).Single(x => x.ShiftId == shiftId).SlotId;

@@ -270,9 +270,6 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("PublishedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<DateTimeOffset?>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<DateTimeOffset>("StartsAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -281,11 +278,18 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
 
+                    b.Property<DateTimeOffset?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<uint>("Version")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
+
+                    b.Property<string>("VolunteerInstructions")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
 
                     b.HasKey("Id");
 
@@ -324,6 +328,31 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                     b.ToTable("ShiftSlots", null, t =>
                         {
                             t.HasCheckConstraint("CK_ShiftSlots_Position", "(\"Kind\" = 0 AND \"Position\" = 1) OR (\"Kind\" = 1 AND \"Position\" BETWEEN 1 AND 2)");
+                        });
+                });
+
+            modelBuilder.Entity("VolunteerCoordinator.Domain.Settings.GroupSettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TimeZoneId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("GroupSettings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_GroupSettings_Singleton", "\"Id\" = '00000000-0000-0000-0000-000000000001'");
                         });
                 });
 

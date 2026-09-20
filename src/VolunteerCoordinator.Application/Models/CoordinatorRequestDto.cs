@@ -4,10 +4,17 @@ public sealed record CoordinatorRequestDto(
     Guid RequestId,
     string VolunteerName,
     string VolunteerEmail,
-    string ShiftTitle,
-    string SlotLabel,
-    DateTimeOffset StartsAtUtc,
+    CommitmentDto Commitment,
     string Status,
     DateTimeOffset RequestedAtUtc,
     bool CanApprove,
-    string SlotState);
+    string SlotState)
+{
+    public string ShiftTitle => Commitment.ShiftTitle;
+
+    public string SlotLabel => Commitment.SlotLabel;
+
+    public DateTimeOffset StartsAtUtc => Commitment.StartsAtUtc;
+
+    public DateTimeOffset EndsAtUtc => Commitment.EndsAtUtc;
+}

@@ -2,10 +2,17 @@ namespace VolunteerCoordinator.Application.Models;
 
 public sealed record ActionInspectionDto(
     string VolunteerName,
-    string ShiftTitle,
-    string SlotLabel,
-    DateTimeOffset StartsAtUtc,
+    CommitmentDto Commitment,
     string Action,
     string AssignmentStatus,
     bool CanApply,
-    string Message);
+    string Message)
+{
+    public string ShiftTitle => Commitment.ShiftTitle;
+
+    public string SlotLabel => Commitment.SlotLabel;
+
+    public DateTimeOffset StartsAtUtc => Commitment.StartsAtUtc;
+
+    public DateTimeOffset EndsAtUtc => Commitment.EndsAtUtc;
+}

@@ -1,11 +1,20 @@
 namespace VolunteerCoordinator.Application.Models;
 
-public sealed record OpeningDto(
-    Guid SlotId,
-    Guid ShiftId,
-    string ShiftTitle,
-    string? Location,
-    DateTimeOffset StartsAtUtc,
-    DateTimeOffset EndsAtUtc,
-    string SlotLabel,
-    string Status);
+public sealed record OpeningDto(CommitmentDto Commitment, string Status)
+{
+    public Guid SlotId => Commitment.SlotId ?? Guid.Empty;
+
+    public Guid ShiftId => Commitment.ShiftId;
+
+    public string ShiftTitle => Commitment.ShiftTitle;
+
+    public string? Location => Commitment.Location;
+
+    public DateTimeOffset StartsAtUtc => Commitment.StartsAtUtc;
+
+    public DateTimeOffset EndsAtUtc => Commitment.EndsAtUtc;
+
+    public string SlotLabel => Commitment.SlotLabel;
+
+    public string? VolunteerInstructions => Commitment.VolunteerInstructions;
+}

@@ -15,8 +15,14 @@ public sealed class IndexModel : PageModel
 
     public IReadOnlyList<OpeningDto> Openings { get; private set; } = [];
 
+    public bool IsTimeZoneConfigured { get; private set; }
+
     public async Task OnGetAsync(CancellationToken cancellationToken)
     {
-        Openings = await _service.ListOpeningsAsync(cancellationToken);
+        IsTimeZoneConfigured = await _service.GetGroupSettingsAsync(cancellationToken) is not null;
+        if (IsTimeZoneConfigured)
+        {
+            Openings = await _service.ListOpeningsAsync(cancellationToken);
+        }
     }
 }

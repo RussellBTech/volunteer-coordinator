@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using VolunteerCoordinator.Domain.Assignments;
 using VolunteerCoordinator.Domain.Requests;
 using VolunteerCoordinator.Domain.Schedules;
@@ -34,6 +35,19 @@ public sealed class PersistenceConstraintTests
         Assert.Equal(TimeSpan.Zero, persisted.StartsAtUtc.Offset);
         Assert.Equal(3, persisted.Slots.Count);
         Assert.True(persisted.Version > 0);
+    }
+
+    [Fact]
+    public async Task PostgreSqlRejectsNonSingletonGroupSettingsInsert()
+    {
+        await _fixture.ResetAsync();
+        await using var context = _fixture.CreateContext();
+
+        var exception = await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
+            context.Database.ExecuteSqlInterpolatedAsync(
+                $"""INSERT INTO "GroupSettings" ("Id", "TimeZoneId") VALUES ({Guid.NewGuid()}, {"Etc/UTC"})"""));
+
+        Assert.Equal(Npgsql.PostgresErrorCodes.CheckViolation, exception.SqlState);
     }
 
     [Fact]

@@ -12,13 +12,13 @@
 else
 {
 <div class="table-scroll"><table class="responsive">
-<thead><tr><th>Volunteer</th><th>Shift</th><th>Requested</th><th>Request status</th><th>Slot state</th><th>Actions</th></tr></thead>
+<thead><tr><th>Volunteer</th><th>Commitment</th><th>Requested</th><th>Request status</th><th>Slot state</th><th>Actions</th></tr></thead>
 <tbody>
 @foreach (var request in Model.Requests)
 {
 <tr>
 <td data-label="Volunteer">@request.VolunteerName<br><small>@request.VolunteerEmail</small></td>
-<td data-label="Shift">@request.ShiftTitle — @request.SlotLabel<br>@request.StartsAtUtc.ToString("yyyy-MM-dd HH:mm 'UTC'")</td>
+<td data-label="Commitment"><partial name="_CommitmentDetails" model="request.Commitment" /></td>
 <td data-label="Requested">@request.RequestedAtUtc.ToString("yyyy-MM-dd HH:mm 'UTC'")</td>
 <td data-label="Request status"><span class="badge badge-@request.Status.ToLowerInvariant()">@request.Status</span></td>
 <td data-label="Slot state">@request.SlotState</td>

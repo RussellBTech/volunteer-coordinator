@@ -16,9 +16,8 @@ else if (Model.Error is not null)
 else if (Model.Inspection is not null)
 {
     <article class="card">
-        <h2>@Model.Inspection.ShiftTitle — @Model.Inspection.SlotLabel</h2>
+        <partial name="_CommitmentDetails" model="Model.Inspection.Commitment" />
         <p><strong>Volunteer:</strong> @Model.Inspection.VolunteerName</p>
-        <p><strong>Starts:</strong> <time datetime="@Model.Inspection.StartsAtUtc.ToString("O")">@Model.Inspection.StartsAtUtc.ToString("yyyy-MM-dd HH:mm 'UTC'")</time></p>
         <p><strong>Current assignment status:</strong> @Model.Inspection.AssignmentStatus</p>
         <p><strong>Requested action:</strong> @Model.Inspection.Action</p>
         <p>@Model.Inspection.Message</p>

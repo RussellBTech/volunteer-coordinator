@@ -64,7 +64,8 @@ public sealed class AuthorizationIntegrationTests
         Assert.Equal(HttpStatusCode.Redirect, signedIn.StatusCode);
 
         coordinatorResponse = await client.GetAsync("/Coordinator/Schedule");
-        Assert.Equal(HttpStatusCode.OK, coordinatorResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Redirect, coordinatorResponse.StatusCode);
+        Assert.Equal("/Coordinator/Settings", coordinatorResponse.Headers.Location?.OriginalString);
     }
 
     [Fact]
@@ -81,15 +82,15 @@ public sealed class AuthorizationIntegrationTests
                 new SecureTokenService(),
                 new UnavailableNotificationService(context, clock));
             var starts = DateTimeOffset.UtcNow.AddDays(2);
-            var shiftId = await service.CreateShiftAsync(
+            var shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+                service,
                 "Action link verification",
                 null,
                 null,
                 starts,
                 starts.AddHours(1),
                 0,
-                "coordinator@example.org",
-                default);
+                "coordinator@example.org");
             var slot = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId).Slots.Single();
             assignmentId = (await service.AssignDirectlyAsync(
                 slot.Id,
@@ -148,15 +149,15 @@ public sealed class AuthorizationIntegrationTests
                 new SecureTokenService(),
                 new UnavailableNotificationService(context, new SystemClock()));
             var starts = DateTimeOffset.UtcNow.AddDays(2);
-            var shiftId = await service.CreateShiftAsync(
+            var shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+                service,
                 "Coverage cancellation",
                 null,
                 null,
                 starts,
                 starts.AddHours(1),
                 0,
-                "coordinator@example.org",
-                default);
+                "coordinator@example.org");
             var shift = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
             await service.PublishShiftAsync(shiftId, shift.Version, "coordinator@example.org", default);
             assignmentId = (await service.AssignDirectlyAsync(
@@ -261,15 +262,15 @@ public sealed class AuthorizationIntegrationTests
                 new SecureTokenService(),
                 new UnavailableNotificationService(context, new SystemClock()));
             var starts = DateTimeOffset.UtcNow.AddDays(2);
-            var shiftId = await service.CreateShiftAsync(
+            var shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+                service,
                 "Protected cancellation",
                 null,
                 null,
                 starts,
                 starts.AddHours(1),
                 0,
-                "coordinator@example.org",
-                default);
+                "coordinator@example.org");
             var shift = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
             assignmentId = (await service.AssignDirectlyAsync(
                 shift.Slots.Single().Id,
@@ -360,10 +361,9 @@ public sealed class AuthorizationIntegrationTests
         });
         var incomingLogin = await SignInAsync(incomingClient, "incoming@example.org");
         Assert.Equal(HttpStatusCode.Redirect, incomingLogin.StatusCode);
-        Assert.Equal("/Coordinator/Schedule", incomingLogin.Headers.Location?.OriginalString);
-        Assert.Equal(
-            HttpStatusCode.OK,
-            (await incomingClient.GetAsync("/Coordinator/Schedule")).StatusCode);
+        var incomingSchedule = await incomingClient.GetAsync("/Coordinator/Schedule");
+        Assert.Equal(HttpStatusCode.Redirect, incomingSchedule.StatusCode);
+        Assert.Equal("/Coordinator/Settings", incomingSchedule.Headers.Location?.OriginalString);
 
         using var outgoingClient = factory.CreateClient(new WebApplicationFactoryClientOptions
         {
@@ -372,9 +372,9 @@ public sealed class AuthorizationIntegrationTests
         var outgoingLogin = await SignInAsync(outgoingClient, "outgoing@example.org");
         Assert.Equal(HttpStatusCode.Redirect, outgoingLogin.StatusCode);
         Assert.Equal("/Coordinator/Schedule", outgoingLogin.Headers.Location?.OriginalString);
-        Assert.Equal(
-            HttpStatusCode.OK,
-            (await outgoingClient.GetAsync("/Coordinator/Schedule")).StatusCode);
+        var outgoingSchedule = await outgoingClient.GetAsync("/Coordinator/Schedule");
+        Assert.Equal(HttpStatusCode.Redirect, outgoingSchedule.StatusCode);
+        Assert.Equal("/Coordinator/Settings", outgoingSchedule.Headers.Location?.OriginalString);
 
         using var thirdClient = factory.CreateClient(new WebApplicationFactoryClientOptions
         {

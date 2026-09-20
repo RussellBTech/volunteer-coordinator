@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
@@ -10,6 +11,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using VolunteerCoordinator.Application.Ports;
 using VolunteerCoordinator.Web.Security;
 
 namespace VolunteerCoordinator.IntegrationTests;
@@ -20,17 +22,20 @@ public sealed class CoordinatorWebFactory : WebApplicationFactory<Program>
     private readonly bool _authenticateNonCoordinator;
     private readonly IReadOnlyList<string> _allowedEmails;
     private readonly AnonymousRateLimitOptions? _rateLimits;
+    private readonly IClock? _clock;
 
     public CoordinatorWebFactory(
         string connectionString,
         bool authenticateNonCoordinator = false,
         IReadOnlyList<string>? allowedEmails = null,
-        AnonymousRateLimitOptions? rateLimits = null)
+        AnonymousRateLimitOptions? rateLimits = null,
+        IClock? clock = null)
     {
         _connectionString = connectionString;
         _authenticateNonCoordinator = authenticateNonCoordinator;
         _allowedEmails = allowedEmails ?? ["coordinator@example.org"];
         _rateLimits = rateLimits;
+        _clock = clock;
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -45,12 +50,20 @@ public sealed class CoordinatorWebFactory : WebApplicationFactory<Program>
         }
 
         builder.ConfigureTestServices(services =>
+        {
             services.Configure<ForwardedHeadersOptions>(options =>
             {
                 options.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
                 options.KnownIPNetworks.Clear();
                 options.KnownProxies.Clear();
-            }));
+            });
+
+            if (_clock is not null)
+            {
+                services.RemoveAll<IClock>();
+                services.AddSingleton<IClock>(_clock);
+            }
+        });
 
         if (_rateLimits is not null)
         {

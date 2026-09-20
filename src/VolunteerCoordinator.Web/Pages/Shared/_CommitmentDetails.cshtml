@@ -1,0 +1,23 @@
+@using VolunteerCoordinator.Application.Models
+@using VolunteerCoordinator.Web.Presentation
+@inject GroupTimeFormatter Formatter
+@model CommitmentDto
+<section class="commitment-details" aria-label="Commitment details">
+    <h3>@Model.ShiftTitle</h3>
+    <dl>
+        <dt>Start</dt>
+        <dd><time datetime="@Formatter.UtcDateTime(Model.StartsAtUtc)">@Formatter.FormatLocal(Model.StartsAtUtc, Model.GroupTimeZoneId)</time></dd>
+        <dt>End</dt>
+        <dd><time datetime="@Formatter.UtcDateTime(Model.EndsAtUtc)">@Formatter.FormatLocal(Model.EndsAtUtc, Model.GroupTimeZoneId)</time></dd>
+        <dt>Duration</dt>
+        <dd>@Formatter.FormatDuration(Model)</dd>
+        <dt>Time zone</dt>
+        <dd>@Formatter.FormatTimeZone(Model)</dd>
+        <dt>Location</dt>
+        <dd>@(Model.Location ?? "Not provided")</dd>
+        <dt>Slot</dt>
+        <dd>@Model.SlotLabel</dd>
+        <dt>Instructions</dt>
+        <dd>@(Model.VolunteerInstructions ?? "Not provided")</dd>
+    </dl>
+</section>

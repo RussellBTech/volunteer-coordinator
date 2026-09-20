@@ -18,13 +18,24 @@ public sealed class IndexModel : PageModel
 
     public IReadOnlyList<CoverageDto> Coverage { get; private set; } = [];
 
-    public async Task OnGetAsync(CancellationToken cancellationToken)
+    public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
     {
+        if (await _service.GetGroupSettingsAsync(cancellationToken) is null)
+        {
+            return RedirectToPage("/Coordinator/Settings");
+        }
+
         Coverage = await _service.GetCoverageAsync(cancellationToken);
+        return Page();
     }
 
     public async Task<IActionResult> OnPostCancelAsync(Guid assignmentId, CancellationToken cancellationToken)
     {
+        if (await _service.GetGroupSettingsAsync(cancellationToken) is null)
+        {
+            return RedirectToPage("/Coordinator/Settings");
+        }
+
         try
         {
             await _service.CancelAssignmentAsync(

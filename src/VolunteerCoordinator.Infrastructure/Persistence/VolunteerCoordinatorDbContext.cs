@@ -4,6 +4,7 @@ using VolunteerCoordinator.Domain.Auditing;
 using VolunteerCoordinator.Domain.Notifications;
 using VolunteerCoordinator.Domain.Requests;
 using VolunteerCoordinator.Domain.Schedules;
+using VolunteerCoordinator.Domain.Settings;
 using VolunteerCoordinator.Domain.Volunteers;
 
 namespace VolunteerCoordinator.Infrastructure.Persistence;
@@ -16,6 +17,8 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
     }
 
     public DbSet<Shift> Shifts => Set<Shift>();
+
+    public DbSet<GroupSettings> GroupSettings => Set<GroupSettings>();
 
     public DbSet<ShiftSlot> ShiftSlots => Set<ShiftSlot>();
 
@@ -39,10 +42,10 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
         shift.ToTable("Shifts", table => table.HasCheckConstraint(
             "CK_Shifts_Interval",
             "\"EndsAtUtc\" > \"StartsAtUtc\""));
-        shift.HasKey(x => x.Id);
         shift.Property(x => x.Title).HasMaxLength(120).IsRequired();
-        shift.Property(x => x.Location).HasMaxLength(200);
         shift.Property(x => x.Notes).HasMaxLength(1000);
+        shift.Property(x => x.VolunteerInstructions).HasMaxLength(1000);
+        shift.Property(x => x.Location).HasMaxLength(200);
         shift.Property(x => x.StartsAtUtc).HasColumnType("timestamp with time zone");
         shift.Property(x => x.EndsAtUtc).HasColumnType("timestamp with time zone");
         shift.Property(x => x.PublishedAtUtc).HasColumnType("timestamp with time zone");
@@ -55,6 +58,14 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
             .HasForeignKey(x => x.ShiftId)
             .OnDelete(DeleteBehavior.Cascade);
         shift.Navigation(x => x.Slots).HasField("_slots").UsePropertyAccessMode(PropertyAccessMode.Field);
+
+        var groupSettings = modelBuilder.Entity<GroupSettings>();
+        groupSettings.ToTable("GroupSettings", table => table.HasCheckConstraint(
+            "CK_GroupSettings_Singleton",
+            $"\"Id\" = '{VolunteerCoordinator.Domain.Settings.GroupSettings.SingletonId}'"));
+        groupSettings.HasKey(x => x.Id);
+        groupSettings.Property(x => x.TimeZoneId).HasMaxLength(200).IsRequired();
+        groupSettings.Property(x => x.Version).IsRowVersion();
 
         var slot = modelBuilder.Entity<ShiftSlot>();
         slot.ToTable("ShiftSlots", table => table.HasCheckConstraint(

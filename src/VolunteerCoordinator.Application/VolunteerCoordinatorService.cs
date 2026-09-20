@@ -7,12 +7,15 @@ using VolunteerCoordinator.Domain.Assignments;
 using VolunteerCoordinator.Domain.Auditing;
 using VolunteerCoordinator.Domain.Requests;
 using VolunteerCoordinator.Domain.Schedules;
+using VolunteerCoordinator.Domain.Settings;
+using VolunteerCoordinator.Application.Time;
 using VolunteerCoordinator.Domain.Volunteers;
 
 namespace VolunteerCoordinator.Application;
 
 public sealed class VolunteerCoordinatorService
 {
+    public const string CommitmentUnavailableMessage = "Commitment times are temporarily unavailable. Please contact the coordinator.";
     private const int MaxAssignmentLockAttempts = 3;
     private const string AssignmentLockConflictMessage = "The requested change conflicts with current schedule state. Reload and try again.";
     private static readonly TimeSpan StatusTokenLifetime = TimeSpan.FromDays(30);
@@ -38,8 +41,112 @@ public sealed class VolunteerCoordinatorService
         _notifications = notifications;
     }
 
+    public async Task<GroupSettingsDto?> GetGroupSettingsAsync(CancellationToken cancellationToken)
+    {
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken);
+        return settings is null ? null : new GroupSettingsDto(settings.TimeZoneId, settings.Version);
+    }
+
+    public async Task<GroupSettingsDto> ConfigureGroupTimeZoneAsync(
+        string timeZoneId,
+        uint? expectedVersion,
+        bool confirmDisplayChange,
+        string coordinatorEmail,
+        CancellationToken cancellationToken)
+    {
+        var actor = RequireCoordinator(coordinatorEmail);
+        if (!TimeZoneLabels.TryGetIanaZone(timeZoneId, out var normalizedId, out _))
+        {
+            throw new DomainException("Select a valid IANA time-zone identifier.");
+        }
+
+        await _store.ExecuteInTransactionAsync(
+            async token =>
+            {
+                await _store.LockGroupSettingsAsync(token);
+                var now = _clock.UtcNow;
+                var settings = await _store.GetGroupSettingsAsync(token);
+                if (settings is null)
+                {
+                    if (expectedVersion.HasValue)
+                    {
+                        throw new DomainException("The group time zone was changed while you were configuring it. Reload and try again.");
+                    }
+
+                    settings = GroupSettings.Create(normalizedId);
+                    _store.AddGroupSettings(settings);
+                    _store.AddAuditEntry(AuditEntry.Create(
+                        now,
+                        actor,
+                        "GroupTimeZoneConfigured",
+                        nameof(GroupSettings),
+                        GroupSettings.SingletonId,
+                        Detail(new { NewTimeZoneId = normalizedId })));
+                    return true;
+                }
+
+                if (!expectedVersion.HasValue || settings.Version != expectedVersion.Value)
+                {
+                    throw new DomainException("The group time zone was changed by another coordinator. Reload and try again.");
+                }
+
+                if (string.Equals(settings.TimeZoneId, normalizedId, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                if (!confirmDisplayChange)
+                {
+                    throw new DomainException(
+                        "Changing the group time zone keeps stored UTC instants fixed and changes their displayed local times. Confirm this consequence before saving.");
+                }
+
+                var oldId = settings.TimeZoneId;
+                settings.Configure(normalizedId);
+                _store.AddAuditEntry(AuditEntry.Create(
+                    now,
+                    actor,
+                    "GroupTimeZoneChanged",
+                    nameof(GroupSettings),
+                    GroupSettings.SingletonId,
+                    Detail(new { OldTimeZoneId = oldId, NewTimeZoneId = normalizedId })));
+                return true;
+            },
+            cancellationToken);
+
+        var current = await _store.GetGroupSettingsAsync(cancellationToken)
+            ?? throw new DomainException("The group time zone could not be loaded after saving.");
+        return new GroupSettingsDto(current.TimeZoneId, current.Version);
+    }
+
+    public async Task<LocalScheduleResolution> ResolveLocalScheduleAsync(
+        LocalScheduleInput input,
+        CancellationToken cancellationToken)
+    {
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken);
+        if (settings is null)
+        {
+            return UnconfiguredResolution(input);
+        }
+
+        if (settings.Version != input.ExpectedSettingsVersion)
+        {
+            return ResolutionWithError(
+                input,
+                "The group time zone changed while this form was open. Reload the form and enter the local times again.");
+        }
+
+        return LocalScheduleResolver.Resolve(settings, input);
+    }
+
     public async Task<IReadOnlyList<ShiftDto>> ListShiftsAsync(CancellationToken cancellationToken)
     {
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken);
+        if (settings is null)
+        {
+            return [];
+        }
+
         var shifts = await _store.GetAllShiftsAsync(cancellationToken);
         var slotIds = shifts.SelectMany(x => x.Slots).Select(x => x.Id).ToArray();
         var assignments = await _store.GetActiveAssignmentsAsync(slotIds, cancellationToken);
@@ -48,12 +155,8 @@ public sealed class VolunteerCoordinatorService
         return shifts
             .OrderBy(x => x.StartsAtUtc)
             .Select(shift => new ShiftDto(
-                shift.Id,
-                shift.Title,
-                shift.Location,
+                BuildCommitment(shift, settings, null, "Shift"),
                 shift.Notes,
-                shift.StartsAtUtc,
-                shift.EndsAtUtc,
                 shift.IsActive,
                 shift.PublishedAtUtc.HasValue,
                 shift.Version,
@@ -73,19 +176,27 @@ public sealed class VolunteerCoordinatorService
         string title,
         string? location,
         string? notes,
-        DateTimeOffset startsAtUtc,
-        DateTimeOffset endsAtUtc,
+        string? volunteerInstructions,
+        LocalScheduleInput schedule,
         int backupSlotCount,
         string coordinatorEmail,
         CancellationToken cancellationToken)
     {
         var actor = RequireCoordinator(coordinatorEmail);
         var now = _clock.UtcNow;
-        var shift = Shift.Create(title, location, notes, startsAtUtc, endsAtUtc, backupSlotCount);
-
         return await _store.ExecuteInTransactionAsync(
-            _ =>
+            async token =>
             {
+                await _store.LockGroupSettingsAsync(token);
+                var resolved = await ResolveForMutationAsync(schedule, token);
+                var shift = Shift.Create(
+                    title,
+                    location,
+                    notes,
+                    volunteerInstructions,
+                    resolved.StartsAtUtc,
+                    resolved.EndsAtUtc,
+                    backupSlotCount);
                 _store.AddShift(shift);
                 _store.AddAuditEntry(AuditEntry.Create(
                     now,
@@ -93,8 +204,15 @@ public sealed class VolunteerCoordinatorService
                     "ShiftCreated",
                     nameof(Shift),
                     shift.Id,
-                    Detail(new { shift.Title, shift.StartsAtUtc, shift.EndsAtUtc, BackupSlots = backupSlotCount })));
-                return Task.FromResult(shift.Id);
+                    Detail(new
+                    {
+                        shift.Title,
+                        shift.StartsAtUtc,
+                        shift.EndsAtUtc,
+                        BackupSlots = backupSlotCount,
+                        HasVolunteerInstructions = shift.VolunteerInstructions is not null
+                    })));
+                return shift.Id;
             },
             cancellationToken);
     }
@@ -105,8 +223,8 @@ public sealed class VolunteerCoordinatorService
         string title,
         string? location,
         string? notes,
-        DateTimeOffset startsAtUtc,
-        DateTimeOffset endsAtUtc,
+        string? volunteerInstructions,
+        LocalScheduleInput schedule,
         int backupSlotCount,
         string coordinatorEmail,
         CancellationToken cancellationToken)
@@ -116,6 +234,8 @@ public sealed class VolunteerCoordinatorService
         await _store.ExecuteInTransactionAsync(
             async token =>
             {
+                await _store.LockGroupSettingsAsync(token);
+                var resolved = await ResolveForMutationAsync(schedule, token);
                 var shift = await RequireShiftAsync(shiftId, token);
                 if (shift.Version != expectedVersion)
                 {
@@ -140,7 +260,14 @@ public sealed class VolunteerCoordinatorService
                 }
 
                 var existingSlotIds = shift.Slots.Select(slot => slot.Id).ToHashSet();
-                shift.Edit(title, location, notes, startsAtUtc, endsAtUtc, now);
+                shift.Edit(
+                    title,
+                    location,
+                    notes,
+                    volunteerInstructions,
+                    resolved.StartsAtUtc,
+                    resolved.EndsAtUtc,
+                    now);
                 shift.ConfigureBackupSlots(backupSlotCount);
                 _store.AddShiftSlots(shift.Slots.Where(slot => !existingSlotIds.Contains(slot.Id)).ToArray());
                 _store.AddAuditEntry(AuditEntry.Create(
@@ -149,11 +276,20 @@ public sealed class VolunteerCoordinatorService
                     "ShiftEdited",
                     nameof(Shift),
                     shift.Id,
-                    Detail(new { shift.Title, shift.StartsAtUtc, shift.EndsAtUtc, BackupSlots = backupSlotCount })));
+                    Detail(new
+                    {
+                        shift.Title,
+                        shift.StartsAtUtc,
+                        shift.EndsAtUtc,
+                        BackupSlots = backupSlotCount,
+                        HasVolunteerInstructions = shift.VolunteerInstructions is not null
+                    })));
                 return true;
             },
             cancellationToken);
     }
+
+
 
     public async Task DeactivateShiftAsync(
         Guid shiftId,
@@ -233,6 +369,12 @@ public sealed class VolunteerCoordinatorService
 
     public async Task<IReadOnlyList<OpeningDto>> ListOpeningsAsync(CancellationToken cancellationToken)
     {
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken);
+        if (settings is null)
+        {
+            return [];
+        }
+
         var now = _clock.UtcNow;
         var shifts = await _store.GetPublishedFutureShiftsAsync(now, cancellationToken);
         var slots = shifts.SelectMany(x => x.Slots).Where(x => x.IsActive).ToArray();
@@ -242,7 +384,9 @@ public sealed class VolunteerCoordinatorService
         return shifts
             .SelectMany(shift => shift.Slots
                 .Where(slot => slot.IsActive && !filledSlots.Contains(slot.Id))
-                .Select(slot => new OpeningDto(slot.Id, shift.Id, shift.Title, shift.Location, shift.StartsAtUtc, shift.EndsAtUtc, SlotLabel(slot), "Open")))
+                .Select(slot => new OpeningDto(
+                    BuildCommitment(shift, settings, slot, SlotLabel(slot)),
+                    "Open")))
             .OrderBy(x => x.StartsAtUtc)
             .ThenBy(x => x.SlotLabel)
             .ToArray();
@@ -255,11 +399,18 @@ public sealed class VolunteerCoordinatorService
         string? phone,
         CancellationToken cancellationToken)
     {
+        if (await _store.GetGroupSettingsAsync(cancellationToken) is null)
+        {
+            throw new DomainException(CommitmentUnavailableMessage);
+        }
+
         var now = _clock.UtcNow;
         var generatedToken = _tokens.Generate();
         var result = await _store.ExecuteInTransactionAsync(
             async token =>
             {
+                var settings = await _store.GetGroupSettingsAsync(token)
+                    ?? throw new DomainException(CommitmentUnavailableMessage);
                 await _store.LockSlotAsync(slotId, token);
                 var slot = await RequireSlotAsync(slotId, token);
                 var shift = await RequireShiftAsync(slot.ShiftId, token);
@@ -289,16 +440,18 @@ public sealed class VolunteerCoordinatorService
                 var request = ShiftRequest.Create(slot.Id, volunteer.Id, generatedToken.Hash, now, now.Add(StatusTokenLifetime));
                 _store.AddRequest(request);
                 _store.AddAuditEntry(AuditEntry.Create(now, $"volunteer:{volunteer.Id}", "RequestSubmitted", nameof(ShiftRequest), request.Id, Detail(new { request.ShiftSlotId, request.VolunteerId })));
-                return (request.Id, volunteer.Email);
+                return (request.Id, volunteer.Email, Commitment: BuildCommitment(shift, settings, slot, SlotLabel(slot)));
             },
             cancellationToken);
 
         var notification = await NotifySafelyAsync(new NotificationMessage(result.Id, "RequestReceived", result.Email), cancellationToken);
-        return new RequestSubmission(result.Id, generatedToken.RawToken, notification.Warning);
+        return new RequestSubmission(result.Id, generatedToken.RawToken, notification.Warning, result.Commitment);
     }
 
     public async Task<RequestStatusDto> GetRequestStatusAsync(string rawStatusToken, CancellationToken cancellationToken)
     {
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken)
+            ?? throw new DomainException(CommitmentUnavailableMessage);
         var hash = HashRequiredToken(rawStatusToken);
         var request = await _store.GetRequestByStatusHashAsync(hash, cancellationToken);
         if (request is null || !_tokens.FixedTimeEquals(hash, request.StatusTokenHash) || !request.IsStatusTokenUsable(_clock.UtcNow))
@@ -311,11 +464,21 @@ public sealed class VolunteerCoordinatorService
         var volunteer = await RequireVolunteerAsync(request.VolunteerId, cancellationToken);
         var assignment = await _store.GetAssignmentBySourceRequestAsync(request.Id, cancellationToken);
 
-        return new RequestStatusDto(request.Id, volunteer.Name, shift.Title, SlotLabel(slot), shift.StartsAtUtc, request.Status.ToString(), assignment?.Status.ToString());
+        return new RequestStatusDto(
+            request.Id,
+            volunteer.Name,
+            BuildCommitment(shift, settings, slot, SlotLabel(slot)),
+            request.Status.ToString(),
+            assignment?.Status.ToString());
     }
-
     public async Task<IReadOnlyList<CoordinatorRequestDto>> ListRequestsAsync(CancellationToken cancellationToken)
     {
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken);
+        if (settings is null)
+        {
+            return [];
+        }
+
         var now = _clock.UtcNow;
         var requests = await _store.GetRequestsAsync(cancellationToken);
         var slotIds = requests.Select(x => x.ShiftSlotId).Distinct().ToArray();
@@ -343,9 +506,7 @@ public sealed class VolunteerCoordinatorService
                 request.Id,
                 volunteer.Name,
                 volunteer.Email,
-                shift.Title,
-                SlotLabel(slot),
-                shift.StartsAtUtc,
+                BuildCommitment(shift, settings, slot, SlotLabel(slot)),
                 request.Status.ToString(),
                 request.RequestedAtUtc,
                 canApprove,
@@ -386,6 +547,8 @@ public sealed class VolunteerCoordinatorService
 
                 var slot = await RequireSlotAsync(request.ShiftSlotId, token);
                 var shift = await RequireShiftAsync(slot.ShiftId, token);
+                var settings = await _store.GetGroupSettingsAsync(token)
+                    ?? throw new DomainException(CommitmentUnavailableMessage);
                 if (!slot.IsActive || !shift.IsActive || shift.EndsAtUtc <= now)
                 {
                     throw new DomainException("A request cannot be approved for an inactive or ended shift.");
@@ -406,7 +569,7 @@ public sealed class VolunteerCoordinatorService
                 request.Approve(actor, now);
                 await SupersedeOtherRequestsAsync(slot.Id, request.Id, actor, now, token);
                 _store.AddAuditEntry(AuditEntry.Create(now, actor, "RequestApproved", nameof(ShiftRequest), request.Id, Detail(new { AssignmentId = assignment.Id, assignment.ShiftSlotId, assignment.VolunteerId })));
-                return (assignment.Id, volunteer.Email);
+                return (assignment.Id, volunteer.Email, Commitment: BuildCommitment(shift, settings, slot, SlotLabel(slot)));
             },
             cancellationToken);
 
@@ -414,7 +577,7 @@ public sealed class VolunteerCoordinatorService
 
 
         var notification = await NotifySafelyAsync(new NotificationMessage(result.Id, "AssignmentCreated", result.Email), cancellationToken);
-        return new AssignmentResult(result.Id, notification.Warning);
+        return new AssignmentResult(result.Id, notification.Warning, result.Commitment);
     }
 
     public async Task<CommandResult<bool>> RejectRequestAsync(Guid requestId, string coordinatorEmail, CancellationToken cancellationToken)
@@ -461,6 +624,8 @@ public sealed class VolunteerCoordinatorService
 
                 var slot = await RequireSlotAsync(slotId, token);
                 var shift = await RequireShiftAsync(slot.ShiftId, token);
+                var settings = await _store.GetGroupSettingsAsync(token)
+                    ?? throw new DomainException(CommitmentUnavailableMessage);
                 if (!slot.IsActive || !shift.IsActive || shift.EndsAtUtc <= now)
                 {
                     throw new DomainException("An inactive or ended slot cannot be assigned.");
@@ -489,11 +654,11 @@ public sealed class VolunteerCoordinatorService
                 _store.AddAssignment(assignment);
                 await SupersedeOtherRequestsAsync(slot.Id, null, actor, now, token);
                 _store.AddAuditEntry(AuditEntry.Create(now, actor, "AssignmentCreatedOrReassigned", nameof(Assignment), assignment.Id, Detail(new { assignment.ShiftSlotId, assignment.VolunteerId })));
-                return (assignment.Id, volunteer.Email);
+                return (assignment.Id, volunteer.Email, Commitment: BuildCommitment(shift, settings, slot, SlotLabel(slot)));
             },
             cancellationToken);
         var notification = await NotifySafelyAsync(new NotificationMessage(result.Id, "AssignmentCreated", result.Email), cancellationToken);
-        return new AssignmentResult(result.Id, notification.Warning);
+        return new AssignmentResult(result.Id, notification.Warning, result.Commitment);
     }
 
 
@@ -550,6 +715,10 @@ public sealed class VolunteerCoordinatorService
                     throw new DomainException("Action links can be generated only for an active assignment.");
                 }
 
+                var settings = await _store.GetGroupSettingsAsync(token)
+                    ?? throw new DomainException(CommitmentUnavailableMessage);
+                var slot = await RequireSlotAsync(assignment.ShiftSlotId, token);
+                var shift = await RequireShiftAsync(slot.ShiftId, token);
                 string? confirm = null;
                 string? decline = null;
                 if (assignment.Status == AssignmentStatus.Assigned)
@@ -560,14 +729,20 @@ public sealed class VolunteerCoordinatorService
 
                 var cancel = await RegenerateActionTokenAsync(assignment.Id, VolunteerAction.Cancel, now, token);
                 _store.AddAuditEntry(AuditEntry.Create(now, actor, "ActionLinksGenerated", nameof(Assignment), assignment.Id, "{}"));
-                return new ActionLinkBundle(assignment.Id, confirm, decline, cancel);
+                return new ActionLinkBundle(
+                    assignment.Id,
+                    confirm,
+                    decline,
+                    cancel,
+                    BuildCommitment(shift, settings, slot, SlotLabel(slot)));
             },
             cancellationToken);
     }
 
-
     public async Task<ActionInspectionDto> InspectActionAsync(string rawToken, CancellationToken cancellationToken)
     {
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken)
+            ?? throw new DomainException(CommitmentUnavailableMessage);
         var (token, assignment) = await ResolveActionAsync(rawToken, cancellationToken);
         var slot = await RequireSlotAsync(assignment.ShiftSlotId, cancellationToken);
         var shift = await RequireShiftAsync(slot.ShiftId, cancellationToken);
@@ -575,9 +750,7 @@ public sealed class VolunteerCoordinatorService
         var canApply = CanApply(token.Action, assignment.Status);
         return new ActionInspectionDto(
             volunteer.Name,
-            shift.Title,
-            SlotLabel(slot),
-            shift.StartsAtUtc,
+            BuildCommitment(shift, settings, slot, SlotLabel(slot)),
             token.Action.ToString(),
             assignment.Status.ToString(),
             canApply,
@@ -586,11 +759,18 @@ public sealed class VolunteerCoordinatorService
 
     public async Task<CommandResult<string>> ApplyActionAsync(string rawToken, CancellationToken cancellationToken)
     {
+        if (await _store.GetGroupSettingsAsync(cancellationToken) is null)
+        {
+            throw new DomainException(CommitmentUnavailableMessage);
+        }
+
         var now = _clock.UtcNow;
         var hash = HashRequiredToken(rawToken);
         var result = await _store.ExecuteInTransactionAsync(
             async tokenCancellation =>
             {
+                _ = await _store.GetGroupSettingsAsync(tokenCancellation)
+                    ?? throw new DomainException(CommitmentUnavailableMessage);
                 var slotId = await _store.GetActionTokenSlotIdAsync(hash, tokenCancellation);
                 if (!slotId.HasValue)
                 {
@@ -633,6 +813,12 @@ public sealed class VolunteerCoordinatorService
 
     public async Task<IReadOnlyList<CoverageDto>> GetCoverageAsync(CancellationToken cancellationToken)
     {
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken);
+        if (settings is null)
+        {
+            return [];
+        }
+
         var shifts = await _store.GetPublishedFutureShiftsAsync(_clock.UtcNow, cancellationToken);
         var slots = shifts.SelectMany(x => x.Slots).Where(x => x.IsActive).ToArray();
         var assignments = await _store.GetActiveAssignmentsAsync(slots.Select(x => x.Id).ToArray(), cancellationToken);
@@ -656,7 +842,14 @@ public sealed class VolunteerCoordinatorService
                     AssignmentStatus.Confirmed => "Confirmed",
                     _ => "Uncovered"
                 };
-                result.Add(new CoverageDto(slot.Id, shift.Id, assignment?.Id, shift.Title, SlotLabel(slot), shift.StartsAtUtc, state, volunteer?.Name, volunteer?.Email));
+                result.Add(new CoverageDto(
+                    slot.Id,
+                    shift.Id,
+                    assignment?.Id,
+                    BuildCommitment(shift, settings, slot, SlotLabel(slot)),
+                    state,
+                    volunteer?.Name,
+                    volunteer?.Email));
             }
         }
 
@@ -877,6 +1070,82 @@ public sealed class VolunteerCoordinatorService
             return new NotificationResult(false, "The workflow succeeded, but notification recording or delivery failed.");
         }
     }
+
+    public async Task<CommitmentDto> GetAssignmentCommitmentAsync(
+        Guid assignmentId,
+        CancellationToken cancellationToken)
+    {
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken)
+            ?? throw new DomainException(CommitmentUnavailableMessage);
+        var slotId = await _store.GetAssignmentSlotIdAsync(assignmentId, cancellationToken)
+            ?? throw new DomainException("The assignment was not found.");
+        var slot = await RequireSlotAsync(slotId, cancellationToken);
+        var shift = await RequireShiftAsync(slot.ShiftId, cancellationToken);
+        return BuildCommitment(shift, settings, slot, SlotLabel(slot));
+    }
+
+    private async Task<(DateTimeOffset StartsAtUtc, DateTimeOffset EndsAtUtc)> ResolveForMutationAsync(
+        LocalScheduleInput input,
+        CancellationToken cancellationToken)
+    {
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken)
+            ?? throw new DomainException(CommitmentUnavailableMessage);
+        if (settings.Version != input.ExpectedSettingsVersion)
+        {
+            throw new DomainException(
+                "The group time zone changed while this form was open. Reload the form and enter the local times again.");
+        }
+
+        var resolution = LocalScheduleResolver.Resolve(settings, input);
+        if (!resolution.IsComplete)
+        {
+            var messages = resolution.Errors.ToList();
+            if (resolution.StartCandidates.Count > 0 || resolution.EndCandidates.Count > 0)
+            {
+                messages.Add("Choose one labelled UTC-offset interpretation for each repeated local time.");
+            }
+
+            throw new DomainException(
+                messages.Count == 0
+                    ? "Choose valid local start and end times."
+                    : string.Join(" ", messages.Distinct(StringComparer.Ordinal)));
+        }
+
+        return (resolution.StartsAtUtc.GetValueOrDefault(), resolution.EndsAtUtc.GetValueOrDefault());
+    }
+
+
+    private static CommitmentDto BuildCommitment(
+        Shift shift,
+        GroupSettings settings,
+        ShiftSlot? slot,
+        string slotLabel) =>
+        new(
+            shift.Id,
+            slot?.Id,
+            shift.Title,
+            shift.StartsAtUtc,
+            shift.EndsAtUtc,
+            settings.TimeZoneId,
+            shift.Location,
+            slotLabel,
+            shift.VolunteerInstructions);
+
+    private static LocalScheduleResolution UnconfiguredResolution(LocalScheduleInput input) =>
+        ResolutionWithError(input, CommitmentUnavailableMessage);
+
+    private static LocalScheduleResolution ResolutionWithError(
+        LocalScheduleInput input,
+        string error) =>
+        new(
+            input.StartsAtUnspecified,
+            input.EndsAtUnspecified,
+            null,
+            null,
+            [],
+            [],
+            [error]);
+
 
     private async Task<Shift> RequireShiftAsync(Guid id, CancellationToken cancellationToken) =>
         await _store.GetShiftAsync(id, cancellationToken) ?? throw new DomainException("The shift was not found.");

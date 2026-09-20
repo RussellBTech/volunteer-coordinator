@@ -18,13 +18,24 @@ public sealed class IndexModel : PageModel
 
     public IReadOnlyList<ShiftDto> Shifts { get; private set; } = [];
 
-    public async Task OnGetAsync(CancellationToken cancellationToken)
+    public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
     {
+        if (await _service.GetGroupSettingsAsync(cancellationToken) is null)
+        {
+            return RedirectToPage("/Coordinator/Settings");
+        }
+
         Shifts = await _service.ListShiftsAsync(cancellationToken);
+        return Page();
     }
 
     public async Task<IActionResult> OnPostPublishAsync(Guid id, uint expectedVersion, CancellationToken cancellationToken)
     {
+        if (await _service.GetGroupSettingsAsync(cancellationToken) is null)
+        {
+            return RedirectToPage("/Coordinator/Settings");
+        }
+
         try
         {
             await _service.PublishShiftAsync(id, expectedVersion, CoordinatorIdentity.GetEmail(User)!, cancellationToken);
@@ -40,6 +51,11 @@ public sealed class IndexModel : PageModel
 
     public async Task<IActionResult> OnPostDeactivateAsync(Guid id, uint expectedVersion, CancellationToken cancellationToken)
     {
+        if (await _service.GetGroupSettingsAsync(cancellationToken) is null)
+        {
+            return RedirectToPage("/Coordinator/Settings");
+        }
+
         try
         {
             await _service.DeactivateShiftAsync(id, expectedVersion, CoordinatorIdentity.GetEmail(User)!, cancellationToken);

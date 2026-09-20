@@ -25,6 +25,12 @@ public sealed class IndexModel : PageModel
 
     public async Task OnGetAsync(string token, CancellationToken cancellationToken)
     {
+        if (await _service.GetGroupSettingsAsync(cancellationToken) is null)
+        {
+            Error = VolunteerCoordinatorService.CommitmentUnavailableMessage;
+            return;
+        }
+
         Outcome = TempData[OutcomeKey(token)] as string;
         if (Outcome is not null)
         {
