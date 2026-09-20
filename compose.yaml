@@ -32,6 +32,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=volunteer_coordinator;Username=postgres;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for local development}
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "false"
       DevelopmentAuth__Enabled: "true"
       Coordinator__AllowedEmails__0: ${COORDINATOR_EMAIL:?Set COORDINATOR_EMAIL for local development}
     depends_on:
