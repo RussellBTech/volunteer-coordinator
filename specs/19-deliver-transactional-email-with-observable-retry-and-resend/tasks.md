@@ -113,17 +113,21 @@
 - [ ] signed webhook tests cover invalid/missing/duplicate/out-of-order delivered/bounced/complained events
 - [ ] database/log scans find no API/webhook secret, destination duplicate, rendered body, or raw capability/recovery URL
 
-### T007: Verify real delivery operations and version
+### T007: Verify local delivery operations and version
 
-**File(s)**: actual Web/provider sandbox; `VERSION`
+**File(s)**: local Web/fake-provider/adapter-contract and signed webhook fixtures; actual Web surface; `VERSION`
 **Type**: Modify / Verify
 **Depends**: T006
 **Acceptance**:
 - [ ] increment the implementation branch's current root version by one minor component
-- [ ] sandbox recipient receives each safe template with correct local context and #18 link redemption
-- [ ] forced timeout, 429, 5xx, permanent rejection, bounce, complaint, and resend show the approved state/retry/audit behavior while workflow stays committed
-- [ ] actual coordinator Messages UI and webhook endpoint satisfy authorization/signature boundaries without secret output
-- [ ] formatting, Release build, full isolated-PostgreSQL suite, migrations, Docker/Compose, and Resend sandbox smoke pass
+- [ ] local fake provider and adapter contract cover each safe template with correct local context and #18 recovery/link redemption
+- [ ] simulated timeout, 429, 5xx, and permanent failure plus signed-fixture bounce/complaint and local resend show the approved state/retry/audit behavior while workflow stays committed
+- [ ] local browser coordinator Messages and webhook flows satisfy authorization/signature boundaries without secret output
+- [ ] local retry/idempotency, migration, and security scans pass; formatting, Release build, full isolated-PostgreSQL suite, migrations, and Docker/Compose pass locally
+- [ ] no real Resend sandbox credentials, recipients/IDs, template IDs, provider IDs, live signed events, or forced live provider/reissue evidence is required
+
+The real Resend evidence matrix is deferred to one final external launch issue created only after every product issue through #22 is delivered. It is not part of #19 T007 and that issue is not created here.
+
 
 ---
 
@@ -143,3 +147,4 @@ T001 ──▶ T002 ──▶ T003 ──▶ T004 ──▶ T005 ──▶ T006 
 | Issue | Date | Summary |
 |-------|------|---------|
 | #19 | 2026-09-03 | Initial feature spec |
+| #19 | 2026-09-20 | T007 corrected to local acceptance; real Resend evidence deferred to the final launch issue after #22 |

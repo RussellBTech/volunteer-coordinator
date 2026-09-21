@@ -4,6 +4,13 @@
 **Author**: RussellBTech
 
 # Generated from: specs/19-deliver-transactional-email-with-observable-retry-and-resend/requirements.md
+# Scope boundary: issue acceptance uses the local fake provider and adapter contract,
+# signed webhook fixtures, recovery redemption, retry/idempotency, browser, migration,
+# and security-scan evidence. Real Resend credentials, recipients, provider/template IDs,
+# provider message IDs, live signed events, and forced live provider/reissue evidence
+# are deferred to one final external launch issue created only after every product
+# issue through #22 is delivered; that issue is not created by #19.
+
 Feature: Deliver transactional email with observable retry and resend
   As a volunteer and coordinator
   I want private scheduling links delivered reliably with visible failure handling
