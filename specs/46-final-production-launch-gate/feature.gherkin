@@ -1,0 +1,124 @@
+**Issue**: #46
+**Date**: 2026-09-21
+**Status**: Approved
+**Author**: RussellBTech
+
+# Generated from: specs/46-final-production-launch-gate/requirements.md
+Feature: Final production launch gate
+  As a project owner
+  I want one operational release gate for the final production launch
+  So that the delivered #13-#22 workflows are proven safely before any public host is exposed
+
+  @SCN001
+  Scenario: Closed prerequisite set keeps the release at VERSION 0.13.0
+    Given issues #13 through #22 are closed
+    And the repository root VERSION is 0.13.0
+    And no public host is retained or exposed
+    When the final launch gate is prepared
+    Then the evidence records the closed prerequisite set
+    And VERSION remains exactly 0.13.0
+    And no product implementation or enhancement is introduced
+
+  @SCN002
+  Scenario: Actual Railway project is imported without destructive drift
+    Given the linked Railway project is the intended production project
+    When the owner imports it into the approved TypeScript IaC representation and previews the plan
+    Then the live resource identities and non-secret configuration are reconciled
+    And the plan contains no unreviewed delete or replace operation
+    And no secret value is present in the IaC source, plan, logs, or evidence
+    And no public host is created or advertised during import or planning
+
+  @SCN003
+  Scenario: Production admission runs the exact migration predeploy
+    Given an immutable production candidate has passed non-destructive IaC review
+    When deployment admission evaluates the candidate
+    Then the platform runs dotnet VolunteerCoordinator.Web.dll --migrate-only exactly once before the serving process
+    And the migrate-only process exits successfully without binding an HTTP port
+    And /health/ready reports database-aware readiness before serving traffic
+    And ordinary Web startup and public requests do not apply migrations
+
+  @SCN004
+  Scenario: Migration or readiness failure blocks serving traffic
+    Given the candidate migration or database-aware readiness check fails
+    When the platform evaluates deployment admission
+    Then the candidate is not made public
+    And the failure is recorded as a blocking gate result
+
+  @SCN005
+  Scenario: Public deployment and rollback preserve the authoritative service
+    Given IaC, migration, and readiness admission have passed
+    When the owner deploys the candidate and exercises rollback to the last known-good release
+    Then the public host is exposed only after admission
+    And the deployment and rollback identities are recorded without secrets
+    And the rolled-back service becomes healthy without destructive database or workflow-state rewriting
+
+  @SCN006
+  Scenario: Daily backup meets RPO and restores in isolation
+    Given production PostgreSQL contains authoritative schedule and workflow state
+    When the owner verifies backup and recovery operations
+    Then the observed recovery point is no older than 24 hours
+    And a selected backup restores to an isolated PostgreSQL target
+    And integrity checks and representative schedule, request, assignment, audit, notification, and privacy reads pass
+    And the restored target is not attached to public serving
+
+  @SCN007
+  Scenario: Two independent production coordinators complete handoff
+    Given production OIDC and the protected application allowlist are configured
+    When two independent coordinators authenticate in separate sessions
+    Then both can perform authorized coordinator workflows and produce distinct audit identities
+    And an unallowlisted identity is denied
+    When the outgoing coordinator is removed through the protected handoff
+    Then the remaining and replacement coordinators continue without shared credentials or schedule loss
+    And no OIDC secret or raw session/capability material is exposed
+
+  @SCN008
+  Scenario: Real Resend sandbox covers every template and signed outcome
+    Given the verified sandbox sender, reserved test recipient, and protected Resend credentials are available
+    When the owner sends every delivered #18/#19 notification and recovery template
+    Then each template records a provider message ID and safe visible state
+    When signed delivered, bounced, and complained events are received
+    Then raw-body authentication, deduplication, out-of-order handling, and safe monotonic state transitions pass
+    And no raw webhook body, credential, recipient secret, or raw link is retained in evidence
+
+  @SCN009
+  Scenario Outline: Real Resend failures use bounded absolute retry and idempotency
+    Given a sandbox notification is eligible for delivery
+    When the provider produces a <failure> outcome
+    Then the application records the safe failure category without rolling back workflow state
+    And transient outcomes follow the absolute 0, 1, 5, 30, and 120 minute schedule where applicable
+    And an identical in-memory payload reuses its idempotency key only within the approved window
+    And fresh materialized attempts use a new idempotency key
+
+    Examples:
+      | failure  |
+      | timeout  |
+      | HTTP 429 |
+      | HTTP 5xx |
+      | permanent failure |
+
+  @SCN010
+  Scenario: Recovery and both access reissue modes work in the real sandbox
+    Given a test volunteer has a delivered accountless capability
+    When the volunteer completes recovery and redeems the replacement capability
+    Then the current hub state and one-time action behavior are correct
+    When a coordinator sends ordinary replacement access and then revoke-now replacement access
+    Then earlier capabilities follow the approved invalidation policy
+    And each replacement is audited and safely delivered or visibly failed
+    And secret and raw-link scans find no unsafe output or persistence
+
+  @SCN011
+  Scenario: Untrained desktop and mobile smoke covers delivered workflows
+    Given admission has passed and controlled test data is available
+    When an untrained operator and test volunteer exercise delivered #13-#22 workflows on desktop and narrow mobile surfaces
+    Then setup, publication, local-time and recurring schedules, approval/direct claim, recurring commitments, exceptions, action-hub recovery, notifications, privacy/removal, stewardship, audit, handoff, failure, retry, and revocation paths are reachable
+    And each journey has a clear next step without technical training
+    And routine surfaces do not expose raw identifiers, provider terminology, secrets, JSON, UTC-only explanations, or raw links
+
+  @SCN012
+  Scenario: Final privacy security and query-budget gates block unsafe launch
+    Given the candidate and non-secret operational evidence are available
+    When the owner runs privacy, retention, security, dependency/image/configuration, authorization, webhook, token, and representative query-budget checks
+    Then every named check passes with a command or observable result
+    And sensitive material is absent from source, configuration, logs, audit, persistence, image layers, and evidence
+    And bounded coordinator queries remain within the approved budget
+    And any failed check blocks launch acceptance
