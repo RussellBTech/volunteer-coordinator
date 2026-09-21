@@ -13,9 +13,13 @@ public sealed record AuditDto(
     public string GroupTimeZoneId { get; init; } = "Etc/UTC";
     public string ActorDisplay =>
         Actor.Equals("volunteer-token", StringComparison.OrdinalIgnoreCase) ||
-        Actor.StartsWith("volunteer:", StringComparison.OrdinalIgnoreCase)
+        Actor.Equals("volunteer-recovery", StringComparison.OrdinalIgnoreCase) ||
+        Actor.StartsWith("volunteer:", StringComparison.OrdinalIgnoreCase) ||
+        Actor.Equals("DIRECT CLAIM", StringComparison.OrdinalIgnoreCase)
             ? "Volunteer"
             : Actor.Equals("retention-worker", StringComparison.OrdinalIgnoreCase)
                 ? "Automated privacy process"
-                : Actor;
+                : Actor.Equals("recurring-worker", StringComparison.OrdinalIgnoreCase)
+                    ? "Recurring schedule process"
+                    : Actor;
 }

@@ -4,30 +4,108 @@
 @inject GroupTimeFormatter Formatter
 @{
     ViewData["Title"] = "History";
+    var categories = new[] { "Schedule", "Requests", "Assignments", "Volunteer actions", "Messages", "Privacy", "Recurring schedules", "Recurring commitments", "Access", "Other" };
 }
 <header class="page-heading">
     <div>
         <p class="eyebrow">Coordinator record</p>
         <h1 tabindex="-1">History</h1>
-        <p class="lead">Recent schedule and volunteer-work changes, shown in the group’s local time.</p>
+        <p class="lead">Filter human summaries by local date, coordinator, schedule, volunteer reference, or plain action category.</p>
     </div>
 </header>
+@if (Model.PositionMessage is not null)
+{
+    <div class="alert alert-warning" role="status">@Model.PositionMessage</div>
+}
+<div asp-validation-summary="All" class="validation-summary-errors" role="alert" tabindex="-1" data-focus-target="@(ViewData.ModelState.IsValid ? "false" : "true")"></div>
+<section class="card filter-panel" aria-labelledby="history-filter-heading">
+    <h2 id="history-filter-heading">Filter history</h2>
+    <form method="get" class="filter-form">
+        <div class="form-group"><label asp-for="From">From (local date)</label><input asp-for="From" type="date"><span asp-validation-for="From"></span></div>
+        <div class="form-group"><label asp-for="Through">Through (local date)</label><input asp-for="Through" type="date"><span asp-validation-for="Through"></span></div>
+        <div class="form-group"><label asp-for="Actor">Coordinator</label><select asp-for="Actor"><option value="">All coordinators</option>@foreach (var actor in Model.Actors) { <option value="@actor.Value">@actor.Label</option> }</select></div>
+        <div class="form-group"><label asp-for="Category">Action category</label><select asp-for="Category"><option value="">All categories</option>@foreach (var category in categories) { <option value="@category">@category</option> }</select></div>
+        <input type="hidden" asp-for="ShiftToken">
+        <input type="hidden" asp-for="VolunteerToken">
+        <div class="actions"><button type="submit">Apply filters</button><a class="button button-secondary" asp-page="/Coordinator/Audit/Index">Clear filters</a></div>
+    </form>
+    @if (Model.ShiftToken is not null || Model.VolunteerToken is not null)
+    {
+        <p class="filter-state" role="status">A protected schedule or volunteer reference filter is applied.</p>
+    }
+</section>
+<div class="choice-grid">
+    <section class="card" aria-labelledby="shift-search-heading">
+        <h2 id="shift-search-heading">Find a schedule</h2>
+        <p class="field-help">Search by the beginning of a schedule title. The selected schedule is kept in a protected filter value.</p>
+        <form method="post" asp-page-handler="SearchShift">
+            <div class="form-group"><label asp-for="ShiftSearchTerm">Schedule title</label><input asp-for="ShiftSearchTerm" autocomplete="off"><span asp-validation-for="ShiftSearchTerm"></span></div>
+            <button type="submit">Search schedules</button>
+        </form>
+        @if (Model.ShiftChoices.Count > 0)
+        {
+            <form method="post" asp-page-handler="SelectShift">
+                <fieldset class="form-group"><legend>Matching schedules</legend>
+                @foreach (var choice in Model.ShiftChoices)
+                {
+                    <label class="choice-row"><input type="radio" name="shiftToken" value="@Model.ProtectShiftId(choice.Id)"><span>@choice.Label</span></label>
+                }
+                </fieldset>
+                <button type="submit">Use schedule filter</button>
+            </form>
+        }
+    </section>
+    <section class="card" aria-labelledby="volunteer-search-heading">
+        <h2 id="volunteer-search-heading">Find a volunteer reference</h2>
+        <p class="field-help">Search by the beginning of an active name or email. Removed history remains neutral.</p>
+        <form method="post" asp-page-handler="SearchVolunteer">
+            <div class="form-group"><label asp-for="VolunteerSearchTerm">Name or email beginning</label><input asp-for="VolunteerSearchTerm" autocomplete="off"><span asp-validation-for="VolunteerSearchTerm"></span></div>
+            <button type="submit">Search volunteers</button>
+        </form>
+        @if (Model.VolunteerChoices.Count > 0)
+        {
+            <form method="post" asp-page-handler="SelectVolunteer">
+                <fieldset class="form-group"><legend>Matching volunteers</legend>
+                @foreach (var choice in Model.VolunteerChoices)
+                {
+                    <label class="choice-row"><input type="radio" name="volunteerToken" value="@Model.ProtectVolunteerId(choice.VolunteerId)"><span>@choice.Name<br><small>@choice.Email</small></span></label>
+                }
+                </fieldset>
+                <button type="submit">Use volunteer filter</button>
+            </form>
+        }
+    </section>
+</div>
 @if (Model.Entries.Count == 0)
 {
-    <div class="empty-state"><h2>No history yet</h2><p>Coordinator actions will appear here as work is completed.</p></div>
+    <div class="empty-state" role="status"><h2>No matching history</h2><p>Coordinator actions will appear here as work is completed.</p></div>
 }
 else
 {
-<div class="table-scroll"><table class="responsive">
-<caption class="visually-hidden">Coordinator history</caption>
-<thead><tr><th>When</th><th>Coordinator</th><th>What happened</th></tr></thead><tbody>
-@foreach (var entry in Model.Entries)
-{
-<tr>
-    <td data-label="When"><time datetime="@Formatter.UtcDateTime(entry.OccurredAtUtc)">@Formatter.FormatLocal(entry.OccurredAtUtc, entry.GroupTimeZoneId)</time></td>
-    <td data-label="Coordinator">@entry.ActorDisplay</td>
-    <td data-label="What happened">@entry.Summary</td>
-</tr>
-}
-</tbody></table></div>
+    <div class="table-scroll"><table class="responsive">
+        <caption class="visually-hidden">Coordinator history</caption>
+        <thead><tr><th>When</th><th>Coordinator</th><th>Category</th><th>What happened</th></tr></thead>
+        <tbody>
+        @foreach (var entry in Model.Entries)
+        {
+            <tr>
+                <td data-label="When"><time datetime="@Formatter.UtcDateTime(entry.OccurredAtUtc)">@Formatter.FormatLocal(entry.OccurredAtUtc, Model.GroupTimeZoneId)</time></td>
+                <td data-label="Coordinator">@entry.ActorDisplay</td>
+                <td data-label="Category">@entry.Category</td>
+                <td data-label="What happened">@entry.Summary</td>
+            </tr>
+        }
+        </tbody>
+    </table></div>
+    <nav class="pagination" aria-label="History pages">
+        @if (Model.HasPreviousPage)
+        {
+            <a class="button button-secondary" asp-page="/Coordinator/Audit/Index" asp-route-from="@Model.From" asp-route-through="@Model.Through" asp-route-actor="@Model.Actor" asp-route-category="@Model.Category" asp-route-shift="@Model.ShiftToken" asp-route-volunteer="@Model.VolunteerToken" asp-route-cursor="@Model.PreviousCursor">Previous history</a>
+        }
+        <span aria-current="page">Showing up to 50 events</span>
+        @if (Model.HasNextPage)
+        {
+            <a class="button button-secondary" asp-page="/Coordinator/Audit/Index" asp-route-from="@Model.From" asp-route-through="@Model.Through" asp-route-actor="@Model.Actor" asp-route-category="@Model.Category" asp-route-shift="@Model.ShiftToken" asp-route-volunteer="@Model.VolunteerToken" asp-route-cursor="@Model.NextCursor">Next history</a>
+        }
+    </nav>
 }

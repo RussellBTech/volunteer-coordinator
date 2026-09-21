@@ -1,0 +1,89 @@
+@page "/Coordinator/Work"
+@model VolunteerCoordinator.Web.Pages.Coordinator.Work.IndexModel
+@{
+    ViewData["Title"] = "Prioritized work";
+}
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Coordinator workspace</p>
+        <h1 tabindex="-1">Prioritized work</h1>
+        <p class="lead">One bounded queue for decisions, coverage, messages, recurring reviews, and handoffs. Start with Urgent, then Soon.</p>
+    </div>
+</header>
+@if (Model.PositionMessage is not null)
+{
+    <div class="alert alert-warning" role="status">@Model.PositionMessage</div>
+}
+<section class="card filter-panel" aria-labelledby="work-filter-heading">
+    <h2 id="work-filter-heading">Narrow the queue</h2>
+    <form method="get" class="filter-form">
+        <div class="form-group">
+            <label for="category">Work category</label>
+            <select id="category" name="category">
+                <option value="">All work</option>
+                <option value="pending-request" selected="@(Model.AppliedCategory == "pending-request")">Requests to review</option>
+                <option value="uncovered" selected="@(Model.AppliedCategory == "uncovered")">Open commitments</option>
+                <option value="unconfirmed" selected="@(Model.AppliedCategory == "unconfirmed")">Waiting for confirmation</option>
+                <option value="message" selected="@(Model.AppliedCategory == "message")">Messages needing follow-up</option>
+                <option value="withdrawal" selected="@(Model.AppliedCategory == "withdrawal")">Recurring withdrawals</option>
+                <option value="recurrence-review" selected="@(Model.AppliedCategory == "recurrence-review")">Recurring schedule review</option>
+                <option value="zone-review" selected="@(Model.AppliedCategory == "zone-review")">Time-zone review</option>
+                <option value="handoff" selected="@(Model.AppliedCategory == "handoff")">Recurring handoff</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="severity">Urgency</label>
+            <select id="severity" name="severity">
+                <option value="">All urgency levels</option>
+                <option value="0" selected="@(Model.AppliedSeverityRank == 0)">Urgent</option>
+                <option value="1" selected="@(Model.AppliedSeverityRank == 1)">Soon</option>
+                <option value="2" selected="@(Model.AppliedSeverityRank == 2)">Upcoming</option>
+            </select>
+        </div>
+        <div class="actions"><button type="submit">Apply filters</button><a class="button button-secondary" asp-page="/Coordinator/Work">Clear filters</a></div>
+    </form>
+</section>
+@if (Model.Items.Count == 0)
+{
+    <section class="empty-state" role="status">
+        <p class="eyebrow">All clear</p>
+        <h2>You're caught up</h2>
+        <p>No coordinator action is needed right now.</p>
+        <a class="button button-secondary" asp-page="/Coordinator">Back to coordinator home</a>
+    </section>
+}
+else
+{
+    <div class="work-list">
+    @foreach (var row in Model.Items)
+    {
+        <article class="card work-card">
+            <div class="work-card-heading">
+                <div>
+                    <p class="eyebrow">@row.Item.CategoryLabel</p>
+                    <h2>@row.Item.Title</h2>
+                </div>
+                <span class="status-chip status-chip-@(row.Item.SeverityLabel.ToLowerInvariant())">@row.Item.SeverityLabel</span>
+            </div>
+            <p><strong>@row.Item.Context</strong></p>
+            @if (row.Item.PersonName is not null)
+            {
+                <p>Person: @row.Item.PersonName</p>
+            }
+            <p class="field-help">State: @row.Item.State</p>
+            <div class="actions"><a class="button" asp-page="/Coordinator/Work/Go" asp-route-token="@row.ProtectedRoute">@row.Item.CategoryLabel</a></div>
+        </article>
+    }
+    </div>
+    <nav class="pagination" aria-label="Prioritized work pages">
+        @if (Model.HasPreviousPage)
+        {
+            <a class="button button-secondary" asp-page="/Coordinator/Work" asp-route-category="@Model.AppliedCategory" asp-route-severity="@Model.AppliedSeverityRank" asp-route-cursor="@Model.PreviousCursor">Previous work</a>
+        }
+        <span aria-current="page">This page shows the highest-priority matching work.</span>
+        @if (Model.HasNextPage)
+        {
+            <a class="button button-secondary" asp-page="/Coordinator/Work" asp-route-category="@Model.AppliedCategory" asp-route-severity="@Model.AppliedSeverityRank" asp-route-cursor="@Model.NextCursor">Next work</a>
+        }
+    </nav>
+}

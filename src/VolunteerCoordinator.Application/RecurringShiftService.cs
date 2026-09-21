@@ -333,7 +333,8 @@ public sealed class RecurringShiftService
                     "RecurringProtectedOccurrenceResolved",
                     nameof(RecurringShiftOccurrence),
                     currentOccurrence.Id,
-                    Detail(new { currentOccurrence.SeriesId, currentOccurrence.LocalDate, RevisionId = revision.Id })));
+                    Detail(new { currentOccurrence.SeriesId, currentOccurrence.LocalDate, RevisionId = revision.Id }),
+                    shiftId: currentOccurrence.ShiftId));
                 return true;
             },
             cancellationToken);
@@ -514,7 +515,8 @@ public sealed class RecurringShiftService
                         shift.Id,
                         resolution.StartsAtUtc,
                         resolution.SelectedOffset
-                    })));
+                    }),
+                    shiftId: shift.Id));
                 return true;
             },
             cancellationToken);
@@ -916,7 +918,8 @@ public sealed class RecurringShiftService
                         "ShiftPublished",
                         nameof(Shift),
                         shift.Id,
-                        Detail(new { shift.PublishedAtUtc, Recurring = true })));
+                        Detail(new { shift.PublishedAtUtc, Recurring = true }),
+                        shiftId: shift.Id));
                 }
 
                 _workflowStore.AddAuditEntry(AuditEntry.Create(
@@ -930,7 +933,8 @@ public sealed class RecurringShiftService
                         FromLocalDate = fromLocalDate,
                         ThroughLocalDate = throughLocalDate,
                         Count = shifts.Count
-                    })));
+                    }),
+                    shiftId: shifts.Select(x => (Guid?)x.Id).FirstOrDefault()));
                 return new RecurringCommandResult(shifts.Count, []);
             },
             cancellationToken);
@@ -956,7 +960,8 @@ public sealed class RecurringShiftService
                     "RecurringOccurrenceDetached",
                     nameof(RecurringShiftOccurrence),
                     occurrence.Id,
-                    Detail(new { occurrence.SeriesId, occurrence.LocalDate, Reason = reason })));
+                    Detail(new { occurrence.SeriesId, occurrence.LocalDate, Reason = reason }),
+                    shiftId: occurrence.ShiftId));
                 return true;
             },
             cancellationToken);
@@ -1137,7 +1142,8 @@ public sealed class RecurringShiftService
                     EndsAtUtc = resolution.StartsAtUtc.Value.AddMinutes(revision.DurationMinutes),
                     resolution.SelectedOffset,
                     revision.AmbiguousTimeChoice
-                })));
+                }),
+                shiftId: shift.Id));
         }
     }
 

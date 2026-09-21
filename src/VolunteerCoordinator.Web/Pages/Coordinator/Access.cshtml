@@ -1,0 +1,55 @@
+@page "/Coordinator/Access"
+@model VolunteerCoordinator.Web.Pages.Coordinator.AccessModel
+@{
+    ViewData["Title"] = "Coordinator access handoff";
+}
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Safe maintainer handoff</p>
+        <h1 tabindex="-1">Coordinator access</h1>
+        <p class="lead">Verify independent identities before anyone is removed. This page diagnoses access; it never changes OIDC or Railway configuration.</p>
+    </div>
+</header>
+<section class="card" aria-labelledby="readiness-heading">
+    <h2 id="readiness-heading">@((Model.Diagnostics.HandoffReady) ? "Handoff ready" : "Handoff not ready")</h2>
+    <dl class="commitment-details">
+        <dt>OIDC</dt><dd>@(Model.Diagnostics.OidcConfigured ? "Configured" : "Needs operational setup")</dd>
+        <dt>Coordinators configured</dt><dd>@Model.Diagnostics.AllowlistedEmails.Count</dd>
+        <dt>Current identity</dt><dd>@(Model.Diagnostics.CurrentEmail ?? "No verified coordinator identity")</dd>
+    </dl>
+    @if (!Model.Diagnostics.OidcConfigured)
+    {
+        <p class="alert alert-warning" role="status">OIDC needs operational setup. Secret values are not shown here.</p>
+    }
+</section>
+<section class="card" aria-labelledby="identities-heading">
+    <h2 id="identities-heading">Allowlisted identities</h2>
+    @if (Model.Diagnostics.AllowlistedEmails.Count == 0)
+    {
+        <p>No coordinator identities are currently allowlisted.</p>
+    }
+    else
+    {
+        <ul class="status-list">
+        @foreach (var email in Model.Diagnostics.AllowlistedEmails)
+        {
+            var verification = Model.Diagnostics.Verifications.First(x => x.NormalizedEmail == email);
+            <li><strong>@email</strong> — @(verification.VerifiedAtUtc.HasValue ? $"Verified {verification.VerifiedAtUtc.Value:yyyy-MM-dd}" : "Not yet verified") @(Model.Diagnostics.CurrentEmail == email ? "(current identity)" : string.Empty)</li>
+        }
+        </ul>
+    }
+    <form method="post" class="actions">
+        <button type="submit">Verify my access</button>
+    </form>
+</section>
+<section class="card" aria-labelledby="handoff-steps-heading">
+    <h2 id="handoff-steps-heading">Handoff order</h2>
+    <ol>
+        <li>The operational owner adds the incoming person's own verified OIDC email to Railway configuration and redeploys.</li>
+        <li>The incoming coordinator signs in with their own credentials and selects <strong>Verify my access</strong>.</li>
+        <li>The existing coordinator confirms both current addresses show verified.</li>
+        <li>Only then does the operational owner remove the outgoing address and redeploy.</li>
+        <li>The remaining coordinator signs in again and verifies schedule access.</li>
+    </ol>
+    <p>Shared credentials are prohibited. Configuration remains external. A removed identity can remain in historical records but does not count toward current readiness.</p>
+</section>

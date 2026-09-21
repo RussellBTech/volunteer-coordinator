@@ -17,6 +17,8 @@ public sealed class Volunteer
 
     public string Name { get; private set; } = string.Empty;
 
+    public string NormalizedName { get; private set; } = string.Empty;
+
     public string Email { get; private set; } = string.Empty;
 
     public string NormalizedEmail { get; private set; } = string.Empty;
@@ -56,8 +58,8 @@ public sealed class Volunteer
         }
 
         ValidateUtc(nowUtc, "Volunteer timestamps must be UTC.");
-
         Name = name.Trim();
+        NormalizedName = NormalizeName(name);
         Email = email.Trim();
         NormalizedEmail = normalizedEmail;
         Phone = string.IsNullOrWhiteSpace(phone) ? null : phone.Trim();
@@ -73,6 +75,7 @@ public sealed class Volunteer
         }
 
         Name = "Removed volunteer";
+        NormalizedName = NormalizeName(Name);
         Email = $"removed-{Id:N}@invalid.invalid";
         NormalizedEmail = Email.ToUpperInvariant();
         Phone = null;
@@ -80,6 +83,9 @@ public sealed class Volunteer
         AnonymizedAtUtc = nowUtc;
         return true;
     }
+
+    public static string NormalizeName(string name) =>
+        string.IsNullOrWhiteSpace(name) ? string.Empty : name.Trim().ToUpperInvariant();
 
     public static string NormalizeEmail(string email) =>
         string.IsNullOrWhiteSpace(email) ? string.Empty : email.Trim().ToUpperInvariant();

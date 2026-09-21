@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using VolunteerCoordinator.Application;
 using VolunteerCoordinator.Application.Notifications;
@@ -16,10 +17,16 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         string connectionString)
     {
-        services.AddDbContext<VolunteerCoordinatorDbContext>(options =>
+        services.AddDbContext<VolunteerCoordinatorDbContext>((serviceProvider, options) =>
+        {
             options.UseNpgsql(
                 connectionString,
-                npgsql => npgsql.MigrationsAssembly(typeof(VolunteerCoordinatorDbContext).Assembly.FullName)));
+                npgsql => npgsql.MigrationsAssembly(typeof(VolunteerCoordinatorDbContext).Assembly.FullName));
+            if (serviceProvider.GetService<DbCommandInterceptor>() is { } interceptor)
+            {
+                options.AddInterceptors(interceptor);
+            }
+        });
         services.AddScoped<IWorkflowStore, EfWorkflowStore>();
         services.AddScoped<IRecurringShiftStore>(serviceProvider =>
             (IRecurringShiftStore)serviceProvider.GetRequiredService<IWorkflowStore>());

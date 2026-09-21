@@ -15,4 +15,5 @@ public sealed record CoordinatorAssignmentReviewState(
     uint? ExpectedSettingsVersion,
     string ExpectedAffectedSet,
     Guid? ExpectedSelectedVolunteerId,
-    string? ExpectedSelectedVolunteerNormalizedEmail);
+    string? ExpectedSelectedVolunteerNormalizedEmail,
+    string SearchTerm = "");

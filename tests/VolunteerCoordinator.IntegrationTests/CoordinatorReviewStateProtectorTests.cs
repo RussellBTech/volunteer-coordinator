@@ -52,4 +52,22 @@ public sealed class CoordinatorReviewStateProtectorTests
             TimeSpan.FromMinutes(1));
         Assert.False(protector.TryUnprotect(wrongPurpose, out _));
     }
+    [Fact]
+    public void CoordinatorAuditFilterTokensHideRawValues()
+    {
+        var services = new ServiceCollection();
+        services.AddDataProtection();
+        using var serviceProvider = services.BuildServiceProvider();
+        var provider = serviceProvider.GetRequiredService<IDataProtectionProvider>();
+        var protector = new CoordinatorRouteProtector(provider);
+        var shiftId = Guid.NewGuid();
+
+        var token = protector.Protect("shift", shiftId);
+
+        Assert.DoesNotContain(shiftId.ToString("N"), token, StringComparison.OrdinalIgnoreCase);
+        Assert.True(protector.TryUnprotect(token, out var kind, out var recoveredId));
+        Assert.Equal("shift", kind);
+        Assert.Equal(shiftId, recoveredId);
+        Assert.False(protector.TryUnprotectText(token, "volunteer", out _));
+    }
 }

@@ -27,6 +27,7 @@ public sealed class IndexModel : PageModel
 
     public async Task<IActionResult> OnGetAsync(string? attention, CancellationToken cancellationToken)
     {
+        IsFiltered = attention == "pending";
         if (await _service.GetGroupSettingsAsync(cancellationToken) is null)
         {
             return RedirectToPage("/Coordinator/Settings");

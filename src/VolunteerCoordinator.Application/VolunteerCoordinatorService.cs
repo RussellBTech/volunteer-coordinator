@@ -16,7 +16,7 @@ using VolunteerCoordinator.Domain.Volunteers;
 
 namespace VolunteerCoordinator.Application;
 
-public sealed class VolunteerCoordinatorService
+public sealed partial class VolunteerCoordinatorService
 {
     public const string CommitmentUnavailableMessage = "Commitment times are temporarily unavailable. Please contact the coordinator.";
     public const string StalePreviewMessage = "This information changed; review the updated details before confirming.";
@@ -76,26 +76,11 @@ public sealed class VolunteerCoordinatorService
                 [],
                 "Set your group time zone",
                 "/Coordinator/Settings",
-                null);
+                null,
+                projection.WorkSummary);
         }
 
-        var settings = projection.Settings!;
-        var recurringZoneReviewCount = _store is IRecurringShiftStore recurringStore
-            ? await recurringStore.CountZoneReviewSeriesAsync(settings.TimeZoneId, cancellationToken)
-            : 0;
-        IReadOnlyList<CoordinatorAttentionDto> recurringZoneReviewAttention = recurringZoneReviewCount == 0
-            ? []
-            :
-            [
-                new CoordinatorAttentionDto(
-                    "recurring-zone",
-                    "Recurring schedules needing time-zone review",
-                    recurringZoneReviewCount,
-                    "/Coordinator/Recurring",
-                    "Review recurring schedules",
-                    [])
-            ];
-
+        var settings = projection.Settings;
         if (!projection.HasPublishedShift)
         {
             var (label, url) = projection.FirstUnpublishedShift is not null
@@ -106,13 +91,14 @@ public sealed class VolunteerCoordinatorService
             return new CoordinatorHomeDto(
                 true,
                 BuildSetupSteps(projection, settingsConfigured: true),
-                recurringZoneReviewAttention,
+                [],
                 label,
                 url,
-                settings.TimeZoneId);
+                settings.TimeZoneId,
+                projection.WorkSummary);
         }
 
-        var attention = new List<CoordinatorAttentionDto>(4);
+        var attention = new List<CoordinatorAttentionDto>(8);
         AddAttention(
             attention,
             "pending",
@@ -149,16 +135,24 @@ public sealed class VolunteerCoordinatorService
             "Open messages",
             projection.FailedMessageExamples,
             settings);
-        attention.AddRange(recurringZoneReviewAttention);
 
+        var workSummary = projection.WorkSummary;
+        if (workSummary is not null)
+        {
+            AddWorkAttention(attention, workSummary, "withdrawal", "Recurring withdrawals", "Review withdrawals");
+            AddWorkAttention(attention, workSummary, "recurrence-review", "Recurring schedules needing review", "Review recurring schedules");
+            AddWorkAttention(attention, workSummary, "zone-review", "Recurring schedules needing time-zone review", "Review time zones");
+            AddWorkAttention(attention, workSummary, "handoff", "Recurring handoffs", "Review recurring handoffs");
+        }
 
         return new CoordinatorHomeDto(
             false,
             [],
             attention,
-            null,
-            null,
-            settings.TimeZoneId);
+            "Open prioritized work",
+            "/Coordinator/Work",
+            settings.TimeZoneId,
+            projection.WorkSummary);
     }
 
     public async Task<GroupSettingsDto> ConfigureGroupTimeZoneAsync(
@@ -328,7 +322,8 @@ public sealed class VolunteerCoordinatorService
                         shift.SignupPolicy,
                         BackupSlots = backupSlotCount,
                         HasVolunteerInstructions = shift.VolunteerInstructions is not null
-                    })));
+                    }),
+                    shiftId: shift.Id));
                 return shift.Id;
             },
             cancellationToken);
@@ -487,7 +482,8 @@ public sealed class VolunteerCoordinatorService
                         PolicyChanged = oldSignupPolicy != shift.SignupPolicy,
                         BackupSlots = backupSlotCount,
                         HasVolunteerInstructions = shift.VolunteerInstructions is not null
-                    })));
+                    }),
+                    shiftId: shift.Id));
                 return true;
             },
             cancellationToken);
@@ -572,7 +568,8 @@ public sealed class VolunteerCoordinatorService
                     "ShiftSignupPolicyChanged",
                     nameof(Shift),
                     shift.Id,
-                    Detail(new { PreviousPolicy = previous, NewPolicy = proposedPolicy, PendingRequests = pendingCount })));
+                    Detail(new { PreviousPolicy = previous, NewPolicy = proposedPolicy, PendingRequests = pendingCount }),
+                    shiftId: shift.Id));
                 return true;
             },
             cancellationToken);
@@ -701,7 +698,8 @@ public sealed class VolunteerCoordinatorService
                         SupersededRequests = pendingRequests.Count,
                         CancelledAssignments = activeAssignments.Count,
                         InvalidatedTokens = invalidatedTokenCount
-                    })));
+                    }),
+                    shiftId: shift.Id));
                 return true;
             },
             cancellationToken);
@@ -754,7 +752,7 @@ public sealed class VolunteerCoordinatorService
                 }
 
                 shift.Publish(now);
-                _store.AddAuditEntry(AuditEntry.Create(now, actor, "ShiftPublished", nameof(Shift), shift.Id, Detail(new { shift.PublishedAtUtc })));
+                _store.AddAuditEntry(AuditEntry.Create(now, actor, "ShiftPublished", nameof(Shift), shift.Id, Detail(new { shift.PublishedAtUtc }), shiftId: shift.Id));
                 return true;
             },
             cancellationToken);
@@ -1297,7 +1295,9 @@ public sealed class VolunteerCoordinatorService
                         "AssignmentDirectClaimed",
                         nameof(Assignment),
                         assignment.Id,
-                        Detail(new { assignment.ShiftSlotId, assignment.VolunteerId, Policy = shift.SignupPolicy })));
+                        Detail(new { assignment.ShiftSlotId, assignment.VolunteerId, Policy = shift.SignupPolicy }),
+                        shiftId: shift.Id,
+                        volunteerId: volunteer.Id));
                     return (
                         SubmissionId: assignment.Id,
                         HubRequestId: staleRequest?.Id ?? Guid.Empty,
@@ -1341,7 +1341,9 @@ public sealed class VolunteerCoordinatorService
                     "RequestSubmitted",
                     nameof(ShiftRequest),
                     request.Id,
-                    Detail(new { request.ShiftSlotId, request.VolunteerId, Policy = shift.SignupPolicy })));
+                    Detail(new { request.ShiftSlotId, request.VolunteerId, Policy = shift.SignupPolicy }),
+                    shiftId: shift.Id,
+                    volunteerId: volunteer.Id));
                 return (
                     SubmissionId: request.Id,
                     HubRequestId: request.Id,
@@ -1544,7 +1546,9 @@ public sealed class VolunteerCoordinatorService
                     $"Assignment{normalizedAction}",
                     nameof(VolunteerAccessCapability),
                     capability.Id,
-                    Detail(new { assignment.Status, assignment.ShiftSlotId })));
+                    Detail(new { assignment.Status, assignment.ShiftSlotId }),
+                    shiftId: assignment.ShiftId,
+                    volunteerId: volunteer.Id));
                 QueueNotification(
                     assignment.Id,
                     volunteer.Id,
@@ -1733,7 +1737,9 @@ public sealed class VolunteerCoordinatorService
                     "VolunteerAccessRecovered",
                     nameof(RecoveryToken),
                     recovery.Id,
-                    Detail(new { recovery.VolunteerId, recovery.ShiftSlotId })));
+                    Detail(new { recovery.VolunteerId, recovery.ShiftSlotId }),
+                    shiftId: slot.ShiftId,
+                    volunteerId: volunteer.Id));
                 return generated.RawToken;
             },
             cancellationToken);
@@ -1749,41 +1755,33 @@ public sealed class VolunteerCoordinatorService
             return [];
         }
 
-        var now = _clock.UtcNow;
-        var requests = await _store.GetRequestsAsync(cancellationToken);
-        var slotIds = requests.Select(x => x.ShiftSlotId).Distinct().ToArray();
-        var assignmentsBySlot = (await _store.GetActiveAssignmentsAsync(slotIds, cancellationToken))
-            .ToDictionary(x => x.ShiftSlotId);
-        var result = new List<CoordinatorRequestDto>(requests.Count);
-        foreach (var request in requests)
-        {
-            var slot = await RequireSlotAsync(request.ShiftSlotId, cancellationToken);
-            var shift = await RequireShiftAsync(slot.ShiftId, cancellationToken);
-            var volunteer = await RequireVolunteerAsync(request.VolunteerId, cancellationToken);
-            assignmentsBySlot.TryGetValue(slot.Id, out var assignment);
-            var slotState = !slot.IsActive || !shift.IsActive
-                ? "Inactive"
-                : shift.EndsAtUtc <= now
-                    ? "Ended"
-                    : assignment?.Status switch
-                    {
-                        AssignmentStatus.Assigned => "Unconfirmed",
-                        AssignmentStatus.Confirmed => "Confirmed",
-                        _ => "Available"
-                    };
-            var canApprove = request.Status == RequestStatus.Pending && slotState == "Available";
-            result.Add(new CoordinatorRequestDto(
-                request.Id,
-                volunteer.AnonymizedAtUtc.HasValue ? "Removed volunteer" : volunteer.Name,
-                volunteer.AnonymizedAtUtc.HasValue ? string.Empty : volunteer.Email,
-                BuildCommitment(shift, settings, slot, SlotLabel(slot)),
-                request.Status.ToString(),
-                request.RequestedAtUtc,
-                canApprove,
-                slotState));
-        }
-
-        return result.OrderByDescending(x => x.RequestedAtUtc).ToArray();
+        var rows = await _store.GetCoordinatorRequestPageAsync(
+            _clock.UtcNow,
+            50,
+            cancellationToken);
+        return rows
+            .Select(row => new CoordinatorRequestDto(
+                row.RequestId,
+                row.VolunteerName,
+                row.VolunteerEmail,
+                new CommitmentDto(
+                    row.ShiftId,
+                    row.SlotId,
+                    row.ShiftTitle,
+                    row.StartsAtUtc,
+                    row.EndsAtUtc,
+                    settings.TimeZoneId,
+                    row.Location,
+                    SlotLabel((SlotKind)row.SlotKind, row.SlotPosition),
+                    row.VolunteerInstructions)
+                {
+                    SignupPolicy = (SignupPolicy)row.SignupPolicy
+                },
+                ((RequestStatus)row.RequestStatus).ToString(),
+                row.RequestedAtUtc,
+                row.CanApprove,
+                row.SlotState))
+            .ToArray();
     }
 
 
@@ -1851,7 +1849,7 @@ public sealed class VolunteerCoordinatorService
                     "AssignmentAccess",
                     now);
                 await SupersedeOtherRequestsAsync(slot.Id, request.Id, actor, now, token);
-                _store.AddAuditEntry(AuditEntry.Create(now, actor, "RequestApproved", nameof(ShiftRequest), request.Id, Detail(new { AssignmentId = assignment.Id, assignment.ShiftSlotId, assignment.VolunteerId })));
+                _store.AddAuditEntry(AuditEntry.Create(now, actor, "RequestApproved", nameof(ShiftRequest), request.Id, Detail(new { AssignmentId = assignment.Id, assignment.ShiftSlotId, assignment.VolunteerId }), shiftId: shift.Id, volunteerId: volunteer.Id));
                 return (assignment.Id, VolunteerId: volunteer.Id, Commitment: BuildCommitment(shift, settings, slot, SlotLabel(slot)));
             },
             cancellationToken);
@@ -1872,6 +1870,7 @@ public sealed class VolunteerCoordinatorService
             {
                 var request = await RequireRequestAsync(requestId, token);
                 var volunteer = await RequireVolunteerAsync(request.VolunteerId, token);
+                var requestSlot = await RequireSlotAsync(request.ShiftSlotId, token);
                 request.Reject(actor, now);
                 QueueNotification(
                     request.Id,
@@ -1880,7 +1879,7 @@ public sealed class VolunteerCoordinatorService
                     $"request:{request.Id:N}:rejected",
                     "RequestDecision",
                     now);
-                _store.AddAuditEntry(AuditEntry.Create(now, actor, "RequestRejected", nameof(ShiftRequest), request.Id, "{}"));
+                _store.AddAuditEntry(AuditEntry.Create(now, actor, "RequestRejected", nameof(ShiftRequest), request.Id, "{}", shiftId: requestSlot.ShiftId, volunteerId: volunteer.Id));
                 return (request.Id, VolunteerId: volunteer.Id);
             },
             cancellationToken);
@@ -1962,7 +1961,7 @@ public sealed class VolunteerCoordinatorService
                     "AssignmentAccess",
                     now);
                 await SupersedeOtherRequestsAsync(slot.Id, null, actor, now, token);
-                _store.AddAuditEntry(AuditEntry.Create(now, actor, "AssignmentCreatedOrReassigned", nameof(Assignment), assignment.Id, Detail(new { assignment.ShiftSlotId, assignment.VolunteerId })));
+                _store.AddAuditEntry(AuditEntry.Create(now, actor, "AssignmentCreatedOrReassigned", nameof(Assignment), assignment.Id, Detail(new { assignment.ShiftSlotId, assignment.VolunteerId }), shiftId: shift.Id, volunteerId: volunteer.Id));
                 return (assignment.Id, VolunteerId: volunteer.Id, Commitment: BuildCommitment(shift, settings, slot, SlotLabel(slot)));
             },
             cancellationToken);
@@ -2172,7 +2171,9 @@ public sealed class VolunteerCoordinatorService
                     "AssignmentCreatedOrReassigned",
                     nameof(Assignment),
                     assignment.Id,
-                    Detail(new { assignment.ShiftSlotId, assignment.VolunteerId })));
+                    Detail(new { assignment.ShiftSlotId, assignment.VolunteerId }),
+                    shiftId: shift.Id,
+                    volunteerId: volunteer.Id));
                 return (assignment.Id, VolunteerId: volunteer.Id, Commitment: BuildCommitment(shift, settings, slot, SlotLabel(slot)));
             },
             cancellationToken);
@@ -2315,7 +2316,9 @@ public sealed class VolunteerCoordinatorService
                         "VolunteerAccessRevokedByCoordinator",
                         nameof(Assignment),
                         assignment.Id,
-                        Detail(new { assignment.ShiftSlotId, assignment.VolunteerId })));
+                        Detail(new { assignment.ShiftSlotId, assignment.VolunteerId }),
+                        shiftId: assignment.ShiftId,
+                        volunteerId: assignment.VolunteerId));
                 }
 
                 var mode = revokeNow ? "RevokeNow" : "Normal";
@@ -2357,7 +2360,9 @@ public sealed class VolunteerCoordinatorService
                         assignment.VolunteerId,
                         Mode = mode,
                         NotificationCorrelationId = notificationIntent?.Id
-                    })));
+                    }),
+                    shiftId: assignment.ShiftId,
+                    volunteerId: assignment.VolunteerId));
                 return true;
             },
             cancellationToken);
@@ -2457,15 +2462,10 @@ public sealed class VolunteerCoordinatorService
             return [];
         }
 
-        var settings = await _store.GetGroupSettingsAsync(cancellationToken);
-        if (settings is null)
-        {
-            return [];
-        }
 
-        var intents = await outbox.GetNotificationIntentsAsync(500, cancellationToken);
+        var rows = await _store.GetCoordinatorNotificationIntentPageAsync(50, cancellationToken);
         var attempts = (await outbox.GetDeliveryAttemptsAsync(
-                intents.Select(x => x.Id).ToArray(),
+                rows.Select(x => x.Id).ToArray(),
                 cancellationToken))
             .GroupBy(x => x.NotificationIntentId)
             .ToDictionary(x => x.Key, x => x
@@ -2476,53 +2476,43 @@ public sealed class VolunteerCoordinatorService
                     attempt.CompletedAtUtc,
                     attempt.OutcomeCategory))
                 .ToArray());
-        var volunteers = (await _store.GetVolunteersByIdsAsync(
-                intents.Select(x => x.VolunteerId).Distinct().ToArray(),
-                cancellationToken))
-            .ToDictionary(x => x.Id);
-        var result = new List<NotificationIntentDto>(intents.Count);
-        foreach (var intent in intents)
-        {
-            volunteers.TryGetValue(intent.VolunteerId, out var volunteer);
-            CommitmentDto? commitment = null;
-            Guid? accessAssignmentId = null;
-            if (intent.ShiftSlotId is Guid slotId &&
-                await _store.GetSlotAsync(slotId, cancellationToken) is { } slot &&
-                await _store.GetShiftAsync(slot.ShiftId, cancellationToken) is { } shift)
+
+        return rows
+            .Select(row =>
             {
-                commitment = BuildCommitment(
-                    shift,
-                    settings,
-                    slot,
-                    SlotLabel(slot));
-                if (IsLinkBearingNotificationKind(intent.Kind))
-                {
-                    var slotAssignment = await _store.GetActiveAssignmentForSlotAsync(
-                        slot.Id,
-                        cancellationToken);
-                    if (slotAssignment?.VolunteerId == intent.VolunteerId)
+                CommitmentDto? commitment = row.ShiftId.HasValue &&
+                                            row.ShiftTitle is not null &&
+                                            row.StartsAtUtc.HasValue &&
+                                            row.EndsAtUtc.HasValue
+                    ? new CommitmentDto(
+                        row.ShiftId.Value,
+                        row.ShiftSlotId,
+                        row.ShiftTitle,
+                        row.StartsAtUtc.Value,
+                        row.EndsAtUtc.Value,
+                        row.GroupTimeZoneId,
+                        row.Location,
+                        SlotLabel((SlotKind)row.SlotKind, row.SlotPosition),
+                        row.VolunteerInstructions)
                     {
-                        accessAssignmentId = slotAssignment.Id;
+                        SignupPolicy = (SignupPolicy)row.SignupPolicy
                     }
-                }
-            }
-
-            result.Add(new NotificationIntentDto(
-                intent.Id,
-                intent.VolunteerId,
-                volunteer?.AnonymizedAtUtc.HasValue == true ? "Removed volunteer" : volunteer?.Name ?? "Removed volunteer",
-                commitment,
-                intent.Kind,
-                intent.State.ToString(),
-                intent.CreatedAtUtc,
-                intent.NextAttemptAtUtc,
-                intent.AttemptCount,
-                intent.FailureCategory,
-                attempts.TryGetValue(intent.Id, out var rows) ? rows : [],
-                accessAssignmentId));
-        }
-
-        return result;
+                    : null;
+                return new NotificationIntentDto(
+                    row.Id,
+                    row.VolunteerId,
+                    row.VolunteerName,
+                    commitment,
+                    row.Kind,
+                    ((NotificationIntentState)row.State).ToString(),
+                    row.CreatedAtUtc,
+                    row.NextAttemptAtUtc,
+                    row.AttemptCount,
+                    row.FailureCategory,
+                    attempts.TryGetValue(row.Id, out var deliveryAttempts) ? deliveryAttempts : [],
+                    row.AccessAssignmentId);
+            })
+            .ToArray();
     }
 
     public async Task RequestNotificationResendAsync(
@@ -2570,6 +2560,9 @@ public sealed class VolunteerCoordinatorService
                     eventKey,
                     intent.Kind,
                     now);
+                var resendShiftId = intent.ShiftSlotId is Guid resendSlotId
+                    ? (await _store.GetSlotAsync(resendSlotId, token))?.ShiftId
+                    : null;
 
                 _store.AddAuditEntry(AuditEntry.Create(
                     now,
@@ -2577,12 +2570,13 @@ public sealed class VolunteerCoordinatorService
                     "NotificationResendRequested",
                     nameof(NotificationIntent),
                     intent.Id,
-                    Detail(new { intent.VolunteerId, intent.ShiftSlotId, intent.Kind })));
+                    Detail(new { intent.VolunteerId, intent.ShiftSlotId, intent.Kind }),
+                    shiftId: resendShiftId,
+                    volunteerId: intent.VolunteerId));
                 return true;
             },
             cancellationToken);
     }
-
     public async Task<VolunteerAnonymizationResult> AnonymizeVolunteerAsync(
         Guid volunteerId,
         VolunteerAnonymizationReason reason,
@@ -2881,7 +2875,7 @@ public sealed class VolunteerCoordinatorService
                     $"legacy-action:{assignment.Id:N}:{actionToken.Action}:{now:O}",
                     $"Volunteer{actionToken.Action}",
                     now);
-                _store.AddAuditEntry(AuditEntry.Create(now, "volunteer-token", $"Assignment{actionToken.Action}", nameof(Assignment), assignment.Id, Detail(new { assignment.Status })));
+                _store.AddAuditEntry(AuditEntry.Create(now, "volunteer-token", $"Assignment{actionToken.Action}", nameof(Assignment), assignment.Id, Detail(new { assignment.Status }), shiftId: assignment.ShiftId, volunteerId: assignment.VolunteerId));
                 return (assignment.Id, VolunteerId: volunteer.Id, Action: actionToken.Action.ToString());
             },
             cancellationToken);
@@ -2891,7 +2885,12 @@ public sealed class VolunteerCoordinatorService
     }
 
 
-    public async Task<IReadOnlyList<CoverageDto>> GetCoverageAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<CoverageDto>> GetCoverageAsync(CancellationToken cancellationToken) =>
+        GetCoverageAsync(null, cancellationToken);
+
+    public async Task<IReadOnlyList<CoverageDto>> GetCoverageAsync(
+        string? attention,
+        CancellationToken cancellationToken)
     {
         var settings = await _store.GetGroupSettingsAsync(cancellationToken);
         if (settings is null)
@@ -2899,50 +2898,57 @@ public sealed class VolunteerCoordinatorService
             return [];
         }
 
-        var shifts = await _store.GetPublishedCurrentOrFutureShiftsAsync(_clock.UtcNow, cancellationToken);
-        var slots = shifts.SelectMany(x => x.Slots).Where(x => x.IsActive).ToArray();
-        var assignments = await _store.GetActiveAssignmentsAsync(slots.Select(x => x.Id).ToArray(), cancellationToken);
-        var assignmentsBySlot = assignments.ToDictionary(x => x.ShiftSlotId);
-        var volunteers = (await _store.GetVolunteersAsync(cancellationToken)).ToDictionary(x => x.Id);
-        var result = new List<CoverageDto>(slots.Length);
-        foreach (var shift in shifts)
-        {
-            foreach (var slot in shift.Slots.Where(x => x.IsActive))
-            {
-                assignmentsBySlot.TryGetValue(slot.Id, out var assignment);
-                Volunteer? volunteer = null;
-                if (assignment is not null)
-                {
-                    volunteers.TryGetValue(assignment.VolunteerId, out volunteer);
-                }
+        var rows = await _store.GetCoordinatorCoveragePageAsync(
+            _clock.UtcNow,
+            attention,
+            50,
+            cancellationToken);
+        return rows.Select(row => ToCoverageDto(row, settings.TimeZoneId)).ToArray();
+    }
 
-                var state = assignment?.Status switch
-                {
-                    AssignmentStatus.Assigned => "Unconfirmed",
-                    AssignmentStatus.Confirmed => "Confirmed",
-                    _ => "Uncovered"
-                };
-                var access = assignment is null || volunteer is null
-                    ? null
-                    : await GetAccessStateAsync(
-                        volunteer.Id,
-                        slot.Id,
-                        shift,
-                        cancellationToken);
-                result.Add(new CoverageDto(
-                    slot.Id,
-                    shift.Id,
-                    assignment?.Id,
-                    BuildCommitment(shift, settings, slot, SlotLabel(slot)),
-                    state,
-                    volunteer?.AnonymizedAtUtc.HasValue == true ? "Removed volunteer" : volunteer?.Name,
-                    volunteer?.AnonymizedAtUtc.HasValue == true ? null : volunteer?.Email,
-                    access));
-            }
+    public async Task<CoverageDto?> GetCoverageForSlotAsync(
+        Guid slotId,
+        CancellationToken cancellationToken)
+    {
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken);
+        if (settings is null)
+        {
+            return null;
         }
 
-        return result.OrderBy(x => x.StartsAtUtc).ThenBy(x => x.State == "Uncovered" ? 0 : x.State == "Unconfirmed" ? 1 : 2).ThenBy(x => x.SlotLabel).ToArray();
+        var row = await _store.GetCoordinatorCoverageSlotAsync(
+            _clock.UtcNow,
+            slotId,
+            cancellationToken);
+        return row is null ? null : ToCoverageDto(row, settings.TimeZoneId);
     }
+
+    private static CoverageDto ToCoverageDto(
+        CoordinatorCoverageQueryRow row,
+        string timeZoneId) =>
+        new(
+            row.SlotId,
+            row.ShiftId,
+            row.AssignmentId,
+            new CommitmentDto(
+                row.ShiftId,
+                row.SlotId,
+                row.ShiftTitle,
+                row.StartsAtUtc,
+                row.EndsAtUtc,
+                timeZoneId,
+                row.Location,
+                SlotLabel((SlotKind)row.SlotKind, row.SlotPosition),
+                row.VolunteerInstructions)
+            {
+                SignupPolicy = (SignupPolicy)row.SignupPolicy
+            },
+            row.State,
+            row.VolunteerName,
+            row.VolunteerEmail,
+            row.AccessState is null
+                ? null
+                : new AccessStateDto(row.AccessState, row.AccessLastMessageAtUtc));
 
     public async Task<IReadOnlyList<AuditDto>> ListAuditAsync(int limit, CancellationToken cancellationToken)
     {
@@ -3152,7 +3158,9 @@ public sealed class VolunteerCoordinatorService
                 CapabilitiesInvalidated = invalidatedCapabilities,
                 RecoveryTokensInvalidated = invalidatedRecoveryTokens,
                 NotificationDestinationsRedacted = redactedNotifications
-            })));
+            }),
+            shiftId: state.Assignments.Select(x => (Guid?)x.ShiftId).FirstOrDefault(),
+            volunteerId: state.Volunteer.Id));
 
         return new VolunteerAnonymizationResult(
             VolunteerAnonymizationOutcome.Anonymized,
@@ -3556,7 +3564,9 @@ public sealed class VolunteerCoordinatorService
                 auditAction,
                 nameof(Assignment),
                 assignment.Id,
-                Detail(new { assignment.ShiftSlotId, assignment.VolunteerId, assignment.Status })));
+                Detail(new { assignment.ShiftSlotId, assignment.VolunteerId, assignment.Status }),
+                shiftId: assignment.ShiftId,
+                volunteerId: assignment.VolunteerId));
         }
         return tokens.Count;
     }
@@ -4256,9 +4266,20 @@ public sealed class VolunteerCoordinatorService
         "RecurringCommitmentRequested" => "A volunteer requested a recurring commitment.",
         "RecurringCommitmentDirectClaimed" => "A volunteer claimed a recurring commitment.",
         "RecurringCommitmentApproved" => "A recurring commitment was approved and is awaiting one confirmation.",
+        "RecurringCommitmentRequestRejected" => "A recurring commitment request was declined.",
         "RecurringCommitmentConfirmed" => "A volunteer confirmed a recurring commitment.",
         "RecurringCommitmentWithdrawn" => "A volunteer withdrew from future recurring occurrences.",
         "RecurringCommitmentHandedOff" => "A recurring commitment was moved through an explicit schedule handoff.",
+        "RecurringCommitmentReconciled" => "A recurring commitment was reconciled with its schedule.",
+        "RecurringSeriesCreated" => "A recurring schedule was created.",
+        "RecurringSeriesRevisionCreated" => "A recurring schedule was revised.",
+        "RecurringOccurrencesPublished" => "Recurring schedule commitments were published.",
+        "RecurringOccurrenceGenerated" => "A recurring schedule commitment was generated.",
+        "RecurringOccurrenceNeedsReview" => "A recurring schedule date needs review.",
+        "RecurringOccurrenceGapResolved" => "A recurring schedule gap was resolved.",
+        "RecurringOccurrenceSkipped" => "A recurring schedule date was skipped.",
+        "RecurringOccurrenceDetached" => "A recurring schedule commitment was detached.",
+        "RecurringProtectedOccurrenceResolved" => "A protected recurring occurrence was resolved.",
         "AssignmentCreatedOrReassigned" => "A volunteer assignment was created or replaced.",
         "AssignmentReassigned" => "An earlier volunteer assignment was replaced.",
         "AssignmentCancelledByCoordinator" => "A coordinator cancelled a volunteer assignment.",

@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-21
+
+### Added
+
+- Prioritized coordinator work queues, bounded volunteer search, and reusable assignment contact details.
+- Filterable human-readable audit history with structured correlations and protected keyset cursors.
+- Coordinator access handoff diagnostics and explicit independent-access verification.
+- Set-based coordinator projections, PostgreSQL query-budget fixtures, and stewardship workspace indexes for mature recurring operation.
+
 ## [0.12.0] - 2026-09-21
 
 ### Added

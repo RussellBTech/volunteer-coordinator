@@ -15,7 +15,10 @@
     </div>
     @if (!Model.Home.IsSetupMode)
     {
-        <a class="button button-secondary" asp-page="/Coordinator/Schedule/Index">Open schedule</a>
+        <div class="actions">
+            <a class="button" asp-page="/Coordinator/Work">Open prioritized work</a>
+            <a class="button button-secondary" asp-page="/Coordinator/Schedule/Index">Open schedule</a>
+        </div>
     }
 </header>
 

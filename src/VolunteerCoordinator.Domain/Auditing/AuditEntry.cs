@@ -12,7 +12,9 @@ public sealed class AuditEntry
         string action,
         string entityKind,
         Guid entityId,
-        string detailJson)
+        string detailJson,
+        Guid? shiftId,
+        Guid? volunteerId)
     {
         if (occurredAtUtc.Offset != TimeSpan.Zero)
         {
@@ -31,8 +33,9 @@ public sealed class AuditEntry
         EntityKind = entityKind.Trim();
         EntityId = entityId;
         DetailJson = string.IsNullOrWhiteSpace(detailJson) ? "{}" : detailJson;
+        ShiftId = shiftId;
+        VolunteerId = volunteerId;
     }
-
     public Guid Id { get; private set; }
 
     public DateTimeOffset OccurredAtUtc { get; private set; }
@@ -46,6 +49,9 @@ public sealed class AuditEntry
     public Guid EntityId { get; private set; }
 
     public string DetailJson { get; private set; } = "{}";
+    public Guid? ShiftId { get; private set; }
+
+    public Guid? VolunteerId { get; private set; }
 
     public static AuditEntry Create(
         DateTimeOffset occurredAtUtc,
@@ -53,6 +59,8 @@ public sealed class AuditEntry
         string action,
         string entityKind,
         Guid entityId,
-        string detailJson) =>
-        new(occurredAtUtc, actor, action, entityKind, entityId, detailJson);
+        string detailJson,
+        Guid? shiftId = null,
+        Guid? volunteerId = null) =>
+        new(occurredAtUtc, actor, action, entityKind, entityId, detailJson, shiftId, volunteerId);
 }

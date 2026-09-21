@@ -15,4 +15,5 @@ public sealed record CoordinatorHomeProjection(
     IReadOnlyList<CoordinatorHomeExample> UnconfirmedAssignmentExamples,
     int FailedMessageCount,
     IReadOnlyList<CoordinatorHomeExample> FailedMessageExamples,
-    Shift? FirstExpiredUnpublishedShift = null);
+    Shift? FirstExpiredUnpublishedShift = null,
+    CoordinatorWorkSummaryDto? WorkSummary = null);

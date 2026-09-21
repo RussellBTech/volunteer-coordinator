@@ -61,6 +61,18 @@ builder.Services.AddOptions<NotificationDeliveryOptions>()
     .Bind(builder.Configuration.GetSection(NotificationDeliveryOptions.SectionName))
     .Validate(static options => options.IsValid(), "Notification delivery settings are invalid.")
     .ValidateOnStart();
+var attentionConfiguration = builder.Configuration.GetSection(CoordinatorAttentionOptions.SectionName);
+var configuredAttention = attentionConfiguration.Get<CoordinatorAttentionOptions>() ?? new CoordinatorAttentionOptions();
+if (!configuredAttention.IsValid())
+{
+    throw new InvalidOperationException(
+        "Coordinator attention thresholds must use positive UrgentHours, SoonHours greater than UrgentHours, and a page size no greater than 50.");
+}
+
+builder.Services.AddOptions<CoordinatorAttentionOptions>()
+    .Bind(attentionConfiguration)
+    .Validate(static options => options.IsValid(), "Coordinator attention settings are invalid.")
+    .ValidateOnStart();
 if (!string.IsNullOrWhiteSpace(configuredResend.ApiKey) &&
     !string.IsNullOrWhiteSpace(configuredEmail.From) &&
     !string.IsNullOrWhiteSpace(configuredEmail.ReplyTo))
@@ -80,6 +92,8 @@ if (!string.IsNullOrWhiteSpace(configuredResend.ApiKey) &&
 }
 builder.Services.AddDataProtection();
 builder.Services.AddSingleton<CoordinatorReviewStateProtector>();
+builder.Services.AddSingleton<CoordinatorCursorProtector>();
+builder.Services.AddSingleton<CoordinatorRouteProtector>();
 builder.Services.AddSingleton<GroupTimeFormatter>();
 builder.Services.AddRazorPages(options =>
     options.Conventions.AuthorizeFolder("/Coordinator", "CoordinatorOnly"));

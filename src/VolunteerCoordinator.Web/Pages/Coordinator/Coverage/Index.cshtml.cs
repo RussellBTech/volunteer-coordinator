@@ -33,13 +33,8 @@ public sealed class IndexModel : PageModel
             "unconfirmed" => "unconfirmed",
             _ => null
         };
-        var allCoverage = await _service.GetCoverageAsync(cancellationToken);
-        Coverage = AppliedAttention switch
-        {
-            "uncovered" => allCoverage.Where(x => x.State == "Uncovered").ToArray(),
-            "unconfirmed" => allCoverage.Where(x => x.State == "Unconfirmed").ToArray(),
-            _ => allCoverage
-        };
+        var allCoverage = await _service.GetCoverageAsync(AppliedAttention, cancellationToken);
+        Coverage = allCoverage;
         return Page();
     }
 
