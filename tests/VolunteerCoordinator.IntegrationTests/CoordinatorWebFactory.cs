@@ -109,6 +109,12 @@ public sealed class CoordinatorWebFactory : WebApplicationFactory<Program>
             builder.UseSetting(
                 "AnonymousRateLimits:AssignmentActionMutation:Window",
                 _rateLimits.AssignmentActionMutation.Window.ToString("c", CultureInfo.InvariantCulture));
+            builder.UseSetting(
+                "AnonymousRateLimits:Recovery:PermitLimit",
+                _rateLimits.Recovery.PermitLimit.ToString(CultureInfo.InvariantCulture));
+            builder.UseSetting(
+                "AnonymousRateLimits:Recovery:Window",
+                _rateLimits.Recovery.Window.ToString("c", CultureInfo.InvariantCulture));
         }
 
         if (_authenticateNonCoordinator)

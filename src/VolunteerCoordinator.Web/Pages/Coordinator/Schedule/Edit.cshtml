@@ -24,11 +24,29 @@
 <form method="post">
     <input asp-for="ExpectedVersion" type="hidden">
     <input asp-for="ExpectedSettingsVersion" type="hidden">
+    <input asp-for="ExpectedCurrentPolicy" type="hidden">
+    <input asp-for="ExpectedPolicyConsequence" type="hidden">
     <div asp-validation-summary="All" class="validation-summary-errors" role="alert" aria-live="assertive" tabindex="-1" data-focus-target="@(ViewData.ModelState.IsValid ? "false" : "true")"></div>
     <div class="form-group"><label asp-for="Title"></label><input asp-for="Title"><span asp-validation-for="Title"></span></div>
     <div class="form-group"><label asp-for="Location"></label><input asp-for="Location"><span asp-validation-for="Location"></span></div>
     <div class="form-group"><label asp-for="VolunteerInstructions">Volunteer instructions</label><textarea asp-for="VolunteerInstructions"></textarea><span asp-validation-for="VolunteerInstructions"></span></div>
     <div class="form-group"><label asp-for="Notes">Internal coordinator notes</label><textarea asp-for="Notes"></textarea><span asp-validation-for="Notes"></span></div>
+    <fieldset class="form-group">
+        <legend>How volunteers sign up</legend>
+        <p class="field-help">This one choice applies to every role in this schedule entry. Published Direct claim changes are blocked while requests need review.</p>
+        <div class="choice-grid">
+            <label class="choice-card">
+                <input asp-for="SignupPolicy" type="radio" value="ApprovalRequired">
+                <strong>Approval required (safer default)</strong>
+                <span>A volunteer sends a request. A coordinator reviews it before the commitment is assigned.</span>
+            </label>
+            <label class="choice-card">
+                <input asp-for="SignupPolicy" type="radio" value="DirectClaim">
+                <strong>Direct claim (lower maintenance)</strong>
+                <span>The first eligible volunteer who submits is confirmed immediately.</span>
+            </label>
+        </div>
+    </fieldset>
     <div class="form-group"><label asp-for="StartsAtLocal">Starts at (local time)</label><input asp-for="StartsAtLocal" type="datetime-local"><span asp-validation-for="StartsAtLocal"></span></div>
     @if (Model.Resolution?.StartCandidates.Count > 0)
     {
@@ -50,5 +68,20 @@
         </fieldset>
     }
     <div class="form-group"><label asp-for="BackupSlotCount">Backup slots</label><select asp-for="BackupSlotCount"><option value="0">0</option><option value="1">1</option><option value="2">2</option></select><span asp-validation-for="BackupSlotCount"></span></div>
-    <div class="actions"><button type="submit">Save corrections</button><a class="button button-secondary" asp-page="/Coordinator/Schedule/Index">Cancel</a></div>
+    <div class="actions"><button type="submit" name="handler" value="PreviewPolicy">Preview policy consequence</button><button type="submit">Save corrections</button><a class="button button-secondary" asp-page="/Coordinator/Schedule/Index">Cancel</a></div>
+@if (Model.PolicyPreview is not null)
+{
+    <section class="card preview-details" aria-labelledby="policy-preview-heading">
+        <h2 id="policy-preview-heading">Signup policy consequence</h2>
+        <p>@Model.PolicyPreview.Consequence</p>
+        @if (Model.PolicyPreview.CanApply && Model.PolicyPreview.CurrentPolicy != Model.PolicyPreview.ProposedPolicy)
+        {
+            <label class="check-row"><input asp-for="ConfirmPolicyChange"> I understand this consequence and want to change the policy.</label>
+        }
+        else if (!Model.PolicyPreview.CanApply)
+        {
+            <p class="alert alert-error" role="alert">@Model.PolicyPreview.Consequence</p>
+        }
+    </section>
+}
 </form>

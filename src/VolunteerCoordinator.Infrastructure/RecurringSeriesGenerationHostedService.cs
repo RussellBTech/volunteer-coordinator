@@ -45,6 +45,8 @@ public sealed class RecurringSeriesGenerationHostedService : BackgroundService
             await using var scope = _scopeFactory.CreateAsyncScope();
             var service = scope.ServiceProvider.GetRequiredService<RecurringShiftService>();
             await service.GenerateDueSeriesAsync(cancellationToken);
+            var commitments = scope.ServiceProvider.GetRequiredService<RecurringCommitmentService>();
+            await commitments.ReconcileAsync(cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

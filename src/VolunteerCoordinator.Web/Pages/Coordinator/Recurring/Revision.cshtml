@@ -13,7 +13,7 @@
     </div>
 </header>
 <form method="post">
-    <input asp-for="ExpectedSeriesVersion" type="hidden"><input asp-for="ExpectedClassification" type="hidden"><input asp-for="ExpectedSettingsVersion" type="hidden">
+    <input asp-for="ExpectedSeriesVersion" type="hidden"><input asp-for="ExpectedClassification" type="hidden"><input asp-for="ExpectedSettingsVersion" type="hidden"><input asp-for="ExpectedCurrentPolicy" type="hidden">
     <div asp-validation-summary="All" class="validation-summary-errors" role="alert"></div>
     <div class="form-group"><label asp-for="EffectiveLocalDate">Effective local date</label><input asp-for="EffectiveLocalDate" type="date"></div>
     <div class="form-group"><label asp-for="Title"></label><input asp-for="Title"></div>
@@ -38,9 +38,26 @@
     <div class="form-group"><label asp-for="HorizonWeeks">Future horizon in weeks</label><input asp-for="HorizonWeeks" min="4" max="26"></div>
     <input asp-for="TimeZoneId" type="hidden">
     <fieldset class="form-group"><legend>Repeated local time</legend><label><input asp-for="AmbiguousTimeChoice" type="radio" value="FirstOccurrence"> First occurrence</label><label><input asp-for="AmbiguousTimeChoice" type="radio" value="SecondOccurrence"> Second occurrence</label></fieldset>
+    <fieldset class="form-group">
+        <legend>How volunteers join future occurrences</legend>
+        <p class="field-help">This policy applies to every role in the revised series. Existing recurring requests and commitments keep their source policy.</p>
+        <label class="choice-card"><input asp-for="SignupPolicy" type="radio" value="ApprovalRequired"> <strong>Approval required (safer default)</strong> — A coordinator reviews each request.</label>
+        <label class="choice-card"><input asp-for="SignupPolicy" type="radio" value="DirectClaim"> <strong>Direct claim (lower maintenance)</strong> — The first eligible volunteer is confirmed immediately.</label>
+    </fieldset>
     <div class="actions"><button type="submit" name="handler" value="Preview">Preview affected occurrences</button><button type="submit" name="handler" value="Apply">Save effective revision</button><a class="button button-secondary" asp-page="/Coordinator/Recurring/Detail" asp-route-id="@Model.SeriesId">Back without changes</a></div>
-</form>
 @if (Model.Preview is not null)
 {
-    <section class="card" aria-labelledby="revision-preview-heading"><h2 id="revision-preview-heading">Affected occurrence preview</h2><p>@Model.Preview.EligibleCount eligible, @Model.Preview.ProtectedCount protected, @Model.Preview.ExceptionCount already independent, @Model.Preview.NeedsReviewCount needing review.</p><ul class="status-list">@foreach (var row in Model.Preview.Rows) { <li><strong>@row.LocalDate.ToString("dddd, MMMM d, yyyy")</strong> — @row.Classification@(row.ProtectionSummary is null ? string.Empty : $" ({row.ProtectionSummary})")</li> }</ul><p class="field-help">Nothing changes until you save the revision.</p></section>
+    <section class="card" aria-labelledby="revision-preview-heading">
+        <h2 id="revision-preview-heading">Affected occurrence preview</h2>
+        <p>@Model.Preview.EligibleCount eligible, @Model.Preview.ProtectedCount protected, @Model.Preview.ExceptionCount already independent, @Model.Preview.NeedsReviewCount needing review.</p>
+        <p><strong>Signup policy consequence:</strong> @Model.Preview.PolicyConsequence</p>
+        @if (Model.Preview.CurrentPolicy != Model.Preview.ProposedPolicy)
+        {
+            <label class="check-row"><input asp-for="ConfirmPolicyChange" type="checkbox"> I understand this policy consequence and want to apply it to future eligible occurrences.</label>
+        }
+        <ul class="status-list">@foreach (var row in Model.Preview.Rows) { <li><strong>@row.LocalDate.ToString("dddd, MMMM d, yyyy")</strong> — @row.Classification@(row.ProtectionSummary is null ? string.Empty : $" ({row.ProtectionSummary})")</li> }</ul>
+        <p class="field-help">Nothing changes until you save the revision.</p>
+    </section>
 }
+@* Preview state is intentionally rendered above the form's final submit. *@
+</form>

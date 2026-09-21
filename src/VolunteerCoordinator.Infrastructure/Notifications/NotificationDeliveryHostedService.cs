@@ -5,10 +5,12 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using VolunteerCoordinator.Application.Notifications;
 using VolunteerCoordinator.Application.Ports;
+using VolunteerCoordinator.Domain.Commitments;
 using VolunteerCoordinator.Domain.Access;
 using VolunteerCoordinator.Domain.Assignments;
 using VolunteerCoordinator.Domain.Notifications;
 using VolunteerCoordinator.Domain.Requests;
+using VolunteerCoordinator.Domain.Schedules;
 using VolunteerCoordinator.Infrastructure.Persistence;
 
 namespace VolunteerCoordinator.Infrastructure.Notifications;
@@ -196,6 +198,16 @@ public sealed class NotificationDeliveryHostedService : BackgroundService
                 : await db.Shifts.AsNoTracking().SingleOrDefaultAsync(
                     x => x.Id == slot.ShiftId,
                     cancellationToken);
+            if ((slot is null || shift is null) &&
+                IsRecurringNotificationKind(claim.Intent.Kind))
+            {
+                (slot, shift) = await LoadRecurringNotificationContextAsync(
+                    db,
+                    claim.Intent,
+                    volunteer.Id,
+                    cancellationToken);
+            }
+
             if (settings is null || slot is null || shift is null)
             {
                 await CompleteAsync(
@@ -226,6 +238,17 @@ public sealed class NotificationDeliveryHostedService : BackgroundService
                     slot.Id,
                     tokens,
                     emailOptions,
+                    cancellationToken);
+            }
+            else if (IsRecurringCapabilityLinkKind(claim.Intent.Kind))
+            {
+                privateUrl = await CreateRecurringCapabilityUrlAsync(
+                    db,
+                    claim,
+                    volunteer.Id,
+                    tokens,
+                    emailOptions,
+                    transient,
                     cancellationToken);
             }
             else if (IsCapabilityLinkKind(claim.Intent.Kind))
@@ -338,6 +361,102 @@ public sealed class NotificationDeliveryHostedService : BackgroundService
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return BuildUrl(emailOptions.PublicBaseUrl, "/Commitments/Recover/", generated.RawToken);
+    }
+
+    private async Task<string> CreateRecurringCapabilityUrlAsync(
+        VolunteerCoordinatorDbContext db,
+        NotificationClaim claim,
+        Guid volunteerId,
+        ITokenService tokens,
+        EmailOptions emailOptions,
+        ITransientLinkMaterialStore transient,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var intent = await LoadIntentForUpdateAsync(db, claim.Intent.Id, cancellationToken)
+            ?? throw new ClaimNoLongerCurrentException();
+        EnsureClaimCurrent(intent, claim);
+        var isRequest = string.Equals(
+            intent.Kind,
+            "RecurringCommitmentRequest",
+            StringComparison.Ordinal);
+        var isCommitment = string.Equals(
+            intent.Kind,
+            "RecurringCommitmentAccess",
+            StringComparison.Ordinal) ||
+            string.Equals(
+                intent.Kind,
+                "RecurringCommitmentConfirmation",
+                StringComparison.Ordinal);
+        if (!isRequest && !isCommitment)
+        {
+            throw new ClaimNoLongerCurrentException();
+        }
+
+        if (isRequest)
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"""SELECT 1 FROM "RecurringCommitmentRequests" WHERE "Id" = {intent.TransitionId} FOR UPDATE""",
+                cancellationToken);
+        }
+        else
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"""SELECT 1 FROM "RecurringCommitments" WHERE "Id" = {intent.TransitionId} FOR UPDATE""",
+                cancellationToken);
+        }
+        var request = isRequest
+            ? await db.RecurringCommitmentRequests.SingleOrDefaultAsync(
+                x => x.Id == intent.TransitionId,
+                cancellationToken)
+            : null;
+        var commitment = isCommitment
+            ? await db.RecurringCommitments.SingleOrDefaultAsync(
+                x => x.Id == intent.TransitionId,
+                cancellationToken)
+            : null;
+        if (request is null && commitment is null ||
+            request?.VolunteerId != volunteerId &&
+            commitment?.VolunteerId != volunteerId)
+        {
+            throw new ClaimNoLongerCurrentException();
+        }
+
+        var activeCapabilities = await db.RecurringCommitmentCapabilities
+            .Where(x =>
+                x.VolunteerId == volunteerId &&
+                x.InvalidatedAtUtc == null &&
+                (isRequest
+                    ? x.RequestId == intent.TransitionId
+                    : x.CommitmentId == intent.TransitionId))
+            .ToListAsync(cancellationToken);
+        var rawToken = transient.TryTakeHubToken(
+            intent.Id,
+            _clock.UtcNow,
+            out var transientRawToken)
+            ? transientRawToken
+            : null;
+        var generated = rawToken is null ? tokens.Generate() : null;
+        var raw = rawToken ?? generated!.RawToken;
+        if (generated is not null)
+        {
+            foreach (var capability in activeCapabilities)
+            {
+                capability.Invalidate(_clock.UtcNow);
+            }
+
+            db.RecurringCommitmentCapabilities.Add(
+                RecurringCommitmentCapability.Create(
+                    volunteerId,
+                    isRequest ? intent.TransitionId : null,
+                    isCommitment ? intent.TransitionId : null,
+                    generated.Hash,
+                    _clock.UtcNow));
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return BuildUrl(emailOptions.PublicBaseUrl, "/Recurring/Hub/", raw);
     }
 
     private async Task<string> CreateCapabilityUrlAsync(
@@ -580,6 +699,31 @@ public sealed class NotificationDeliveryHostedService : BackgroundService
         var volunteer = await db.Volunteers.AsNoTracking().SingleOrDefaultAsync(
             x => x.Id == volunteerId,
             cancellationToken);
+        if (IsRecurringCapabilityLinkKind(intent.Kind))
+        {
+            if (volunteer is null || volunteer.AnonymizedAtUtc.HasValue)
+            {
+                return false;
+            }
+
+            if (string.Equals(intent.Kind, "RecurringCommitmentRequest", StringComparison.Ordinal))
+            {
+                var request = await db.RecurringCommitmentRequests.AsNoTracking()
+                    .SingleOrDefaultAsync(x => x.Id == intent.TransitionId, cancellationToken);
+                return request is not null &&
+                       request.VolunteerId == volunteerId &&
+                       request.Status is RecurringCommitmentRequestStatus.Pending or
+                           RecurringCommitmentRequestStatus.Approved;
+            }
+
+            var commitment = await db.RecurringCommitments.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Id == intent.TransitionId, cancellationToken);
+            return commitment is not null &&
+                   commitment.VolunteerId == volunteerId &&
+                   commitment.State is RecurringCommitmentState.AwaitingConfirmation or
+                       RecurringCommitmentState.Active;
+        }
+
         var slot = await db.ShiftSlots.AsNoTracking().SingleOrDefaultAsync(
             x => x.Id == slotId,
             cancellationToken);
@@ -632,6 +776,7 @@ public sealed class NotificationDeliveryHostedService : BackgroundService
                     x => x.SourceRequestId == request.Id &&
                          (x.Status == AssignmentStatus.Assigned ||
                           x.Status == AssignmentStatus.Confirmed),
+
                     cancellationToken);
             return (request?.VolunteerId == volunteerId &&
                     request.ShiftSlotId == slotId &&
@@ -641,6 +786,84 @@ public sealed class NotificationDeliveryHostedService : BackgroundService
 
         return activeAssignment is not null || latestRequest?.Status == RequestStatus.Pending;
     }
+    private static async Task<(ShiftSlot? Slot, Shift? Shift)> LoadRecurringNotificationContextAsync(
+        VolunteerCoordinatorDbContext db,
+        NotificationIntent intent,
+        Guid volunteerId,
+        CancellationToken cancellationToken)
+    {
+        Guid seriesId;
+        SlotKind roleKind;
+        int rolePosition;
+        DateOnly effectiveLocalDate;
+        DateOnly endLocalDate;
+        if (string.Equals(intent.Kind, "RecurringCommitmentRequest", StringComparison.Ordinal))
+        {
+            var request = await db.RecurringCommitmentRequests.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Id == intent.TransitionId, cancellationToken);
+            if (request is null || request.VolunteerId != volunteerId)
+            {
+                return (null, null);
+            }
+
+            seriesId = request.SeriesId;
+            roleKind = request.RoleKind;
+            rolePosition = request.RolePosition;
+            effectiveLocalDate = request.EffectiveLocalDate;
+            endLocalDate = request.EndLocalDate;
+        }
+        else
+        {
+            var commitment = await db.RecurringCommitments.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Id == intent.TransitionId, cancellationToken);
+            if (commitment is null || commitment.VolunteerId != volunteerId)
+            {
+                return (null, null);
+            }
+
+            seriesId = commitment.SeriesId;
+            roleKind = commitment.RoleKind;
+            rolePosition = commitment.RolePosition;
+            effectiveLocalDate = commitment.EffectiveLocalDate;
+            endLocalDate = commitment.EndLocalDate;
+        }
+
+        var occurrences = await db.RecurringShiftOccurrences.AsNoTracking()
+            .Where(x =>
+                x.SeriesId == seriesId &&
+                x.LocalDate >= effectiveLocalDate &&
+                x.LocalDate <= endLocalDate &&
+                x.Status == RecurringOccurrenceStatus.Generated &&
+                x.ShiftId.HasValue &&
+                !x.IsException)
+            .OrderBy(x => x.LocalDate)
+            .ThenBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+        foreach (var occurrence in occurrences)
+        {
+            var shift = await db.Shifts.AsNoTracking()
+                .Include(x => x.Slots)
+                .SingleOrDefaultAsync(x => x.Id == occurrence.ShiftId!.Value, cancellationToken);
+            var slot = shift?.Slots.FirstOrDefault(x =>
+                x.IsActive &&
+                x.Kind == roleKind &&
+                x.Position == rolePosition);
+            if (shift is not null && slot is not null)
+            {
+                return (slot, shift);
+            }
+        }
+
+        return (null, null);
+    }
+
+    private static bool IsRecurringNotificationKind(string kind) =>
+        kind.StartsWith("RecurringCommitment", StringComparison.Ordinal);
+
+    private static bool IsRecurringCapabilityLinkKind(string kind) =>
+        string.Equals(kind, "RecurringCommitmentRequest", StringComparison.Ordinal) ||
+        string.Equals(kind, "RecurringCommitmentAccess", StringComparison.Ordinal) ||
+        string.Equals(kind, "RecurringCommitmentConfirmation", StringComparison.Ordinal);
 
     private static bool IsRecoveryDeliveryKind(string kind) =>
         string.Equals(kind, "AccessRecovery", StringComparison.Ordinal) ||

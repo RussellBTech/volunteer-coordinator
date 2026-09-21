@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using VolunteerCoordinator.Application;
 using VolunteerCoordinator.Application.Models;
 using VolunteerCoordinator.Application.Time;
+using VolunteerCoordinator.Domain.Schedules;
 using VolunteerCoordinator.Domain;
 using VolunteerCoordinator.Web.Security;
 
@@ -23,6 +24,8 @@ public sealed class EditModel : PageModel
 
     public LocalScheduleResolution? Resolution { get; private set; }
     public CommitmentDto? Commitment { get; private set; }
+    public SignupPolicyChangePreviewDto? PolicyPreview { get; private set; }
+
 
     [BindProperty, Required, StringLength(120)]
     public string Title { get; set; } = string.Empty;
@@ -50,12 +53,23 @@ public sealed class EditModel : PageModel
 
     [BindProperty, Range(0, 2)]
     public int BackupSlotCount { get; set; }
+    [BindProperty]
+    public SignupPolicy SignupPolicy { get; set; } = SignupPolicy.ApprovalRequired;
 
     [BindProperty]
     public uint ExpectedVersion { get; set; }
 
     [BindProperty]
     public uint ExpectedSettingsVersion { get; set; }
+    [BindProperty]
+    public bool ConfirmPolicyChange { get; set; }
+
+    [BindProperty]
+    public SignupPolicy? ExpectedCurrentPolicy { get; set; }
+
+    [BindProperty]
+    public string? ExpectedPolicyConsequence { get; set; }
+
 
     public async Task<IActionResult> OnGetAsync(Guid id, CancellationToken cancellationToken)
     {
@@ -80,14 +94,46 @@ public sealed class EditModel : PageModel
         Location = shift.Location;
         Notes = shift.InternalCoordinatorNotes;
         Commitment = shift.Commitment;
-        VolunteerInstructions = shift.Commitment.VolunteerInstructions;
-        StartsAtLocal = TimeZoneInfo.ConvertTime(shift.StartsAtUtc, zone).DateTime;
-        EndsAtLocal = TimeZoneInfo.ConvertTime(shift.EndsAtUtc, zone).DateTime;
         BackupSlotCount = shift.Slots.Count(x => x.Kind == "Backup" && x.Status != "Inactive");
+        SignupPolicy = shift.Commitment.SignupPolicy;
+        ExpectedCurrentPolicy = shift.Commitment.SignupPolicy;
+
         ExpectedVersion = shift.Version;
         ExpectedSettingsVersion = Settings.Version;
         return Page();
     }
+    public async Task<IActionResult> OnPostPreviewPolicyAsync(Guid id, CancellationToken cancellationToken)
+    {
+        Settings = await _service.GetGroupSettingsAsync(cancellationToken);
+        if (Settings is null)
+        {
+            return RedirectToPage("/Coordinator/Settings");
+        }
+
+        var existingShift = (await _service.ListShiftsAsync(cancellationToken)).SingleOrDefault(x => x.Id == id);
+        if (existingShift is null || !existingShift.IsActive)
+        {
+            return NotFound();
+        }
+
+        Commitment = existingShift.Commitment;
+        ExpectedCurrentPolicy = existingShift.Commitment.SignupPolicy;
+        try
+        {
+            PolicyPreview = await _service.PreviewShiftSignupPolicyAsync(
+                id,
+                SignupPolicy,
+                cancellationToken);
+            ExpectedPolicyConsequence = PolicyPreview.Consequence;
+        }
+        catch (DomainException exception)
+        {
+            ModelState.AddModelError(string.Empty, exception.Message);
+        }
+
+        return Page();
+    }
+
 
     public async Task<IActionResult> OnPostAsync(Guid id, CancellationToken cancellationToken)
     {
@@ -103,6 +149,15 @@ public sealed class EditModel : PageModel
         }
 
         Commitment = existingShift.Commitment;
+        if (SignupPolicy != existingShift.Commitment.SignupPolicy &&
+            string.IsNullOrWhiteSpace(ExpectedPolicyConsequence))
+        {
+            ModelState.AddModelError(
+                string.Empty,
+                "Preview the signup policy consequence before saving this policy change.");
+            return Page();
+        }
+
 
         if (!ModelState.IsValid || !TryReadOffsets(out var startOffset, out var endOffset))
         {
@@ -134,7 +189,11 @@ public sealed class EditModel : PageModel
                 input,
                 BackupSlotCount,
                 CoordinatorIdentity.GetEmail(User)!,
-                cancellationToken);
+                cancellationToken,
+                SignupPolicy,
+                ConfirmPolicyChange,
+                ExpectedCurrentPolicy,
+                ExpectedPolicyConsequence);
             TempData["Message"] = "Shift corrections saved.";
             return RedirectToPage("/Coordinator/Schedule/Index");
         }

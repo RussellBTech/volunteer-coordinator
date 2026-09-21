@@ -16,7 +16,8 @@ public sealed class Shift
         DateTimeOffset startsAtUtc,
         DateTimeOffset endsAtUtc,
         int backupSlotCount,
-        Guid? recurringOccurrenceId = null)
+        Guid? recurringOccurrenceId = null,
+        SignupPolicy signupPolicy = SignupPolicy.ApprovalRequired)
     {
         Validate(title, location, notes, volunteerInstructions, startsAtUtc, endsAtUtc);
         if (backupSlotCount is < 0 or > 2)
@@ -29,8 +30,14 @@ public sealed class Shift
             throw new DomainException("A recurring occurrence identifier must be non-empty.");
         }
 
+        if (!Enum.IsDefined(signupPolicy))
+        {
+            throw new DomainException("Choose a supported signup policy.");
+        }
+
         Id = Guid.NewGuid();
         RecurringOccurrenceId = recurringOccurrenceId;
+        SignupPolicy = signupPolicy;
         Title = title.Trim();
         Location = NormalizeOptional(location);
         Notes = NormalizeOptional(notes);
@@ -47,6 +54,7 @@ public sealed class Shift
 
     public Guid Id { get; private set; }
     public Guid? RecurringOccurrenceId { get; private set; }
+    public SignupPolicy SignupPolicy { get; private set; }
 
 
     public string Title { get; private set; } = string.Empty;
@@ -80,6 +88,43 @@ public sealed class Shift
         DateTimeOffset endsAtUtc,
         int backupSlotCount) =>
         new(title, location, notes, volunteerInstructions, startsAtUtc, endsAtUtc, backupSlotCount);
+    public static Shift Create(
+        string title,
+        string? location,
+        string? notes,
+        DateTimeOffset startsAtUtc,
+        DateTimeOffset endsAtUtc,
+        int backupSlotCount,
+        SignupPolicy signupPolicy) =>
+        new(
+            title,
+            location,
+            notes,
+            null,
+            startsAtUtc,
+            endsAtUtc,
+            backupSlotCount,
+            null,
+            signupPolicy);
+    public static Shift Create(
+        string title,
+        string? location,
+        string? notes,
+        string? volunteerInstructions,
+        DateTimeOffset startsAtUtc,
+        DateTimeOffset endsAtUtc,
+        int backupSlotCount,
+        SignupPolicy signupPolicy) =>
+        new(
+            title,
+            location,
+            notes,
+            volunteerInstructions,
+            startsAtUtc,
+            endsAtUtc,
+            backupSlotCount,
+            null,
+            signupPolicy);
 
     public static Shift Create(
         string title,
@@ -107,7 +152,8 @@ public sealed class Shift
         DateTimeOffset startsAtUtc,
         DateTimeOffset endsAtUtc,
         int backupSlotCount,
-        Guid recurringOccurrenceId) =>
+        Guid recurringOccurrenceId,
+        SignupPolicy signupPolicy = SignupPolicy.ApprovalRequired) =>
         new(
             title,
             location,
@@ -116,9 +162,19 @@ public sealed class Shift
             startsAtUtc,
             endsAtUtc,
             backupSlotCount,
-            recurringOccurrenceId);
+            recurringOccurrenceId,
+            signupPolicy);
 
 
+    public void ChangeSignupPolicy(SignupPolicy signupPolicy)
+    {
+        if (!Enum.IsDefined(signupPolicy))
+        {
+            throw new DomainException("Choose a supported signup policy.");
+        }
+
+        SignupPolicy = signupPolicy;
+    }
     public void Edit(
         string title,
         string? location,

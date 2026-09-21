@@ -246,6 +246,249 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                     b.ToTable("AuditEntries", (string)null);
                 });
 
+            modelBuilder.Entity("VolunteerCoordinator.Domain.Commitments.RecurringCommitment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ConfirmedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly>("EffectiveLocalDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly>("EndLocalDate")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("RoleKind")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("RolePosition")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("SeriesId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SourcePolicy")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("SourceRequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("State")
+                        .HasColumnType("integer");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<Guid>("VolunteerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly?>("WithdrawalEffectiveLocalDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateTimeOffset?>("WithdrawnAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RevisionId");
+
+                    b.HasIndex("SourceRequestId");
+
+                    b.HasIndex("VolunteerId");
+
+                    b.HasIndex("State", "EndLocalDate")
+                        .HasDatabaseName("IX_RecurringCommitments_State_End");
+
+                    b.HasIndex("SeriesId", "RoleKind", "RolePosition", "EffectiveLocalDate", "EndLocalDate")
+                        .HasDatabaseName("IX_RecurringCommitments_Overlap");
+
+                    b.ToTable("RecurringCommitments", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_RecurringCommitments_Horizon", "(\"EndLocalDate\" - \"EffectiveLocalDate\" + 1) BETWEEN 28 AND 182");
+
+                            t.HasCheckConstraint("CK_RecurringCommitments_Range", "\"EndLocalDate\" >= \"EffectiveLocalDate\"");
+                        });
+                });
+
+            modelBuilder.Entity("VolunteerCoordinator.Domain.Commitments.RecurringCommitmentCapability", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CommitmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("InvalidatedAtUtc")
+                        .IsConcurrencyToken()
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("RequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<byte[]>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<Guid>("VolunteerId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CommitmentId");
+
+                    b.HasIndex("RequestId");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("VolunteerId", "CommitmentId")
+                        .HasDatabaseName("IX_RecurringCommitmentCapabilities_Volunteer_Commitment");
+
+                    b.ToTable("RecurringCommitmentCapabilities", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_RecurringCommitmentCapabilities_TokenHash", "octet_length(\"TokenHash\") = 32");
+                        });
+                });
+
+            modelBuilder.Entity("VolunteerCoordinator.Domain.Commitments.RecurringCommitmentOccurrence", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AssignmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CommitmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid>("RecurringOccurrenceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("State")
+                        .HasColumnType("integer");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssignmentId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_RecurringCommitmentOccurrences_Assignment")
+                        .HasFilter("\"AssignmentId\" IS NOT NULL");
+
+                    b.HasIndex("CommitmentId", "RecurringOccurrenceId")
+                        .IsUnique();
+
+                    b.HasIndex("RecurringOccurrenceId", "State")
+                        .HasDatabaseName("IX_RecurringCommitmentOccurrences_Occurrence_State");
+
+                    b.ToTable("RecurringCommitmentOccurrences", (string)null);
+                });
+
+            modelBuilder.Entity("VolunteerCoordinator.Domain.Commitments.RecurringCommitmentRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("EffectiveLocalDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly>("EndLocalDate")
+                        .HasColumnType("date");
+
+                    b.Property<Guid?>("RecurringCommitmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("RequestedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("ResolvedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ResolvedByCoordinatorEmail")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("RoleKind")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("RolePosition")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("SeriesId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SourcePolicy")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<Guid>("VolunteerId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RecurringCommitmentId");
+
+                    b.HasIndex("RevisionId");
+
+                    b.HasIndex("VolunteerId");
+
+                    b.HasIndex("SeriesId", "VolunteerId", "RoleKind", "RolePosition", "EffectiveLocalDate", "EndLocalDate")
+                        .IsUnique()
+                        .HasDatabaseName("UX_RecurringCommitmentRequests_Pending")
+                        .HasFilter("\"Status\" = 0");
+
+                    b.ToTable("RecurringCommitmentRequests", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_RecurringCommitmentRequests_Horizon", "(\"EndLocalDate\" - \"EffectiveLocalDate\" + 1) BETWEEN 28 AND 182");
+
+                            t.HasCheckConstraint("CK_RecurringCommitmentRequests_Range", "\"EndLocalDate\" >= \"EffectiveLocalDate\"");
+                        });
+                });
+
             modelBuilder.Entity("VolunteerCoordinator.Domain.Notifications.NotificationAttempt", b =>
                 {
                     b.Property<Guid>("Id")
@@ -646,6 +889,9 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("SeriesId")
                         .HasColumnType("uuid");
 
+                    b.Property<int>("SignupPolicy")
+                        .HasColumnType("integer");
+
                     b.Property<string>("TimeZoneId")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -708,6 +954,9 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid?>("RecurringOccurrenceId")
                         .HasColumnType("uuid");
+
+                    b.Property<int>("SignupPolicy")
+                        .HasColumnType("integer");
 
                     b.Property<DateTimeOffset>("StartsAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -902,6 +1151,97 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("SourceRequestId")
                         .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("VolunteerCoordinator.Domain.Volunteers.Volunteer", null)
+                        .WithMany()
+                        .HasForeignKey("VolunteerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("VolunteerCoordinator.Domain.Commitments.RecurringCommitment", b =>
+                {
+                    b.HasOne("VolunteerCoordinator.Domain.Schedules.RecurringShiftSeriesRevision", null)
+                        .WithMany()
+                        .HasForeignKey("RevisionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("VolunteerCoordinator.Domain.Schedules.RecurringShiftSeries", null)
+                        .WithMany()
+                        .HasForeignKey("SeriesId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("VolunteerCoordinator.Domain.Commitments.RecurringCommitmentRequest", null)
+                        .WithMany()
+                        .HasForeignKey("SourceRequestId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("VolunteerCoordinator.Domain.Volunteers.Volunteer", null)
+                        .WithMany()
+                        .HasForeignKey("VolunteerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("VolunteerCoordinator.Domain.Commitments.RecurringCommitmentCapability", b =>
+                {
+                    b.HasOne("VolunteerCoordinator.Domain.Commitments.RecurringCommitment", null)
+                        .WithMany()
+                        .HasForeignKey("CommitmentId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("VolunteerCoordinator.Domain.Commitments.RecurringCommitmentRequest", null)
+                        .WithMany()
+                        .HasForeignKey("RequestId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("VolunteerCoordinator.Domain.Volunteers.Volunteer", null)
+                        .WithMany()
+                        .HasForeignKey("VolunteerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("VolunteerCoordinator.Domain.Commitments.RecurringCommitmentOccurrence", b =>
+                {
+                    b.HasOne("VolunteerCoordinator.Domain.Assignments.Assignment", null)
+                        .WithMany()
+                        .HasForeignKey("AssignmentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("VolunteerCoordinator.Domain.Commitments.RecurringCommitment", null)
+                        .WithMany()
+                        .HasForeignKey("CommitmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("VolunteerCoordinator.Domain.Schedules.RecurringShiftOccurrence", null)
+                        .WithMany()
+                        .HasForeignKey("RecurringOccurrenceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("VolunteerCoordinator.Domain.Commitments.RecurringCommitmentRequest", b =>
+                {
+                    b.HasOne("VolunteerCoordinator.Domain.Commitments.RecurringCommitment", null)
+                        .WithMany()
+                        .HasForeignKey("RecurringCommitmentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("VolunteerCoordinator.Domain.Schedules.RecurringShiftSeriesRevision", null)
+                        .WithMany()
+                        .HasForeignKey("RevisionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("VolunteerCoordinator.Domain.Schedules.RecurringShiftSeries", null)
+                        .WithMany()
+                        .HasForeignKey("SeriesId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.HasOne("VolunteerCoordinator.Domain.Volunteers.Volunteer", null)
                         .WithMany()

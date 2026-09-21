@@ -83,6 +83,8 @@ public interface IWorkflowStore
         CancellationToken cancellationToken);
 
     Task<Assignment?> GetAssignmentAsync(Guid assignmentId, CancellationToken cancellationToken);
+    Task LockAssignmentAsync(Guid assignmentId, CancellationToken cancellationToken);
+
 
     Task<Guid?> GetAssignmentSlotIdAsync(
         Guid assignmentId,

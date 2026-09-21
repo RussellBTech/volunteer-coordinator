@@ -12,7 +12,8 @@ public sealed class Assignment
         Guid volunteerId,
         Guid? sourceRequestId,
         string coordinatorEmail,
-        DateTimeOffset assignedAtUtc)
+        DateTimeOffset assignedAtUtc,
+        bool confirmed = false)
     {
         ValidateCoordinator(coordinatorEmail);
         ValidateUtc(assignedAtUtc);
@@ -21,8 +22,9 @@ public sealed class Assignment
         ShiftId = shiftId;
         VolunteerId = volunteerId;
         SourceRequestId = sourceRequestId;
-        Status = AssignmentStatus.Assigned;
+        Status = confirmed ? AssignmentStatus.Confirmed : AssignmentStatus.Assigned;
         AssignedAtUtc = assignedAtUtc;
+        ConfirmedAtUtc = confirmed ? assignedAtUtc : null;
         AssignedByCoordinatorEmail = coordinatorEmail.Trim().ToUpperInvariant();
     }
 
@@ -56,6 +58,19 @@ public sealed class Assignment
         string coordinatorEmail,
         DateTimeOffset assignedAtUtc) =>
         new(shiftSlotId, shiftId, volunteerId, sourceRequestId, coordinatorEmail, assignedAtUtc);
+    public static Assignment DirectClaim(
+        Guid shiftSlotId,
+        Guid shiftId,
+        Guid volunteerId,
+        DateTimeOffset claimedAtUtc) =>
+        new(
+            shiftSlotId,
+            shiftId,
+            volunteerId,
+            null,
+            "DIRECT CLAIM",
+            claimedAtUtc,
+            true);
 
     public void Confirm(DateTimeOffset nowUtc)
     {

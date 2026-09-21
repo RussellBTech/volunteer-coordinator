@@ -8,6 +8,7 @@ using VolunteerCoordinator.Domain.Assignments;
 using VolunteerCoordinator.Domain.Auditing;
 using VolunteerCoordinator.Domain.Notifications;
 using VolunteerCoordinator.Domain.Requests;
+using VolunteerCoordinator.Domain.Commitments;
 using VolunteerCoordinator.Domain.Schedules;
 using VolunteerCoordinator.Domain.Settings;
 using VolunteerCoordinator.Application.Time;
@@ -37,7 +38,9 @@ public sealed class VolunteerCoordinatorService
         IReadOnlyList<Assignment> Assignments,
         IReadOnlyList<Shift> Shifts,
         IReadOnlyList<ActionToken> UnusedActionTokens,
-        IReadOnlyList<NotificationAttempt> Notifications);
+        IReadOnlyList<NotificationAttempt> Notifications,
+        IReadOnlyList<RecurringCommitmentRequest> RecurringRequests,
+        IReadOnlyList<RecurringCommitment> RecurringCommitments);
 
 
     public VolunteerCoordinatorService(
@@ -291,7 +294,8 @@ public sealed class VolunteerCoordinatorService
         LocalScheduleInput schedule,
         int backupSlotCount,
         string coordinatorEmail,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SignupPolicy signupPolicy = SignupPolicy.ApprovalRequired)
     {
         var actor = RequireCoordinator(coordinatorEmail);
         var now = _clock.UtcNow;
@@ -307,7 +311,8 @@ public sealed class VolunteerCoordinatorService
                     volunteerInstructions,
                     resolved.StartsAtUtc,
                     resolved.EndsAtUtc,
-                    backupSlotCount);
+                    backupSlotCount,
+                    signupPolicy);
                 _store.AddShift(shift);
                 _store.AddAuditEntry(AuditEntry.Create(
                     now,
@@ -320,6 +325,7 @@ public sealed class VolunteerCoordinatorService
                         shift.Title,
                         shift.StartsAtUtc,
                         shift.EndsAtUtc,
+                        shift.SignupPolicy,
                         BackupSlots = backupSlotCount,
                         HasVolunteerInstructions = shift.VolunteerInstructions is not null
                     })));
@@ -338,7 +344,11 @@ public sealed class VolunteerCoordinatorService
         LocalScheduleInput schedule,
         int backupSlotCount,
         string coordinatorEmail,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SignupPolicy signupPolicy = SignupPolicy.ApprovalRequired,
+        bool confirmPolicyChange = false,
+        SignupPolicy? expectedCurrentPolicy = null,
+        string? expectedPolicyConsequence = null)
     {
         var actor = RequireCoordinator(coordinatorEmail);
         var now = _clock.UtcNow;
@@ -367,6 +377,29 @@ public sealed class VolunteerCoordinatorService
                 {
                     throw new DomainException("This shift was changed by another coordinator. Reload it and try again.");
                 }
+                if (expectedCurrentPolicy.HasValue &&
+                    shift.SignupPolicy != expectedCurrentPolicy.Value)
+                {
+                    throw new DomainException(StalePreviewMessage);
+                }
+                if (shift.SignupPolicy != signupPolicy &&
+                    (!confirmPolicyChange ||
+                     (expectedPolicyConsequence is not null &&
+                      !string.Equals(
+                          expectedPolicyConsequence,
+                          PolicyConsequence(signupPolicy),
+                          StringComparison.Ordinal))))
+                {
+                    throw new DomainException(PolicyConsequence(signupPolicy));
+                }
+                if (shift.SignupPolicy == SignupPolicy.ApprovalRequired &&
+                    shift.PublishedAtUtc.HasValue &&
+                    (await _store.GetPendingRequestsAsync(
+                        shift.Slots.Select(x => x.Id).ToArray(),
+                        token)).Count > 0)
+                {
+                    throw new DomainException("Resolve existing volunteer requests before enabling Direct claim.");
+                }
                 if (shift.RecurringOccurrenceId.HasValue &&
                     _store is IRecurringShiftStore recurringStore &&
                     await recurringStore.GetRecurringOccurrenceAsync(
@@ -375,6 +408,8 @@ public sealed class VolunteerCoordinatorService
                 {
                     editedOccurrence.MarkException("The coordinator edited this occurrence independently.");
                 }
+                var oldSignupPolicy = shift.SignupPolicy;
+                shift.ChangeSignupPolicy(signupPolicy);
 
                 foreach (var slotId in removedBackupSlotIds)
                 {
@@ -448,6 +483,8 @@ public sealed class VolunteerCoordinatorService
                         shift.Title,
                         shift.StartsAtUtc,
                         shift.EndsAtUtc,
+                        shift.SignupPolicy,
+                        PolicyChanged = oldSignupPolicy != shift.SignupPolicy,
                         BackupSlots = backupSlotCount,
                         HasVolunteerInstructions = shift.VolunteerInstructions is not null
                     })));
@@ -457,6 +494,89 @@ public sealed class VolunteerCoordinatorService
     }
 
 
+
+    public async Task<SignupPolicyChangePreviewDto> PreviewShiftSignupPolicyAsync(
+        Guid shiftId,
+        SignupPolicy proposedPolicy,
+        CancellationToken cancellationToken)
+    {
+        var shift = await RequireShiftAsync(shiftId, cancellationToken);
+        var pendingCount = (await _store.GetPendingRequestsAsync(
+                shift.Slots.Select(x => x.Id).ToArray(),
+                cancellationToken))
+            .Count;
+        var canApply = !(shift.SignupPolicy == SignupPolicy.ApprovalRequired &&
+                         proposedPolicy == SignupPolicy.DirectClaim &&
+                         pendingCount > 0);
+        return new SignupPolicyChangePreviewDto(
+            shift.Id,
+            shift.SignupPolicy,
+            proposedPolicy,
+            pendingCount,
+            shift.Version,
+            canApply,
+            canApply
+                ? proposedPolicy == SignupPolicy.DirectClaim
+                    ? "The first eligible volunteer will be confirmed immediately for future submissions."
+                    : "A coordinator will review each future request before assignment."
+                : "Resolve existing volunteer requests before enabling Direct claim.");
+    }
+
+    public async Task ChangeShiftSignupPolicyAsync(
+        Guid shiftId,
+        uint expectedVersion,
+        SignupPolicy proposedPolicy,
+        string coordinatorEmail,
+        CancellationToken cancellationToken,
+        bool confirmPolicyChange = false,
+        string? expectedPolicyConsequence = null)
+    {
+        var actor = RequireCoordinator(coordinatorEmail);
+        var now = _clock.UtcNow;
+        await _store.ExecuteInTransactionAsync(
+            async token =>
+            {
+                await _store.LockShiftAsync(shiftId, token);
+                var shift = await RequireShiftAsync(shiftId, token);
+                if (shift.Version != expectedVersion)
+                {
+                    throw new DomainException(StalePreviewMessage);
+                }
+                if (shift.SignupPolicy != proposedPolicy &&
+                    (!confirmPolicyChange ||
+                     (expectedPolicyConsequence is not null &&
+                      !string.Equals(
+                          expectedPolicyConsequence,
+                          PolicyConsequence(proposedPolicy),
+                          StringComparison.Ordinal))))
+                {
+                    throw new DomainException(PolicyConsequence(proposedPolicy));
+                }
+
+                var pendingCount = (await _store.GetPendingRequestsAsync(
+                        shift.Slots.Select(x => x.Id).ToArray(),
+                        token))
+                    .Count;
+                if (shift.SignupPolicy == SignupPolicy.ApprovalRequired &&
+                    proposedPolicy == SignupPolicy.DirectClaim &&
+                    pendingCount > 0)
+                {
+                    throw new DomainException("Resolve existing volunteer requests before enabling Direct claim.");
+                }
+
+                var previous = shift.SignupPolicy;
+                shift.ChangeSignupPolicy(proposedPolicy);
+                _store.AddAuditEntry(AuditEntry.Create(
+                    now,
+                    actor,
+                    "ShiftSignupPolicyChanged",
+                    nameof(Shift),
+                    shift.Id,
+                    Detail(new { PreviousPolicy = previous, NewPolicy = proposedPolicy, PendingRequests = pendingCount })));
+                return true;
+            },
+            cancellationToken);
+    }
 
     public Task DeactivateShiftAsync(
         Guid shiftId,
@@ -506,6 +626,11 @@ public sealed class VolunteerCoordinatorService
                         token) is { } deactivatedOccurrence)
                 {
                     deactivatedOccurrence.MarkException("The coordinator deactivated this occurrence independently.");
+                    await ResolveStrandedRecurringParentsAsync(
+                        deactivatedOccurrence,
+                        actor,
+                        now,
+                        token);
                 }
 
 
@@ -1094,6 +1219,7 @@ public sealed class VolunteerCoordinatorService
                 await _store.LockSlotAsync(slotId, token);
                 var slot = await RequireSlotAsync(slotId, token);
                 var shift = await RequireShiftAsync(slot.ShiftId, token);
+                var directClaim = shift.SignupPolicy == SignupPolicy.DirectClaim;
                 if (!slot.IsActive || !shift.IsActive || !shift.PublishedAtUtc.HasValue || shift.StartsAtUtc <= now)
                 {
                     throw new DomainException("This slot is not open for requests.");
@@ -1101,7 +1227,10 @@ public sealed class VolunteerCoordinatorService
 
                 if (await _store.GetActiveAssignmentForSlotAsync(slot.Id, token) is not null)
                 {
-                    throw new DomainException("This slot has already been filled.");
+                    throw new DomainException(
+                        directClaim
+                            ? "This commitment was just claimed. Choose another opening."
+                            : "This slot has already been filled.");
                 }
 
                 var normalizedEmail = Volunteer.NormalizeEmail(email);
@@ -1120,6 +1249,61 @@ public sealed class VolunteerCoordinatorService
                 {
                     volunteer = Volunteer.Create(name, email, phone, now);
                     _store.AddVolunteer(volunteer);
+                }
+
+                if (directClaim)
+                {
+                    var activeVolunteerAssignment = await _store.GetActiveAssignmentForVolunteerAndShiftAsync(
+                        volunteer.Id,
+                        shift.Id,
+                        token);
+                    if (activeVolunteerAssignment is not null)
+                    {
+                        throw new DomainException("You already have an active commitment for this schedule.");
+                    }
+
+                    var staleRequest = await _store.GetPendingRequestAsync(slot.Id, volunteer.Id, token);
+                    staleRequest?.Supersede("DIRECT CLAIM", now);
+                    var assignment = Assignment.DirectClaim(slot.Id, shift.Id, volunteer.Id, now);
+                    _store.AddAssignment(assignment);
+                    if (_store is IAccessStore directAccessStore)
+                    {
+                        foreach (var previous in await directAccessStore.GetActiveCapabilitiesAsync(
+                                     volunteer.Id,
+                                     slot.Id,
+                                     token))
+                        {
+                            previous.Invalidate(now);
+                        }
+
+                        directAccessStore.AddCapability(VolunteerAccessCapability.Create(
+                            slot.Id,
+                            volunteer.Id,
+                            generatedToken.Hash,
+                            now,
+                            CapabilityIssuedReason.DirectAssignment));
+                    }
+
+                    requestIntent = QueueNotification(
+                        assignment.Id,
+                        volunteer.Id,
+                        slot.Id,
+                        $"assignment:{assignment.Id:N}:access",
+                        "AssignmentAccess",
+                        now);
+                    _store.AddAuditEntry(AuditEntry.Create(
+                        now,
+                        $"volunteer:{volunteer.Id}",
+                        "AssignmentDirectClaimed",
+                        nameof(Assignment),
+                        assignment.Id,
+                        Detail(new { assignment.ShiftSlotId, assignment.VolunteerId, Policy = shift.SignupPolicy })));
+                    return (
+                        SubmissionId: assignment.Id,
+                        HubRequestId: staleRequest?.Id ?? Guid.Empty,
+                        VolunteerId: volunteer.Id,
+                        Commitment: BuildCommitment(shift, settings, slot, SlotLabel(slot)),
+                        IsDirectClaim: true);
                 }
 
                 if (await _store.GetPendingRequestAsync(slot.Id, volunteer.Id, token) is not null)
@@ -1151,8 +1335,19 @@ public sealed class VolunteerCoordinatorService
                     $"request:{request.Id:N}:receipt",
                     "RequestReceipt",
                     now);
-                _store.AddAuditEntry(AuditEntry.Create(now, $"volunteer:{volunteer.Id}", "RequestSubmitted", nameof(ShiftRequest), request.Id, Detail(new { request.ShiftSlotId, request.VolunteerId })));
-                return (request.Id, VolunteerId: volunteer.Id, Commitment: BuildCommitment(shift, settings, slot, SlotLabel(slot)));
+                _store.AddAuditEntry(AuditEntry.Create(
+                    now,
+                    $"volunteer:{volunteer.Id}",
+                    "RequestSubmitted",
+                    nameof(ShiftRequest),
+                    request.Id,
+                    Detail(new { request.ShiftSlotId, request.VolunteerId, Policy = shift.SignupPolicy })));
+                return (
+                    SubmissionId: request.Id,
+                    HubRequestId: request.Id,
+                    VolunteerId: volunteer.Id,
+                    Commitment: BuildCommitment(shift, settings, slot, SlotLabel(slot)),
+                    IsDirectClaim: false);
             },
             cancellationToken);
         if (requestIntent is not null)
@@ -1163,10 +1358,35 @@ public sealed class VolunteerCoordinatorService
                 now.AddMinutes(15));
         }
 
-
-        var notification = await NotifySafelyAsync(new NotificationMessage(result.Id, "RequestReceived", result.VolunteerId), cancellationToken);
-        return new RequestSubmission(result.Id, generatedToken.RawToken, notification.Warning, result.Commitment);
+        var notification = await NotifySafelyAsync(
+            new NotificationMessage(
+                result.SubmissionId,
+                result.IsDirectClaim ? "AssignmentCreated" : "RequestReceived",
+                result.VolunteerId),
+            cancellationToken);
+        return new RequestSubmission(
+            result.HubRequestId,
+            generatedToken.RawToken,
+            notification.Warning,
+            result.Commitment);
     }
+    public async Task<RequestSubmission> ClaimShiftAsync(
+        Guid slotId,
+        string name,
+        string email,
+        string? phone,
+        CancellationToken cancellationToken)
+    {
+        var slot = await RequireSlotAsync(slotId, cancellationToken);
+        var shift = await RequireShiftAsync(slot.ShiftId, cancellationToken);
+        if (shift.SignupPolicy != SignupPolicy.DirectClaim)
+        {
+            throw new DomainException("This opening requires coordinator review. Send a request instead.");
+        }
+
+        return await SubmitRequestAsync(slotId, name, email, phone, cancellationToken);
+    }
+
 
     public async Task<RequestStatusDto> GetRequestStatusAsync(
         string rawStatusToken,
@@ -1308,6 +1528,14 @@ public sealed class VolunteerCoordinatorService
                     case "Cancel":
                         assignment.Cancel(now);
                         break;
+                }
+                if (normalizedAction == "Cancel")
+                {
+                    await MarkRecurringOccurrenceExceptionAsync(
+                        assignment,
+                        RecurringCommitmentOccurrenceState.Withdrawn,
+                        "The volunteer withdrew from this occurrence.",
+                        token);
                 }
 
                 _store.AddAuditEntry(AuditEntry.Create(
@@ -2780,6 +3008,34 @@ public sealed class VolunteerCoordinatorService
                 pendingCount,
                 CalculatePrivacyAnchor(state));
         }
+        if (_store is IRecurringCommitmentStore recurringStore)
+        {
+            var recurringPendingCount = (await recurringStore.GetRecurringCommitmentRequestsAsync(
+                    cancellationToken))
+                .Count(x =>
+                    x.VolunteerId == state.Volunteer.Id &&
+                    x.Status == RecurringCommitmentRequestStatus.Pending);
+            if (recurringPendingCount > 0)
+            {
+                return BlockedResult(
+                    VolunteerAnonymizationBlocker.PendingRequests,
+                    pendingCount + recurringPendingCount,
+                    CalculatePrivacyAnchor(state));
+            }
+
+            var activeRecurringCount = (await recurringStore.GetRecurringCommitmentsForVolunteerAsync(
+                    state.Volunteer.Id,
+                    cancellationToken))
+                .Count(x => x.IsOpenForOverlap);
+            if (activeRecurringCount > 0)
+            {
+                return BlockedResult(
+                    VolunteerAnonymizationBlocker.ActiveRecurringCommitments,
+                    activeRecurringCount,
+                    CalculatePrivacyAnchor(state));
+            }
+        }
+
 
         var activeAssignmentCount = state.Assignments.Count(x => x.IsActive);
         if (activeAssignmentCount > 0)
@@ -2840,6 +3096,19 @@ public sealed class VolunteerCoordinatorService
                 if (recovery.Invalidate(now))
                 {
                     invalidatedRecoveryTokens++;
+                }
+            }
+        }
+        if (_store is IRecurringCommitmentStore recurringAccessStore)
+        {
+            foreach (var capability in await recurringAccessStore.GetActiveRecurringCapabilitiesAsync(
+                         state.Volunteer.Id,
+                         null,
+                         cancellationToken))
+            {
+                if (capability.Invalidate(now))
+                {
+                    invalidatedCapabilities++;
                 }
             }
         }
@@ -2907,7 +3176,7 @@ public sealed class VolunteerCoordinatorService
         var volunteer = await _store.GetVolunteerAsync(volunteerId, cancellationToken);
         if (volunteer is null)
         {
-            return new VolunteerPrivacyState(null, [], [], [], [], []);
+            return new VolunteerPrivacyState(null, [], [], [], [], [], [], []);
         }
 
         var requests = await _store.GetRequestsForVolunteerAsync(volunteerId, cancellationToken);
@@ -2939,13 +3208,27 @@ public sealed class VolunteerCoordinatorService
         var actionTokens = await _store.GetUnusedActionTokensAsync(
             assignments.Select(x => x.Id).ToArray(),
             cancellationToken);
+        IReadOnlyList<RecurringCommitmentRequest> recurringRequests = [];
+        IReadOnlyList<RecurringCommitment> recurringCommitments = [];
+        if (_store is IRecurringCommitmentStore recurringStore)
+        {
+            recurringRequests = (await recurringStore.GetRecurringCommitmentRequestsAsync(cancellationToken))
+                .Where(x => x.VolunteerId == volunteerId)
+                .ToArray();
+            recurringCommitments = await recurringStore.GetRecurringCommitmentsForVolunteerAsync(
+                volunteerId,
+                cancellationToken);
+        }
+
         return new VolunteerPrivacyState(
             volunteer,
             requests,
             assignments,
             shifts,
             actionTokens,
-            notifications);
+            notifications,
+            recurringRequests,
+            recurringCommitments);
     }
 
 
@@ -2958,6 +3241,19 @@ public sealed class VolunteerCoordinatorService
         {
             anchor = Max(anchor, request.RequestedAtUtc);
             anchor = Max(anchor, request.ResolvedAtUtc);
+        }
+
+        foreach (var request in state.RecurringRequests)
+        {
+            anchor = Max(anchor, request.RequestedAtUtc);
+            anchor = Max(anchor, request.ResolvedAtUtc);
+        }
+
+        foreach (var commitment in state.RecurringCommitments)
+        {
+            anchor = Max(anchor, commitment.CreatedAtUtc);
+            anchor = Max(anchor, commitment.ConfirmedAtUtc);
+            anchor = Max(anchor, commitment.WithdrawnAtUtc);
         }
 
         foreach (var assignment in state.Assignments)
@@ -2995,6 +3291,171 @@ public sealed class VolunteerCoordinatorService
             anchor,
             0);
 
+
+    private async Task ResolveStrandedRecurringParentsAsync(
+        RecurringShiftOccurrence deactivatedOccurrence,
+        string coordinatorEmail,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        if (_store is not IRecurringCommitmentStore recurringStore ||
+            _store is not IRecurringShiftStore recurringShiftStore)
+        {
+            return;
+        }
+
+        foreach (var request in (await recurringStore.GetPendingRecurringCommitmentRequestsAsync(
+                     deactivatedOccurrence.SeriesId,
+                     cancellationToken)).ToArray())
+        {
+            if (await HasEligibleRecurringOccurrenceAsync(
+                    request.SeriesId,
+                    request.RoleKind,
+                    request.RolePosition,
+                    request.EffectiveLocalDate,
+                    request.EndLocalDate,
+                    deactivatedOccurrence.Id,
+                    recurringShiftStore,
+                    cancellationToken))
+            {
+                continue;
+            }
+            await recurringStore.LockRecurringCommitmentRequestAsync(request.Id, cancellationToken);
+            var currentRequest = await recurringStore.GetRecurringCommitmentRequestAsync(
+                request.Id,
+                cancellationToken);
+            if (currentRequest is null)
+            {
+                continue;
+            }
+
+
+            currentRequest.Reject(coordinatorEmail, nowUtc);
+            await CancelRecurringParentAccessAsync(
+                currentRequest.VolunteerId,
+                currentRequest.Id,
+                nowUtc,
+                cancellationToken);
+        }
+
+        foreach (var commitment in (await recurringStore.GetRecurringCommitmentsForSeriesAsync(
+                     deactivatedOccurrence.SeriesId,
+                     cancellationToken))
+                 .Where(x => x.IsOpenForOverlap)
+                 .ToArray())
+        {
+            if (await HasEligibleRecurringOccurrenceAsync(
+                    commitment.SeriesId,
+                    commitment.RoleKind,
+                    commitment.RolePosition,
+                    commitment.EffectiveLocalDate,
+                    commitment.EndLocalDate,
+                    deactivatedOccurrence.Id,
+                    recurringShiftStore,
+                    cancellationToken))
+            {
+                continue;
+            }
+            await recurringStore.LockRecurringCommitmentAsync(commitment.Id, cancellationToken);
+            var currentCommitment = await recurringStore.GetRecurringCommitmentAsync(
+                commitment.Id,
+                cancellationToken);
+            if (currentCommitment is null || !currentCommitment.IsOpenForOverlap)
+            {
+                continue;
+            }
+
+
+            currentCommitment.ResolveStranded(nowUtc);
+            await CancelRecurringParentAccessAsync(
+                currentCommitment.VolunteerId,
+                currentCommitment.Id,
+                nowUtc,
+                cancellationToken);
+        }
+    }
+
+    private async Task<bool> HasEligibleRecurringOccurrenceAsync(
+        Guid seriesId,
+        SlotKind roleKind,
+        int rolePosition,
+        DateOnly effectiveLocalDate,
+        DateOnly endLocalDate,
+        Guid excludedOccurrenceId,
+        IRecurringShiftStore recurringShiftStore,
+        CancellationToken cancellationToken)
+    {
+        var occurrences = await recurringShiftStore.GetRecurringOccurrencesAsync(
+            seriesId,
+            effectiveLocalDate,
+            endLocalDate,
+            cancellationToken);
+        foreach (var occurrence in occurrences)
+        {
+            if (occurrence.Id == excludedOccurrenceId ||
+                occurrence.Status != RecurringOccurrenceStatus.Generated ||
+                occurrence.IsException ||
+                !occurrence.ShiftId.HasValue)
+            {
+                continue;
+            }
+
+            var shift = await _store.GetShiftAsync(occurrence.ShiftId.Value, cancellationToken);
+            var slot = shift?.Slots.FirstOrDefault(x =>
+                x.IsActive &&
+                x.Kind == roleKind &&
+                x.Position == rolePosition);
+            if (shift is null ||
+                !shift.IsActive ||
+                shift.StartsAtUtc <= _clock.UtcNow ||
+                slot is null ||
+                await _store.GetActiveAssignmentForSlotAsync(slot.Id, cancellationToken) is not null)
+            {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private async Task CancelRecurringParentAccessAsync(
+        Guid volunteerId,
+        Guid transitionId,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        if (_store is IRecurringCommitmentStore recurringStore)
+        {
+            foreach (var capability in (await recurringStore.GetActiveRecurringCapabilitiesAsync(
+                         volunteerId,
+                         null,
+                         cancellationToken))
+                     .Where(x => x.RequestId == transitionId || x.CommitmentId == transitionId))
+            {
+                capability.Invalidate(nowUtc);
+            }
+        }
+
+        if (_store is not INotificationOutboxStore outbox)
+        {
+            return;
+        }
+
+        foreach (var intent in await outbox.GetNotificationIntentsForVolunteerAsync(
+                     volunteerId,
+                     cancellationToken))
+        {
+            if (intent.TransitionId == transitionId &&
+                intent.State is NotificationIntentState.Pending or
+                    NotificationIntentState.RetryScheduled or
+                    NotificationIntentState.InFlight)
+            {
+                intent.Cancel(nowUtc, "CommitmentNoLongerEligible");
+            }
+        }
+    }
 
     private async Task CancelPendingAccessIntentsAsync(
         Guid volunteerId,
@@ -3046,6 +3507,11 @@ public sealed class VolunteerCoordinatorService
         foreach (var assignment in assignments)
         {
             assignment.Cancel(now);
+            await MarkRecurringOccurrenceExceptionAsync(
+                assignment,
+                RecurringCommitmentOccurrenceState.Replaced,
+                "The coordinator changed this occurrence independently.",
+                cancellationToken);
             foreach (var actionToken in tokensByAssignment[assignment.Id])
             {
                 actionToken.Invalidate(now);
@@ -3093,6 +3559,43 @@ public sealed class VolunteerCoordinatorService
                 Detail(new { assignment.ShiftSlotId, assignment.VolunteerId, assignment.Status })));
         }
         return tokens.Count;
+    }
+
+    private async Task MarkRecurringOccurrenceExceptionAsync(
+        Assignment assignment,
+        RecurringCommitmentOccurrenceState state,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        if (_store is not IRecurringCommitmentStore recurringStore)
+        {
+            return;
+        }
+
+        var join = await recurringStore.GetRecurringCommitmentOccurrenceByAssignmentAsync(
+            assignment.Id,
+            cancellationToken);
+        if (join is null)
+        {
+            return;
+        }
+
+        if (state == RecurringCommitmentOccurrenceState.Withdrawn)
+        {
+            join.MarkWithdrawn(reason);
+        }
+        else
+        {
+            join.MarkReplaced(reason);
+        }
+
+        if (_store is IRecurringShiftStore recurringShiftStore &&
+            await recurringShiftStore.GetRecurringOccurrenceAsync(
+                join.RecurringOccurrenceId,
+                cancellationToken) is { } occurrence)
+        {
+            occurrence.MarkException(reason);
+        }
     }
 
     private async Task<T> ExecuteWithAssignmentLockRetryAsync<T>(
@@ -3191,6 +3694,11 @@ public sealed class VolunteerCoordinatorService
         foreach (var assignment in conflictingAssignments)
         {
             assignment.Reassign(now);
+            await MarkRecurringOccurrenceExceptionAsync(
+                assignment,
+                RecurringCommitmentOccurrenceState.Replaced,
+                "The coordinator replaced this occurrence.",
+                cancellationToken);
             var actionTokens = await _store.GetUnusedActionTokensAsync([assignment.Id], cancellationToken);
             foreach (var actionToken in actionTokens)
             {
@@ -3726,7 +4234,10 @@ public sealed class VolunteerCoordinatorService
             settings.TimeZoneId,
             shift.Location,
             slotLabel,
-            shift.VolunteerInstructions);
+            shift.VolunteerInstructions)
+        {
+            SignupPolicy = shift.SignupPolicy
+        };
 
     private static LocalScheduleResolution UnconfiguredResolution(LocalScheduleInput input) =>
         ResolutionWithError(input, CommitmentUnavailableMessage);
@@ -3736,11 +4247,18 @@ public sealed class VolunteerCoordinatorService
         "GroupTimeZoneChanged" => "The group time zone was changed.",
         "ShiftCreated" => "A schedule entry was created.",
         "ShiftEdited" => "A schedule entry was corrected.",
+        "ShiftSignupPolicyChanged" => "A schedule entry's signup policy was changed.",
         "ShiftPublished" => "A schedule entry was published.",
         "ShiftDeactivated" => "A schedule entry was deactivated and its workflow was resolved.",
         "RequestSubmitted" => "A volunteer request was received.",
         "RequestApproved" => "A volunteer request was approved and assigned.",
         "RequestRejected" => "A volunteer request was declined.",
+        "RecurringCommitmentRequested" => "A volunteer requested a recurring commitment.",
+        "RecurringCommitmentDirectClaimed" => "A volunteer claimed a recurring commitment.",
+        "RecurringCommitmentApproved" => "A recurring commitment was approved and is awaiting one confirmation.",
+        "RecurringCommitmentConfirmed" => "A volunteer confirmed a recurring commitment.",
+        "RecurringCommitmentWithdrawn" => "A volunteer withdrew from future recurring occurrences.",
+        "RecurringCommitmentHandedOff" => "A recurring commitment was moved through an explicit schedule handoff.",
         "AssignmentCreatedOrReassigned" => "A volunteer assignment was created or replaced.",
         "AssignmentReassigned" => "An earlier volunteer assignment was replaced.",
         "AssignmentCancelledByCoordinator" => "A coordinator cancelled a volunteer assignment.",
@@ -3786,6 +4304,7 @@ public sealed class VolunteerCoordinatorService
                 ? "Removed volunteer"
                 : volunteer.Name;
 
+
     private static string AssignmentStateLabel(Assignment? assignment) => assignment?.Status switch
     {
         AssignmentStatus.Assigned => "Waiting for confirmation",
@@ -3828,6 +4347,12 @@ public sealed class VolunteerCoordinatorService
             VolunteerAction.Cancel => nowUtc < shift.EndsAtUtc,
             _ => false
         };
+
+    private static string PolicyConsequence(SignupPolicy policy) => policy switch
+    {
+        SignupPolicy.DirectClaim => "Direct claim is lower maintenance: the first eligible volunteer is confirmed immediately for future submissions.",
+        _ => "Approval required is the safer default: a coordinator reviews each future request before assignment."
+    };
 
     private static string RequireCoordinator(string coordinatorEmail)
     {

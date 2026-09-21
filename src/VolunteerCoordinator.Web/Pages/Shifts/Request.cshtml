@@ -14,12 +14,16 @@ else if (Model.Opening is not null)
         <partial name="_CommitmentDetails" model="Model.Opening.Commitment" />
         <p><span class="badge badge-open">@Model.Opening.Status</span></p>
     </div>
+    <div class="alert @(Model.Opening.Commitment.SignupPolicy == VolunteerCoordinator.Domain.Schedules.SignupPolicy.DirectClaim ? "alert-success" : "alert-warning")" role="status">
+        <strong>@Model.Opening.Commitment.SignupPolicyLabel</strong> —
+        @Model.Opening.Commitment.SignupPolicyConsequence
+    </div>
     <form method="post">
         <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert" tabindex="-1" data-focus-target="@(ViewData.ModelState.IsValid ? "false" : "true")"></div>
         <div class="form-group"><label asp-for="Name"></label><input asp-for="Name" autocomplete="name"><span asp-validation-for="Name"></span></div>
         <div class="form-group"><label asp-for="Email"></label><input asp-for="Email" autocomplete="email"><span asp-validation-for="Email"></span></div>
         <div class="form-group"><label asp-for="Phone"></label><input asp-for="Phone" autocomplete="tel"><span asp-validation-for="Phone"></span></div>
         <partial name="_VolunteerPrivacyNotice" />
-        <button type="submit">Submit request</button>
+        <button type="submit">@(Model.Opening.Commitment.SignupPolicy == VolunteerCoordinator.Domain.Schedules.SignupPolicy.DirectClaim ? "Claim commitment" : "Send request")</button>
     </form>
 }

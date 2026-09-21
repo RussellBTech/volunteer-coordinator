@@ -13,10 +13,15 @@ public sealed class RecoverTokenModel : PageModel
     {
         _service = service;
     }
-
     public string? Error { get; private set; }
 
-    public async Task<IActionResult> OnGetAsync(string token, CancellationToken cancellationToken)
+    public IActionResult OnGet(string token)
+    {
+        SetPrivateHeaders();
+        return Page();
+    }
+
+    public async Task<IActionResult> OnPostAsync(string token, CancellationToken cancellationToken)
     {
         SetPrivateHeaders();
         try

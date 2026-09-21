@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using VolunteerCoordinator.Application;
 using VolunteerCoordinator.Application.Models;
 using VolunteerCoordinator.Application.Time;
+using VolunteerCoordinator.Domain.Schedules;
 using VolunteerCoordinator.Domain;
 using VolunteerCoordinator.Web.Security;
 
@@ -49,6 +50,8 @@ public sealed class CreateModel : PageModel
 
     [BindProperty, Range(0, 2)]
     public int BackupSlotCount { get; set; }
+    [BindProperty]
+    public SignupPolicy SignupPolicy { get; set; } = SignupPolicy.ApprovalRequired;
 
     [BindProperty]
     public uint ExpectedSettingsVersion { get; set; }
@@ -111,7 +114,8 @@ public sealed class CreateModel : PageModel
                 input,
                 BackupSlotCount,
                 CoordinatorIdentity.GetEmail(User)!,
-                cancellationToken);
+                cancellationToken,
+                SignupPolicy);
             TempData["Message"] = "Shift created. Review it before publishing.";
             return RedirectToPage("/Coordinator/Schedule/Index");
         }

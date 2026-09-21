@@ -1,0 +1,49 @@
+@page "/Coordinator/Recurring/Handoff/{id:guid}"
+@model VolunteerCoordinator.Web.Pages.Coordinator.Recurring.HandoffModel
+@{
+    ViewData["Title"] = "Recurring commitment handoff";
+}
+@if (Model.Preview is not null)
+{
+    <header class="page-heading">
+        <div>
+            <p class="eyebrow">Coordinator handoff</p>
+            <h1 tabindex="-1">Move a recurring commitment safely</h1>
+            <p class="lead">Review each old future occurrence, its revised target, local-time change, access consequence, and skipped exception before anything moves.</p>
+        </div>
+    </header>
+    <form method="post" class="form-panel">
+        <input asp-for="EffectiveLocalDate" type="hidden">
+        <input asp-for="ExpectedMapping" type="hidden">
+        <input asp-for="ExpectedCommitmentVersion" type="hidden">
+        <input asp-for="ExpectedSeriesVersion" type="hidden">
+        <div asp-validation-summary="All" class="validation-summary-errors" role="alert"></div>
+        <p><strong>@Model.Preview.MoveCount</strong> occurrence(s) will move. <strong>@Model.Preview.SkipCount</strong> remain protected or skipped.</p>
+        <div class="table-scroll">
+            <table class="responsive">
+                <caption class="visually-hidden">Recurring commitment handoff mapping</caption>
+                <thead><tr><th>Existing occurrence</th><th>Revised occurrence</th><th>Result</th></tr></thead>
+                <tbody>
+                @foreach (var row in Model.Preview.Rows)
+                {
+                    <tr>
+                        <td data-label="Existing occurrence">@row.OldLocalDate.ToString("dddd, MMMM d, yyyy")</td>
+                        <td data-label="Revised occurrence">@(row.NewLocalDate?.ToString("dddd, MMMM d, yyyy") ?? "No eligible revised occurrence")</td>
+                        <td data-label="Result"><strong>@row.State</strong>@if (row.Reason is not null) { <span> — @row.Reason</span> }</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+        <p class="field-help">The confirmation is stale if any mapped join, assignment, occurrence, shift, revision, local time, or state changes. A stale handoff applies nothing.</p>
+        <div class="actions">
+            <button type="submit" name="handler" value="Preview">Refresh preview</button>
+            <button type="submit" name="handler" value="Confirm">Confirm reviewed handoff</button>
+            <a class="button button-secondary" asp-page="/Coordinator/Requests/Index">Back without changes</a>
+        </div>
+    </form>
+}
+else
+{
+    <div class="empty-state"><h1 tabindex="-1">Handoff unavailable</h1><p>Reload the recurring request list and open the handoff again.</p></div>
+}

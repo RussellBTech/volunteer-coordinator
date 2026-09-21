@@ -56,3 +56,43 @@ else { <span>No action needed</span> }
 }
 </tbody></table></div>
 }
+@if (Model.RecurringRequests.Count > 0)
+{
+    <section class="card" aria-labelledby="recurring-requests-heading">
+        <h2 id="recurring-requests-heading">Recurring requests</h2>
+        <p>Each row covers one finite cadence. Approval creates assignments, then the volunteer confirms the cadence once through the private hub.</p>
+        <div class="table-scroll">
+            <table class="responsive">
+                <caption class="visually-hidden">Recurring volunteer requests</caption>
+                <thead><tr><th>Volunteer</th><th>Recurring commitment</th><th>Range</th><th>Policy</th><th>Dates</th><th>Next action</th></tr></thead>
+                <tbody>
+                @foreach (var request in Model.RecurringRequests)
+                {
+                    <tr>
+                        <td data-label="Volunteer">@request.VolunteerName<br><small>@request.VolunteerEmail</small></td>
+                        <td data-label="Recurring commitment">@request.Title<br><small>@request.RoleLabel</small></td>
+                        <td data-label="Range">@request.EffectiveLocalDate.ToString("MMMM d, yyyy") through @request.EndLocalDate.ToString("MMMM d, yyyy")</td>
+                        <td data-label="Policy">@request.SourcePolicy</td>
+                        <td data-label="Dates">@request.IncludedCount included, @request.SkippedCount unavailable</td>
+                        <td data-label="Next action">
+                            @if (request.CanApprove)
+                            {
+                                <form method="post" asp-page-handler="ApproveRecurring" class="inline"><input type="hidden" name="id" value="@request.RequestId"><button type="submit">Approve recurring request</button></form>
+                                <form method="post" asp-page-handler="RejectRecurring" class="inline"><input type="hidden" name="id" value="@request.RequestId"><button type="submit" class="button-danger">Decline recurring request</button></form>
+                            }
+                            else if (request.RecurringCommitmentId is Guid commitmentId)
+                            {
+                                <a class="button button-secondary" asp-page="/Coordinator/Recurring/Handoff" asp-route-id="@commitmentId">Review recurring handoff</a>
+                            }
+                            else
+                            {
+                                <span>No action needed</span>
+                            }
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}

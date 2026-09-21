@@ -33,6 +33,7 @@ else
             <h2><a asp-page="/Coordinator/Recurring/Detail" asp-route-id="@series.Id">@series.Title</a></h2>
             <p>@series.RecurrenceDescription</p>
             <p class="field-help">Time zone: @series.TimeZoneId</p>
+            <p><strong>Signup policy:</strong> @series.SignupPolicy — @(series.SignupPolicy == VolunteerCoordinator.Domain.Schedules.SignupPolicy.DirectClaim ? "First eligible volunteer is confirmed immediately." : "A coordinator reviews each request.")</p>
             <div class="status-row" aria-label="Recurring schedule status">
                 <span class="status-chip">@(series.IsActive ? "Active" : "Inactive")</span>
                 <span class="status-chip">@series.UnpublishedCount unpublished</span>

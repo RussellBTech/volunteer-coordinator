@@ -46,6 +46,22 @@
         <label><input asp-for="AmbiguousTimeChoice" type="radio" value="SecondOccurrence"> Use the second occurrence when the clock repeats</label>
         <p class="field-help">A missing spring-forward time is shown as Needs review. It is never moved automatically.</p>
     </fieldset>
+    <fieldset class="form-group">
+        <legend>How volunteers join this recurring commitment</legend>
+        <p class="field-help">The same choice applies to every role in each revised schedule. Approval required is the safer default.</p>
+        <div class="choice-grid">
+            <label class="choice-card">
+                <input asp-for="SignupPolicy" type="radio" value="ApprovalRequired">
+                <strong>Approval required (safer default)</strong>
+                <span>A coordinator reviews each recurring request before assignments are made.</span>
+            </label>
+            <label class="choice-card">
+                <input asp-for="SignupPolicy" type="radio" value="DirectClaim">
+                <strong>Direct claim (lower maintenance)</strong>
+                <span>The first eligible volunteer is confirmed immediately for the included dates.</span>
+            </label>
+        </div>
+    </fieldset>
     <div class="actions"><button type="submit" name="handler" value="Preview">Preview dates</button><button type="submit" name="handler" value="Create">Save recurring schedule</button><a class="button button-secondary" asp-page="/Coordinator/Recurring/Index">Cancel</a></div>
 </form>
 @if (Model.Preview is not null)
