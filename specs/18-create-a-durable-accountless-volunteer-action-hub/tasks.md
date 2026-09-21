@@ -116,7 +116,7 @@
 
 ### T007: Verify end-to-end hub and version enhancement
 
-**File(s)**: Web/delivery integration tests; actual Web surface; `VERSION`
+**File(s)**: Web/delivery integration tests using the local fake provider/adapter contract; actual local Web surface; `VERSION`
 **Type**: Modify / Verify
 **Depends**: T006
 **Acceptance**:
@@ -124,8 +124,12 @@
 - [ ] browser flow uses one link from request through approval, confirmation, terminal status, and grace without account or manual action links
 - [ ] recovery zero/match responses are identical; delivered token redeems once; old hub changes only on redemption
 - [ ] direct assignment delivery and coordinator normal/revoke-now reissue expose correct success/failure state
-- [ ] security headers, rate limit, antiforgery, local complete context, legacy drain, and authorization are verified on actual routes
-- [ ] formatting, Release build, full isolated-PostgreSQL suite, migrations, and actual email-adapter/Web smoke scenario pass
+- [ ] security headers, rate limit, antiforgery, local complete context, legacy drain, authorization, migration, and security scans are verified on local actual routes and persistence
+- [ ] local fake-provider/adapter-contract delivery and local Web smoke pass; no real Resend sandbox credentials, recipients/IDs, template IDs, provider IDs, live signed events, or forced live provider/reissue evidence is required
+- [ ] formatting, Release build, full isolated-PostgreSQL suite, and migrations pass locally
+
+The real Resend evidence matrix is deferred to one final external launch issue created only after every product issue through #22 is delivered. It is not part of #18 T007 and that issue is not created here.
+
 
 ---
 
@@ -145,3 +149,4 @@
 | Issue | Date | Summary |
 |-------|------|---------|
 | #18 | 2026-09-03 | Initial feature spec |
+| #18 | 2026-09-20 | T007 corrected to local acceptance; real Resend evidence deferred to the final launch issue after #22 |

@@ -4,6 +4,13 @@
 **Author**: RussellBTech
 
 # Generated from: specs/18-create-a-durable-accountless-volunteer-action-hub/requirements.md
+# Scope boundary: issue acceptance uses local fake-provider and adapter-contract behavior,
+# signed fixtures, recovery redemption, retry/idempotency, browser, migration, and
+# security-scan evidence. Real Resend credentials, recipients, provider/template IDs,
+# provider message IDs, live signed events, and forced live provider/reissue evidence
+# are deferred to one final external launch issue created only after every product
+# issue through #22 is delivered; that issue is not created by #18.
+
 Feature: Create a durable accountless volunteer action hub
   As a volunteer
   I want one private link that remains useful through my commitment
