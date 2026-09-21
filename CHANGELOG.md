@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-20
+
+### Added
+
+- Local-civil recurring shift series with bounded DST-aware generation, exception review, safe future revisions, and atomic publication.
+
 ## [0.10.0] - 2026-09-20
 
 ### Added

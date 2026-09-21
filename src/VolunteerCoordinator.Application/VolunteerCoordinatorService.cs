@@ -77,6 +77,22 @@ public sealed class VolunteerCoordinatorService
         }
 
         var settings = projection.Settings!;
+        var recurringZoneReviewCount = _store is IRecurringShiftStore recurringStore
+            ? await recurringStore.CountZoneReviewSeriesAsync(settings.TimeZoneId, cancellationToken)
+            : 0;
+        IReadOnlyList<CoordinatorAttentionDto> recurringZoneReviewAttention = recurringZoneReviewCount == 0
+            ? []
+            :
+            [
+                new CoordinatorAttentionDto(
+                    "recurring-zone",
+                    "Recurring schedules needing time-zone review",
+                    recurringZoneReviewCount,
+                    "/Coordinator/Recurring",
+                    "Review recurring schedules",
+                    [])
+            ];
+
         if (!projection.HasPublishedShift)
         {
             var (label, url) = projection.FirstUnpublishedShift is not null
@@ -87,7 +103,7 @@ public sealed class VolunteerCoordinatorService
             return new CoordinatorHomeDto(
                 true,
                 BuildSetupSteps(projection, settingsConfigured: true),
-                [],
+                recurringZoneReviewAttention,
                 label,
                 url,
                 settings.TimeZoneId);
@@ -130,6 +146,8 @@ public sealed class VolunteerCoordinatorService
             "Open messages",
             projection.FailedMessageExamples,
             settings);
+        attention.AddRange(recurringZoneReviewAttention);
+
 
         return new CoordinatorHomeDto(
             false,
@@ -349,6 +367,15 @@ public sealed class VolunteerCoordinatorService
                 {
                     throw new DomainException("This shift was changed by another coordinator. Reload it and try again.");
                 }
+                if (shift.RecurringOccurrenceId.HasValue &&
+                    _store is IRecurringShiftStore recurringStore &&
+                    await recurringStore.GetRecurringOccurrenceAsync(
+                        shift.RecurringOccurrenceId.Value,
+                        token) is { } editedOccurrence)
+                {
+                    editedOccurrence.MarkException("The coordinator edited this occurrence independently.");
+                }
+
                 foreach (var slotId in removedBackupSlotIds)
                 {
                     if (await _store.GetActiveAssignmentForSlotAsync(slotId, token) is not null ||
@@ -472,6 +499,15 @@ public sealed class VolunteerCoordinatorService
                 {
                     throw new DomainException(StalePreviewMessage);
                 }
+                if (shift.RecurringOccurrenceId.HasValue &&
+                    _store is IRecurringShiftStore recurringStore &&
+                    await recurringStore.GetRecurringOccurrenceAsync(
+                        shift.RecurringOccurrenceId.Value,
+                        token) is { } deactivatedOccurrence)
+                {
+                    deactivatedOccurrence.MarkException("The coordinator deactivated this occurrence independently.");
+                }
+
 
                 var pendingRequests = await _store.GetPendingRequestsAsync(slotIds, token);
                 var activeAssignments = await _store.GetActiveAssignmentsAsync(slotIds, token);

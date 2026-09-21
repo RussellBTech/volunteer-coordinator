@@ -270,13 +270,26 @@ app.UseStaticFiles();
 app.UseRouting();
 app.Use(async (context, next) =>
 {
-    if (!retentionInitializationState.IsCompleted && !IsHealthPath(context.Request.Path))
+    if (!retentionInitializationState.IsCompleted &&
+        !IsHealthPath(context.Request.Path) &&
+        !IsDevelopmentLoginPath(context.Request.Path))
     {
-        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-        context.Response.Headers.RetryAfter = "1";
-        context.Response.ContentType = "text/plain; charset=utf-8";
-        await context.Response.WriteAsync("Service initialization is in progress.");
-        return;
+        var attempts = 0;
+        while (!retentionInitializationState.IsCompleted &&
+               attempts++ < 20 &&
+               !context.RequestAborted.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(25), context.RequestAborted);
+        }
+
+        if (!retentionInitializationState.IsCompleted)
+        {
+            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            context.Response.Headers.RetryAfter = "1";
+            context.Response.ContentType = "text/plain; charset=utf-8";
+            await context.Response.WriteAsync("Service initialization is in progress.");
+            return;
+        }
     }
 
     await next();
@@ -402,6 +415,10 @@ static bool IsHealthPath(PathString path) =>
     string.Equals(path.Value, "/health/", StringComparison.OrdinalIgnoreCase) ||
     string.Equals(path.Value, "/health/ready", StringComparison.OrdinalIgnoreCase) ||
     string.Equals(path.Value, "/health/ready/", StringComparison.OrdinalIgnoreCase);
+static bool IsDevelopmentLoginPath(PathString path) =>
+    string.Equals(path.Value, "/development/login", StringComparison.OrdinalIgnoreCase) ||
+    string.Equals(path.Value, "/development/login/", StringComparison.OrdinalIgnoreCase);
+
 
 static Task<IResult> DevelopmentLoginFormAsync(HttpContext context, IAntiforgery antiforgery)
 {

@@ -18,6 +18,12 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
     }
 
     public DbSet<Shift> Shifts => Set<Shift>();
+    public DbSet<RecurringShiftSeries> RecurringShiftSeries => Set<RecurringShiftSeries>();
+
+    public DbSet<RecurringShiftSeriesRevision> RecurringShiftSeriesRevisions => Set<RecurringShiftSeriesRevision>();
+
+    public DbSet<RecurringShiftOccurrence> RecurringShiftOccurrences => Set<RecurringShiftOccurrence>();
+
 
     public DbSet<GroupSettings> GroupSettings => Set<GroupSettings>();
 
@@ -68,6 +74,92 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
             .HasForeignKey(x => x.ShiftId)
             .OnDelete(DeleteBehavior.Cascade);
         shift.Navigation(x => x.Slots).HasField("_slots").UsePropertyAccessMode(PropertyAccessMode.Field);
+        shift.HasOne<RecurringShiftOccurrence>()
+            .WithOne()
+            .HasForeignKey<Shift>(x => x.RecurringOccurrenceId)
+            .OnDelete(DeleteBehavior.Restrict);
+        shift.HasIndex(x => x.RecurringOccurrenceId)
+            .IsUnique()
+            .HasFilter("\"RecurringOccurrenceId\" IS NOT NULL")
+            .HasDatabaseName("UX_Shifts_RecurringOccurrence");
+
+        var recurringSeries = modelBuilder.Entity<RecurringShiftSeries>();
+        recurringSeries.ToTable("RecurringShiftSeries");
+        recurringSeries.HasKey(x => x.Id);
+        recurringSeries.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+        recurringSeries.Property(x => x.UpdatedAtUtc).HasColumnType("timestamp with time zone");
+        recurringSeries.Property(x => x.LastGeneratedThroughLocalDate).HasColumnType("date");
+        recurringSeries.Property(x => x.Version).IsRowVersion();
+        recurringSeries.HasIndex(x => new { x.IsActive, x.UpdatedAtUtc })
+            .HasDatabaseName("IX_RecurringShiftSeries_Active");
+
+        var recurringRevision = modelBuilder.Entity<RecurringShiftSeriesRevision>();
+        recurringRevision.ToTable("RecurringShiftSeriesRevisions", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_RecurringShiftSeriesRevisions_Interval",
+                "\"Interval\" BETWEEN 1 AND 4");
+            table.HasCheckConstraint(
+                "CK_RecurringShiftSeriesRevisions_Duration",
+                "\"DurationMinutes\" BETWEEN 1 AND 10080");
+            table.HasCheckConstraint(
+                "CK_RecurringShiftSeriesRevisions_Horizon",
+                "\"HorizonWeeks\" BETWEEN 4 AND 26");
+            table.HasCheckConstraint(
+                "CK_RecurringShiftSeriesRevisions_BackupSlots",
+                "\"BackupSlotCount\" BETWEEN 0 AND 2");
+        });
+        recurringRevision.HasKey(x => x.Id);
+        recurringRevision.Property(x => x.Title).HasMaxLength(120).IsRequired();
+        recurringRevision.Property(x => x.Location).HasMaxLength(200);
+        recurringRevision.Property(x => x.VolunteerInstructions).HasMaxLength(1000);
+        recurringRevision.Property(x => x.InternalCoordinatorNotes).HasMaxLength(1000);
+        recurringRevision.Property(x => x.RecurrenceKind).HasConversion<int>();
+        recurringRevision.Property(x => x.WeeklyDays).HasConversion<int>();
+        recurringRevision.Property(x => x.AmbiguousTimeChoice).HasConversion<int>();
+        recurringRevision.Property(x => x.AnchorLocalDate).HasColumnType("date");
+        recurringRevision.Property(x => x.EffectiveLocalDate).HasColumnType("date");
+        recurringRevision.Property(x => x.LocalStartTime).HasColumnType("time without time zone");
+        recurringRevision.Property(x => x.TimeZoneId).HasMaxLength(200).IsRequired();
+        recurringRevision.Property(x => x.CreatedByCoordinator).HasMaxLength(320).IsRequired();
+        recurringRevision.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+        recurringRevision.HasOne<RecurringShiftSeries>()
+            .WithMany()
+            .HasForeignKey(x => x.SeriesId)
+            .OnDelete(DeleteBehavior.Restrict);
+        recurringRevision.HasIndex(x => new { x.SeriesId, x.RevisionNumber }).IsUnique();
+        recurringRevision.HasIndex(x => new { x.SeriesId, x.EffectiveLocalDate }).IsUnique();
+
+        var recurringOccurrence = modelBuilder.Entity<RecurringShiftOccurrence>();
+        recurringOccurrence.ToTable("RecurringShiftOccurrences", table =>
+            table.HasCheckConstraint(
+                "CK_RecurringShiftOccurrences_State",
+                "(\"Status\" = 0 AND \"ShiftId\" IS NOT NULL) OR (\"Status\" IN (1, 2) AND \"ShiftId\" IS NULL)"));
+        recurringOccurrence.HasKey(x => x.Id);
+        recurringOccurrence.Property(x => x.RevisionId).IsRequired();
+        recurringOccurrence.Property(x => x.LocalDate).HasColumnType("date");
+        recurringOccurrence.Property(x => x.Status).HasConversion<int>();
+        recurringOccurrence.Property(x => x.ResolvedLocalStart).HasColumnType("timestamp without time zone");
+        recurringOccurrence.Property(x => x.ResolutionActor).HasMaxLength(320);
+        recurringOccurrence.Property(x => x.ResolutionAtUtc).HasColumnType("timestamp with time zone");
+        recurringOccurrence.Property(x => x.ResolutionReason).HasMaxLength(1000);
+        recurringOccurrence.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+        recurringOccurrence.Property(x => x.Version).IsRowVersion();
+        recurringOccurrence.HasOne<RecurringShiftSeries>()
+            .WithMany()
+            .HasForeignKey(x => x.SeriesId)
+            .OnDelete(DeleteBehavior.Restrict);
+        recurringOccurrence.HasOne<RecurringShiftSeriesRevision>()
+            .WithMany()
+            .HasForeignKey(x => x.RevisionId)
+            .OnDelete(DeleteBehavior.Restrict);
+        recurringOccurrence.HasIndex(x => new { x.SeriesId, x.LocalDate }).IsUnique();
+        recurringOccurrence.HasIndex(x => x.Status).HasDatabaseName("IX_RecurringShiftOccurrences_Status");
+        recurringOccurrence.HasIndex(x => x.ShiftId)
+            .IsUnique()
+            .HasFilter("\"ShiftId\" IS NOT NULL")
+            .HasDatabaseName("UX_RecurringShiftOccurrences_Shift");
+
 
         var groupSettings = modelBuilder.Entity<GroupSettings>();
         groupSettings.ToTable("GroupSettings", table => table.HasCheckConstraint(

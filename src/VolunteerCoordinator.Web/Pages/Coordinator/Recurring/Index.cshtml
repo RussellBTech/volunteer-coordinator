@@ -1,0 +1,56 @@
+@page "/Coordinator/Recurring"
+@model VolunteerCoordinator.Web.Pages.Coordinator.Recurring.IndexModel
+@{
+    ViewData["Title"] = "Recurring schedules";
+}
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Coordinator workspace</p>
+        <h1 tabindex="-1">Recurring schedules</h1>
+        <p class="lead">Describe regular service work in local calendar terms. Review concrete dates before anything is published.</p>
+    </div>
+    <div class="actions">
+        <a class="button" asp-page="/Coordinator/Recurring/Create">Create recurring schedule</a>
+        <a class="button button-secondary" asp-page="/Coordinator/Schedule/Index">Open individual schedule</a>
+    </div>
+</header>
+<div asp-validation-summary="All" class="validation-summary-errors" role="alert"></div>
+@if (Model.Series.Count == 0)
+{
+    <section class="empty-state">
+        <p class="eyebrow">No recurring schedules</p>
+        <h2>Start with a regular commitment</h2>
+        <p>Choose a daily or weekly pattern, then inspect the actual local dates and times before saving.</p>
+        <a class="button" asp-page="/Coordinator/Recurring/Create">Create the first recurring schedule</a>
+    </section>
+}
+else
+{
+    <div class="grid">
+    @foreach (var series in Model.Series)
+    {
+        <article class="card">
+            <h2><a asp-page="/Coordinator/Recurring/Detail" asp-route-id="@series.Id">@series.Title</a></h2>
+            <p>@series.RecurrenceDescription</p>
+            <p class="field-help">Time zone: @series.TimeZoneId</p>
+            <div class="status-row" aria-label="Recurring schedule status">
+                <span class="status-chip">@(series.IsActive ? "Active" : "Inactive")</span>
+                <span class="status-chip">@series.UnpublishedCount unpublished</span>
+                @if (series.NeedsReviewCount > 0)
+                {
+                    <span class="status-chip status-chip-warning">@series.NeedsReviewCount needs review</span>
+                }
+                @if (series.IsZoneReviewRequired)
+                {
+                    <span class="status-chip status-chip-warning">Zone review required</span>
+                }
+            </div>
+            <ul class="status-list">
+                <li>Protected exceptions: @series.ProtectedExceptionCount</li>
+                <li>Skipped dates: @series.SkippedCount</li>
+            </ul>
+            <div class="actions"><a class="button button-secondary" asp-page="/Coordinator/Recurring/Detail" asp-route-id="@series.Id">Review schedule</a></div>
+        </article>
+    }
+    </div>
+}

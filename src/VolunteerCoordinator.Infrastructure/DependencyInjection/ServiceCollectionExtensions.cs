@@ -21,6 +21,8 @@ public static class ServiceCollectionExtensions
                 connectionString,
                 npgsql => npgsql.MigrationsAssembly(typeof(VolunteerCoordinatorDbContext).Assembly.FullName)));
         services.AddScoped<IWorkflowStore, EfWorkflowStore>();
+        services.AddScoped<IRecurringShiftStore>(serviceProvider =>
+            (IRecurringShiftStore)serviceProvider.GetRequiredService<IWorkflowStore>());
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<ITokenService, SecureTokenService>();
         services.AddScoped<INotificationService, OutboxNotificationService>();
@@ -31,6 +33,9 @@ public static class ServiceCollectionExtensions
             .Validate(static options => options.IsValid(), "Notification delivery settings are invalid.")
             .ValidateOnStart();
         services.AddHostedService<NotificationDeliveryHostedService>();
+        services.AddScoped<RecurringShiftService>();
+        services.AddHostedService<RecurringSeriesGenerationHostedService>();
+
         services.AddScoped<VolunteerCoordinatorService>();
         services.AddScoped<ResendWebhookProcessor>();
         return services;

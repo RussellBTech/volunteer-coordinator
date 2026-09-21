@@ -1,0 +1,18 @@
+@page "/Coordinator/Recurring/Protected/{id:guid}"
+@model VolunteerCoordinator.Web.Pages.Coordinator.Recurring.ProtectedModel
+@{
+    ViewData["Title"] = "Resolve protected occurrence";
+}
+@if (Model.Preview is not null)
+{
+    <header class="page-heading"><div><p class="eyebrow">Protected occurrence consequence review</p><h1 tabindex="-1">Resolve @Model.Preview.LocalDate.ToString("dddd, MMMM d, yyyy")</h1><p class="lead">This is a separate explicit consequence flow. Existing requests and assignments will be resolved through the established coordinator commands before the current revision is applied.</p></div></header>
+    <div asp-validation-summary="All" class="validation-summary-errors" role="alert"></div>
+    <section class="card consequence-preview">
+        <h2>People and workflow affected</h2>
+        <ul class="affected-list">
+            @foreach (var person in Model.Preview.AffectedPeople) { <li>@person</li> }
+        </ul>
+        <p>@Model.Preview.PendingRequestCount pending request(s), @Model.Preview.ActiveAssignmentCount active assignment(s).</p>
+        <form method="post"><input asp-for="ExpectedOccurrenceVersion" type="hidden"><input asp-for="ExpectedSeriesVersion" type="hidden"><button type="submit" asp-page-handler="Confirm" class="button-danger">Resolve and replace this occurrence</button><a class="button button-secondary" asp-page="/Coordinator/Recurring/Detail" asp-route-id="@Model.Preview.SeriesId">Back without changes</a></form>
+    </section>
+}

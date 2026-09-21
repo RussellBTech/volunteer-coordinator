@@ -1,0 +1,63 @@
+@page "/Coordinator/Recurring/Create"
+@using VolunteerCoordinator.Domain.Schedules
+@model VolunteerCoordinator.Web.Pages.Coordinator.Recurring.CreateModel
+@{
+    ViewData["Title"] = "Create recurring schedule";
+    var weekdays = Enum.GetValues<DayOfWeek>().Where(day => day != DayOfWeek.Sunday).Concat([DayOfWeek.Sunday]).ToArray();
+}
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Recurring schedule setup</p>
+        <h1 tabindex="-1">Describe a regular commitment</h1>
+        <p class="lead">Use the group’s local date and clock. The preview shows actual upcoming occurrences; saving does not publish them.</p>
+    </div>
+</header>
+<form method="post">
+    <input asp-for="ExpectedSettingsVersion" type="hidden">
+    <div asp-validation-summary="All" class="validation-summary-errors" role="alert" aria-live="assertive" tabindex="-1"></div>
+    @if (Model.Settings is not null)
+    {
+        <p class="field-help">Group time zone: <strong>@Model.Settings.TimeZoneId</strong>. A repeated clock time uses the interpretation you choose below.</p>
+    }
+    <div class="form-group"><label asp-for="Title"></label><input asp-for="Title"><span asp-validation-for="Title"></span></div>
+    <div class="form-group"><label asp-for="Location"></label><input asp-for="Location"><span asp-validation-for="Location"></span></div>
+    <div class="form-group"><label asp-for="VolunteerInstructions">Volunteer instructions</label><textarea asp-for="VolunteerInstructions"></textarea><span asp-validation-for="VolunteerInstructions"></span></div>
+    <div class="form-group"><label asp-for="InternalCoordinatorNotes"></label><textarea asp-for="InternalCoordinatorNotes"></textarea><span asp-validation-for="InternalCoordinatorNotes"></span></div>
+    <fieldset class="form-group">
+        <legend>Pattern</legend>
+        <label><input asp-for="RecurrenceKind" type="radio" value="Daily"> Daily</label>
+        <label><input asp-for="RecurrenceKind" type="radio" value="Weekly"> Weekly on selected weekdays</label>
+        <div><label asp-for="Interval">Repeat every</label><input asp-for="Interval" min="1" max="4"><span class="field-help">1–4 calendar days for daily, or 1–4 weeks for weekly.</span><span asp-validation-for="Interval"></span></div>
+        <div class="check-row-group" aria-label="Weekdays">
+        @foreach (var day in weekdays)
+        {
+            <label class="check-row"><input type="checkbox" name="Weekdays" value="@day" checked="@(Model.Weekdays.Contains(day) ? "checked" : null)"><span>@day</span></label>
+        }
+        </div>
+    </fieldset>
+    <div class="form-group"><label asp-for="AnchorLocalDate">First local date</label><input asp-for="AnchorLocalDate" type="date"><span asp-validation-for="AnchorLocalDate"></span></div>
+    <div class="form-group"><label asp-for="LocalStartTime">Local start time</label><input asp-for="LocalStartTime" type="time"><span asp-validation-for="LocalStartTime"></span></div>
+    <div class="form-group"><label asp-for="DurationMinutes">Elapsed duration in minutes</label><input asp-for="DurationMinutes" min="1" max="10080"><p class="field-help">Duration is real elapsed time after the UTC start. A daylight-saving transition can change the displayed local end.</p><span asp-validation-for="DurationMinutes"></span></div>
+    <div class="form-group"><label asp-for="BackupSlotCount">Backup slots</label><select asp-for="BackupSlotCount"><option value="0">0</option><option value="1">1</option><option value="2">2</option></select><span asp-validation-for="BackupSlotCount"></span></div>
+    <div class="form-group"><label asp-for="HorizonWeeks">Future review horizon in weeks</label><input asp-for="HorizonWeeks" min="4" max="26"><span asp-validation-for="HorizonWeeks"></span></div>
+    <fieldset class="form-group">
+        <legend>Repeated local time</legend>
+        <label><input asp-for="AmbiguousTimeChoice" type="radio" value="FirstOccurrence"> Use the first occurrence when the clock repeats</label>
+        <label><input asp-for="AmbiguousTimeChoice" type="radio" value="SecondOccurrence"> Use the second occurrence when the clock repeats</label>
+        <p class="field-help">A missing spring-forward time is shown as Needs review. It is never moved automatically.</p>
+    </fieldset>
+    <div class="actions"><button type="submit" name="handler" value="Preview">Preview dates</button><button type="submit" name="handler" value="Create">Save recurring schedule</button><a class="button button-secondary" asp-page="/Coordinator/Recurring/Index">Cancel</a></div>
+</form>
+@if (Model.Preview is not null)
+{
+    <section class="card preview-details" aria-labelledby="recurring-preview-heading">
+        <h2 id="recurring-preview-heading">Preview of actual dates</h2>
+        <p>@Model.Preview.Occurrences.Count occurrence(s), @Model.Preview.NeedsReviewCount needing review. All concrete shifts stay unpublished.</p>
+        <ul class="preview-slots">
+        @foreach (var row in Model.Preview.Occurrences)
+        {
+            <li><strong>@row.LocalDate.ToString("dddd, MMMM d, yyyy")</strong><span>@row.LocalStart.ToString("h:mm tt")–@row.LocalEnd?.ToString("h:mm tt")</span><span>@string.Join(", ", row.RoleLabels)</span><span>@row.Offset</span><span>@row.DstStatus</span><span>@row.Status</span></li>
+        }
+        </ul>
+    </section>
+}

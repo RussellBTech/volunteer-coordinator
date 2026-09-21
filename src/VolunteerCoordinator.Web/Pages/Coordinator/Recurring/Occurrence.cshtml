@@ -1,0 +1,42 @@
+@page "/Coordinator/Recurring/Occurrence/{id:guid}"
+@model VolunteerCoordinator.Web.Pages.Coordinator.Recurring.OccurrenceModel
+@{
+    ViewData["Title"] = "Review recurring occurrence";
+}
+@if (Model.Occurrence is not null)
+{
+    <header class="page-heading">
+        <div>
+            <p class="eyebrow">Local clock exception</p>
+            <h1 tabindex="-1">Review @Model.Occurrence.LocalDate.ToString("dddd, MMMM d, yyyy")</h1>
+            <p class="lead">@Model.Occurrence.DstStatus in @Model.Occurrence.TimeZoneId. This date stays visible until you resolve or skip it.</p>
+        </div>
+    </header>
+    <div asp-validation-summary="All" class="validation-summary-errors" role="alert"></div>
+    <input asp-for="ExpectedVersion" type="hidden">
+    @if (Model.Occurrence.Status == "NeedsReview")
+    {
+        <section class="card form-panel">
+            <h2>Resolve with another local start</h2>
+            <p>Choose a valid local time on this date. The resulting concrete shift is unpublished and detached from later series corrections.</p>
+            <form method="post" asp-page-handler="Resolve">
+                <input asp-for="ExpectedVersion" type="hidden">
+                <div class="form-group"><label asp-for="ReplacementLocalStart">Replacement local start</label><input asp-for="ReplacementLocalStart" type="time"><span asp-validation-for="ReplacementLocalStart"></span></div>
+                <div class="actions"><button type="submit">Resolve this occurrence</button></div>
+            </form>
+        </section>
+        <section class="card form-panel">
+            <h2>Skip this date</h2>
+            <p>Skipping is explicit and audited. No concrete shift will be created.</p>
+            <form method="post" asp-page-handler="Skip">
+                <input asp-for="ExpectedVersion" type="hidden">
+                <div class="form-group"><label asp-for="SkipReason"></label><textarea asp-for="SkipReason"></textarea><span asp-validation-for="SkipReason"></span></div>
+                <div class="actions"><button type="submit" class="button-danger">Skip this occurrence</button></div>
+            </form>
+        </section>
+    }
+    else
+    {
+        <section class="card"><h2>Decision already recorded</h2><p>Status: @Model.Occurrence.Status. @(Model.Occurrence.ResolutionReason ?? "The occurrence is now independent from its series.")</p><a class="button button-secondary" asp-page="/Coordinator/Recurring/Detail" asp-route-id="@Model.Occurrence.SeriesId">Back to recurring schedule</a></section>
+    }
+}

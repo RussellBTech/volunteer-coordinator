@@ -14,7 +14,7 @@ using VolunteerCoordinator.Domain.Volunteers;
 
 namespace VolunteerCoordinator.Infrastructure.Persistence;
 
-public sealed class EfWorkflowStore : IWorkflowStore, IAccessStore, INotificationOutboxStore, ILegacyActionTokenStore
+public sealed class EfWorkflowStore : IWorkflowStore, IRecurringShiftStore, IAccessStore, INotificationOutboxStore, ILegacyActionTokenStore
 {
     private const int RemovalLookupFetchLimit = 20;
     private const int RemovalLookupResultLimit = 10;
@@ -938,6 +938,158 @@ public sealed class EfWorkflowStore : IWorkflowStore, IAccessStore, INotificatio
             row.MessageKind,
             row.VolunteerEmail,
             row.VolunteerPhone);
+    public async Task<IReadOnlyList<RecurringShiftSeries>> GetRecurringSeriesAsync(
+        CancellationToken cancellationToken) =>
+        await _dbContext.RecurringShiftSeries
+            .AsNoTracking()
+            .OrderBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+    public async Task<RecurringShiftSeries?> GetRecurringSeriesAsync(
+        Guid seriesId,
+        CancellationToken cancellationToken)
+    {
+        var trackedEntry = _dbContext.ChangeTracker
+            .Entries<RecurringShiftSeries>()
+            .SingleOrDefault(x => x.Entity.Id == seriesId);
+        if (trackedEntry is not null)
+        {
+            await trackedEntry.ReloadAsync(cancellationToken);
+            return trackedEntry.State == EntityState.Detached ? null : trackedEntry.Entity;
+        }
+
+        return await _dbContext.RecurringShiftSeries
+            .SingleOrDefaultAsync(x => x.Id == seriesId, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Guid>> GetActiveRecurringSeriesIdsAsync(
+        CancellationToken cancellationToken) =>
+        await _dbContext.RecurringShiftSeries
+            .AsNoTracking()
+            .Where(x => x.IsActive)
+            .OrderBy(x => x.Id)
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+    public async Task<int> CountZoneReviewSeriesAsync(
+        string groupTimeZoneId,
+        CancellationToken cancellationToken)
+    {
+        var activeSeries = await _dbContext.RecurringShiftSeries
+            .AsNoTracking()
+            .Where(x => x.IsActive)
+            .Select(x => new { x.Id, x.CurrentRevisionNumber })
+            .ToListAsync(cancellationToken);
+        if (activeSeries.Count == 0)
+        {
+            return 0;
+        }
+
+        var ids = activeSeries.Select(x => x.Id).ToArray();
+        var currentZones = await _dbContext.RecurringShiftSeriesRevisions
+            .AsNoTracking()
+            .Where(x => ids.Contains(x.SeriesId))
+            .Select(x => new { x.SeriesId, x.RevisionNumber, x.TimeZoneId })
+            .ToListAsync(cancellationToken);
+        var currentBySeries = currentZones
+            .GroupBy(x => x.SeriesId)
+            .ToDictionary(group => group.Key, group => group.OrderByDescending(x => x.RevisionNumber).First().TimeZoneId);
+        return activeSeries.Count(series =>
+            !currentBySeries.TryGetValue(series.Id, out var timeZoneId) ||
+            !string.Equals(timeZoneId, groupTimeZoneId, StringComparison.Ordinal));
+    }
+    public Task<RecurringShiftSeriesRevision?> GetRecurringRevisionAsync(
+        Guid revisionId,
+        CancellationToken cancellationToken) =>
+        _dbContext.RecurringShiftSeriesRevisions
+            .SingleOrDefaultAsync(x => x.Id == revisionId, cancellationToken);
+
+
+    public async Task<IReadOnlyList<RecurringShiftSeriesRevision>> GetRecurringRevisionsAsync(
+        Guid seriesId,
+        CancellationToken cancellationToken) =>
+        await _dbContext.RecurringShiftSeriesRevisions
+            .Where(x => x.SeriesId == seriesId)
+            .OrderBy(x => x.RevisionNumber)
+            .ToListAsync(cancellationToken);
+
+    public Task<RecurringShiftSeriesRevision?> GetApplicableRecurringRevisionAsync(
+        Guid seriesId,
+        DateOnly localDate,
+        CancellationToken cancellationToken) =>
+        _dbContext.RecurringShiftSeriesRevisions
+            .Where(x => x.SeriesId == seriesId && x.EffectiveLocalDate <= localDate)
+            .OrderByDescending(x => x.EffectiveLocalDate)
+            .ThenByDescending(x => x.RevisionNumber)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<RecurringShiftOccurrence>> GetRecurringOccurrencesAsync(
+        Guid seriesId,
+        DateOnly? fromLocalDate,
+        DateOnly? throughLocalDate,
+        CancellationToken cancellationToken)
+    {
+        var query = _dbContext.RecurringShiftOccurrences
+            .Where(x => x.SeriesId == seriesId);
+        if (fromLocalDate.HasValue)
+        {
+            query = query.Where(x => x.LocalDate >= fromLocalDate.Value);
+        }
+
+        if (throughLocalDate.HasValue)
+        {
+            query = query.Where(x => x.LocalDate <= throughLocalDate.Value);
+        }
+
+        return await query
+            .AsNoTracking()
+            .OrderBy(x => x.LocalDate)
+            .ThenBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<RecurringShiftOccurrence?> GetRecurringOccurrenceAsync(
+        Guid occurrenceId,
+        CancellationToken cancellationToken)
+    {
+        var trackedEntry = _dbContext.ChangeTracker
+            .Entries<RecurringShiftOccurrence>()
+            .SingleOrDefault(x => x.Entity.Id == occurrenceId);
+        if (trackedEntry is not null)
+        {
+            await trackedEntry.ReloadAsync(cancellationToken);
+            return trackedEntry.State == EntityState.Detached ? null : trackedEntry.Entity;
+        }
+
+        return await _dbContext.RecurringShiftOccurrences
+            .SingleOrDefaultAsync(x => x.Id == occurrenceId, cancellationToken);
+    }
+
+    public Task<RecurringShiftOccurrence?> GetRecurringOccurrenceByShiftAsync(
+        Guid shiftId,
+        CancellationToken cancellationToken) =>
+        _dbContext.RecurringShiftOccurrences
+            .SingleOrDefaultAsync(x => x.ShiftId == shiftId, cancellationToken);
+
+    public Task LockRecurringSeriesAsync(Guid seriesId, CancellationToken cancellationToken) =>
+        _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""SELECT 1 FROM "RecurringShiftSeries" WHERE "Id" = {seriesId} FOR UPDATE""",
+            cancellationToken);
+
+    public Task LockRecurringOccurrenceAsync(Guid occurrenceId, CancellationToken cancellationToken) =>
+        _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""SELECT 1 FROM "RecurringShiftOccurrences" WHERE "Id" = {occurrenceId} FOR UPDATE""",
+            cancellationToken);
+
+    public void AddRecurringSeries(RecurringShiftSeries series) =>
+        _dbContext.RecurringShiftSeries.Add(series);
+
+    public void AddRecurringRevision(RecurringShiftSeriesRevision revision) =>
+        _dbContext.RecurringShiftSeriesRevisions.Add(revision);
+
+    public void AddRecurringOccurrence(RecurringShiftOccurrence occurrence) =>
+        _dbContext.RecurringShiftOccurrences.Add(occurrence);
+
     public void AddGroupSettings(GroupSettings settings) => _dbContext.GroupSettings.Add(settings);
     public void AddShift(Shift shift) => _dbContext.Shifts.Add(shift);
     public void AddShiftSlots(IReadOnlyCollection<ShiftSlot> slots) =>

@@ -1,0 +1,46 @@
+@page "/Coordinator/Recurring/Revision/{id:guid}"
+@using VolunteerCoordinator.Domain.Schedules
+@model VolunteerCoordinator.Web.Pages.Coordinator.Recurring.RevisionModel
+@{
+    ViewData["Title"] = "Change recurring schedule";
+    var weekdays = Enum.GetValues<DayOfWeek>().Where(day => day != DayOfWeek.Sunday).Concat([DayOfWeek.Sunday]).ToArray();
+}
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Safe future correction</p>
+        <h1 tabindex="-1">Change this and following occurrences</h1>
+        <p class="lead">The selected effective date creates an immutable revision. Protected commitments remain unchanged and detach as exceptions.</p>
+    </div>
+</header>
+<form method="post">
+    <input asp-for="ExpectedSeriesVersion" type="hidden"><input asp-for="ExpectedClassification" type="hidden"><input asp-for="ExpectedSettingsVersion" type="hidden">
+    <div asp-validation-summary="All" class="validation-summary-errors" role="alert"></div>
+    <div class="form-group"><label asp-for="EffectiveLocalDate">Effective local date</label><input asp-for="EffectiveLocalDate" type="date"></div>
+    <div class="form-group"><label asp-for="Title"></label><input asp-for="Title"></div>
+    <div class="form-group"><label asp-for="Location"></label><input asp-for="Location"></div>
+    <div class="form-group"><label asp-for="VolunteerInstructions">Volunteer instructions</label><textarea asp-for="VolunteerInstructions"></textarea></div>
+    <div class="form-group"><label asp-for="InternalCoordinatorNotes">Internal coordinator notes</label><textarea asp-for="InternalCoordinatorNotes"></textarea></div>
+    <fieldset class="form-group"><legend>Pattern</legend>
+        <label><input asp-for="RecurrenceKind" type="radio" value="Daily"> Daily</label>
+        <label><input asp-for="RecurrenceKind" type="radio" value="Weekly"> Weekly</label>
+        <label asp-for="Interval">Interval 1–4</label><input asp-for="Interval" min="1" max="4">
+        <div class="check-row-group">
+        @foreach (var day in weekdays)
+        {
+            <label class="check-row"><input type="checkbox" name="Weekdays" value="@day" checked="@(Model.Weekdays.Contains(day) ? "checked" : null)"><span>@day</span></label>
+        }
+        </div>
+    </fieldset>
+    <div class="form-group"><label asp-for="AnchorLocalDate">Pattern anchor local date</label><input asp-for="AnchorLocalDate" type="date"></div>
+    <div class="form-group"><label asp-for="LocalStartTime">Local start time</label><input asp-for="LocalStartTime" type="time"></div>
+    <div class="form-group"><label asp-for="DurationMinutes">Elapsed duration in minutes</label><input asp-for="DurationMinutes" min="1" max="10080"></div>
+    <div class="form-group"><label asp-for="BackupSlotCount">Backup slots</label><select asp-for="BackupSlotCount"><option value="0">0</option><option value="1">1</option><option value="2">2</option></select></div>
+    <div class="form-group"><label asp-for="HorizonWeeks">Future horizon in weeks</label><input asp-for="HorizonWeeks" min="4" max="26"></div>
+    <input asp-for="TimeZoneId" type="hidden">
+    <fieldset class="form-group"><legend>Repeated local time</legend><label><input asp-for="AmbiguousTimeChoice" type="radio" value="FirstOccurrence"> First occurrence</label><label><input asp-for="AmbiguousTimeChoice" type="radio" value="SecondOccurrence"> Second occurrence</label></fieldset>
+    <div class="actions"><button type="submit" name="handler" value="Preview">Preview affected occurrences</button><button type="submit" name="handler" value="Apply">Save effective revision</button><a class="button button-secondary" asp-page="/Coordinator/Recurring/Detail" asp-route-id="@Model.SeriesId">Back without changes</a></div>
+</form>
+@if (Model.Preview is not null)
+{
+    <section class="card" aria-labelledby="revision-preview-heading"><h2 id="revision-preview-heading">Affected occurrence preview</h2><p>@Model.Preview.EligibleCount eligible, @Model.Preview.ProtectedCount protected, @Model.Preview.ExceptionCount already independent, @Model.Preview.NeedsReviewCount needing review.</p><ul class="status-list">@foreach (var row in Model.Preview.Rows) { <li><strong>@row.LocalDate.ToString("dddd, MMMM d, yyyy")</strong> — @row.Classification@(row.ProtectionSummary is null ? string.Empty : $" ({row.ProtectionSummary})")</li> }</ul><p class="field-help">Nothing changes until you save the revision.</p></section>
+}

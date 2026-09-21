@@ -1,0 +1,98 @@
+@page "/Coordinator/Recurring/Detail/{id:guid}"
+@model VolunteerCoordinator.Web.Pages.Coordinator.Recurring.DetailModel
+@{
+    ViewData["Title"] = "Recurring schedule review";
+}
+@if (Model.Detail is not null)
+{
+    <header class="page-heading">
+        <div>
+            <p class="eyebrow">Recurring schedule review</p>
+            <h1 tabindex="-1">@Model.Detail.Series.Title</h1>
+            <p class="lead">@Model.Detail.Series.RecurrenceDescription in @Model.Detail.Series.TimeZoneId. Concrete occurrences remain independent shifts.</p>
+        </div>
+        <div class="actions">
+            <a class="button button-secondary" asp-page="/Coordinator/Recurring/Revision" asp-route-id="@Model.Detail.Series.Id">Change this and following</a>
+            @if (Model.Detail.Series.IsZoneReviewRequired)
+            {
+                <a class="button button-secondary" asp-page="/Coordinator/Recurring/Zone" asp-route-id="@Model.Detail.Series.Id">Review time-zone adoption</a>
+            }
+            <a class="button button-secondary" asp-page="/Coordinator/Recurring/Publish" asp-route-id="@Model.Detail.Series.Id">Publish a date range</a>
+        </div>
+    </header>
+    @if (Model.Detail.Series.IsZoneReviewRequired)
+    {
+        <div class="alert alert-warning" role="alert"><strong>Zone review required.</strong> Top-up is paused until this series explicitly adopts the current group time zone.</div>
+    }
+    <div class="grid">
+        <section class="card" aria-labelledby="needs-review-heading">
+            <h2 id="needs-review-heading">Needs review (@Model.Detail.NeedsReview.Count)</h2>
+            @if (Model.Detail.NeedsReview.Count == 0) { <p>No local clock gaps need a decision.</p> }
+            else
+            {
+                <ul class="status-list">
+                @foreach (var row in Model.Detail.NeedsReview)
+                {
+                    <li><strong>@row.LocalDate.ToString("dddd, MMMM d, yyyy")</strong> — @row.DstStatus <a class="text-link" asp-page="/Coordinator/Recurring/Occurrence" asp-route-id="@row.OccurrenceId">Resolve or skip</a></li>
+                }
+                </ul>
+            }
+        </section>
+        <section class="card" aria-labelledby="unpublished-heading">
+            <h2 id="unpublished-heading">Unpublished (@Model.Detail.Unpublished.Count)</h2>
+            @if (Model.Detail.Unpublished.Count == 0) { <p>No unpublished concrete occurrences.</p> }
+            else
+            {
+                <ul class="status-list">
+                @foreach (var row in Model.Detail.Unpublished)
+                {
+                    <li><strong>@row.LocalDate.ToString("dddd, MMMM d, yyyy")</strong> — @row.LocalStart.ToString("h:mm tt")–@row.LocalEnd?.ToString("h:mm tt") <span>@row.DstStatus</span></li>
+                }
+                </ul>
+            }
+        </section>
+        <section class="card" aria-labelledby="published-heading">
+            <h2 id="published-heading">Published (@Model.Detail.Published.Count)</h2>
+            @if (Model.Detail.Published.Count == 0) { <p>No published concrete occurrences.</p> }
+            else
+            {
+                <ul class="status-list">
+                @foreach (var row in Model.Detail.Published)
+                {
+                    <li><strong>@row.LocalDate.ToString("dddd, MMMM d, yyyy")</strong> — @row.LocalStart.ToString("h:mm tt")–@row.LocalEnd?.ToString("h:mm tt")</li>
+                }
+                </ul>
+            }
+        </section>
+        <section class="card" aria-labelledby="protected-heading">
+            <h2 id="protected-heading">Protected exceptions (@Model.Detail.ProtectedExceptions.Count)</h2>
+            @if (Model.Detail.ProtectedExceptions.Count == 0) { <p>No protected or manually detached occurrences.</p> }
+            else
+            {
+                <ul class="status-list">
+                @foreach (var row in Model.Detail.ProtectedExceptions)
+                {
+                    <li><strong>@row.LocalDate.ToString("dddd, MMMM d, yyyy")</strong> — remains on its saved UTC schedule. @(row.ProtectionSummary ?? "Exception")</li>
+                }
+                </ul>
+            }
+        </section>
+        <section class="card" aria-labelledby="skipped-heading">
+            <h2 id="skipped-heading">Skipped (@Model.Detail.Skipped.Count)</h2>
+            @if (Model.Detail.Skipped.Count == 0) { <p>No occurrences were skipped.</p> }
+            else
+            {
+                <ul class="status-list">
+                @foreach (var row in Model.Detail.Skipped)
+                {
+                    <li><strong>@row.LocalDate.ToString("dddd, MMMM d, yyyy")</strong> — @(row.ProtectionSummary ?? "Skipped by coordinator")</li>
+                }
+                </ul>
+            }
+        </section>
+    </div>
+}
+else
+{
+    <div class="empty-state"><h1 tabindex="-1">Recurring schedule unavailable</h1><p>Reload the recurring schedule list.</p></div>
+}
