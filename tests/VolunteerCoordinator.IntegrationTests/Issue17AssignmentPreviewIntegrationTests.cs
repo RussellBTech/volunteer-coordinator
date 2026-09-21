@@ -88,12 +88,7 @@ public sealed class Issue17AssignmentPreviewIntegrationTests
                 default)).AssignmentId;
 
             var token = new SecureTokenService().Generate();
-            var pendingRequest = ShiftRequest.Create(
-                targetSlotId,
-                requester.Id,
-                token.Hash,
-                FixedNow,
-                FixedNow.AddDays(30));
+            var pendingRequest = ShiftRequest.Create(targetSlotId, requester.Id, FixedNow);
             context.ShiftRequests.Add(pendingRequest);
             await context.SaveChangesAsync();
             pendingRequestId = pendingRequest.Id;
@@ -131,12 +126,7 @@ public sealed class Issue17AssignmentPreviewIntegrationTests
             raceContext.Volunteers.Add(driftVolunteer);
             await raceContext.SaveChangesAsync();
             var token = new SecureTokenService().Generate();
-            var driftRequest = ShiftRequest.Create(
-                targetSlotId,
-                driftVolunteer.Id,
-                token.Hash,
-                FixedNow,
-                FixedNow.AddDays(30));
+            var driftRequest = ShiftRequest.Create(targetSlotId, driftVolunteer.Id, FixedNow);
             raceContext.ShiftRequests.Add(driftRequest);
             await raceContext.SaveChangesAsync();
             driftRequestId = driftRequest.Id;

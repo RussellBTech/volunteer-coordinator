@@ -452,12 +452,7 @@ public sealed class Issue17CoordinatorIntegrationTests
                 index == 0 ? "555-0200" : null,
                 FixedNow);
             var generated = tokens.Generate();
-            var request = ShiftRequest.Create(
-                slot.Id,
-                volunteer.Id,
-                generated.Hash,
-                FixedNow,
-                FixedNow.AddDays(30));
+            var request = ShiftRequest.Create(slot.Id, volunteer.Id, FixedNow);
             var attempt = NotificationAttempt.Create(
                 request.Id,
                 "RequestReceived",

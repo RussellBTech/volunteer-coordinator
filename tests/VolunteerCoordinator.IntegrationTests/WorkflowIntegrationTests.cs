@@ -63,7 +63,11 @@ public sealed class WorkflowIntegrationTests
         Assert.NotNull(approved.NotificationWarning);
         Assert.DoesNotContain(await service.ListOpeningsAsync(default), item => item.SlotId == opening.SlotId);
 
-        var links = await service.GenerateActionLinksAsync(approved.AssignmentId, Coordinator, default);
+        var links = await ScheduleTestHelpers.CreateLegacyActionLinksAsync(
+            context,
+            approved.AssignmentId,
+            AssignmentStatus.Assigned,
+            DateTimeOffset.UtcNow);
         var storedTokens = await context.ActionTokens.ToListAsync();
         Assert.Equal(3, storedTokens.Count);
         Assert.All(storedTokens, token => Assert.Equal(32, token.TokenHash.Length));
@@ -76,17 +80,27 @@ public sealed class WorkflowIntegrationTests
         Assert.Equal(AssignmentStatus.Reassigned, (await context.Assignments.SingleAsync(x => x.Id == approved.AssignmentId)).Status);
         Assert.Single(await context.Assignments.Where(x => x.Status == AssignmentStatus.Assigned || x.Status == AssignmentStatus.Confirmed).ToListAsync());
 
-        var declineLinks = await service.GenerateActionLinksAsync(reassigned.AssignmentId, Coordinator, default);
-        await service.ApplyActionAsync(declineLinks.DeclineToken!, default);
+        var declineToken = await ScheduleTestHelpers.CreateLegacyActionTokenAsync(
+            context,
+            reassigned.AssignmentId,
+            VolunteerAction.Decline,
+            DateTimeOffset.UtcNow);
+        await service.ApplyActionAsync(declineToken, default);
         Assert.Single(await service.ListOpeningsAsync(default), x => x.SlotId == opening.SlotId);
 
         var finalAssignment = await service.AssignDirectlyAsync(opening.SlotId, "Alex Rivera", "alex@example.org", null, Coordinator, default);
-        var confirmLinks = await service.GenerateActionLinksAsync(finalAssignment.AssignmentId, Coordinator, default);
-        await service.ApplyActionAsync(confirmLinks.ConfirmToken!, default);
-        var cancelLinks = await service.GenerateActionLinksAsync(finalAssignment.AssignmentId, Coordinator, default);
-        Assert.Null(cancelLinks.ConfirmToken);
-        Assert.Null(cancelLinks.DeclineToken);
-        await service.ApplyActionAsync(cancelLinks.CancelToken, default);
+        var finalLinks = await ScheduleTestHelpers.CreateLegacyActionLinksAsync(
+            context,
+            finalAssignment.AssignmentId,
+            AssignmentStatus.Assigned,
+            DateTimeOffset.UtcNow);
+        await service.ApplyActionAsync(finalLinks.ConfirmToken!, default);
+        var cancelToken = await ScheduleTestHelpers.CreateLegacyActionTokenAsync(
+            context,
+            finalAssignment.AssignmentId,
+            VolunteerAction.Cancel,
+            DateTimeOffset.UtcNow);
+        await service.ApplyActionAsync(cancelToken, default);
         Assert.Single(await service.ListOpeningsAsync(default), x => x.SlotId == opening.SlotId);
 
         Assert.Contains(await service.GetCoverageAsync(default), item => item.SlotId == opening.SlotId && item.State == "Uncovered");
@@ -160,7 +174,7 @@ public sealed class WorkflowIntegrationTests
     }
 
     [Fact]
-    public async Task RequestStatusKeepsItsTerminalSourceAssignment()
+    public async Task RequestStatusInvalidatesItsReassignedSourceCapability()
     {
         await _fixture.ResetAsync();
         await using var context = _fixture.CreateContext();
@@ -186,8 +200,8 @@ public sealed class WorkflowIntegrationTests
         await service.AssignDirectlyAsync(primary.SlotId, "Blair", "blair@example.org", null, Coordinator, default);
         await service.AssignDirectlyAsync(backup.SlotId, "Alex", "alex@example.org", null, Coordinator, default);
 
-        var status = await service.GetRequestStatusAsync(submission.StatusToken, default);
-        Assert.Equal("Reassigned", status.AssignmentStatus);
+        await Assert.ThrowsAsync<DomainException>(() =>
+            service.GetRequestStatusAsync(submission.StatusToken, default));
         Assert.Contains(
             await service.ListAuditAsync(500, default),
             entry => entry.Action == "AssignmentReassigned" && entry.EntityId == approved.AssignmentId);
@@ -307,12 +321,7 @@ public sealed class WorkflowIntegrationTests
 
         var volunteer = Volunteer.Create("Alex", "alex@example.org", null, DateTimeOffset.UtcNow);
         requestContext.Volunteers.Add(volunteer);
-        requestContext.ShiftRequests.Add(ShiftRequest.Create(
-            backupSlotId,
-            volunteer.Id,
-            new byte[32],
-            DateTimeOffset.UtcNow,
-            DateTimeOffset.UtcNow.AddDays(1)));
+        requestContext.ShiftRequests.Add(ShiftRequest.Create(backupSlotId, volunteer.Id, DateTimeOffset.UtcNow));
         await requestContext.SaveChangesAsync();
         await requestTransaction.CommitAsync();
 
@@ -438,12 +447,7 @@ public sealed class WorkflowIntegrationTests
         await AssertBlockedAsync(assignmentTask);
 
         var requester = Volunteer.Create("Requester", "requester@example.org", null, DateTimeOffset.UtcNow);
-        var request = ShiftRequest.Create(
-            slotId,
-            requester.Id,
-            new byte[32],
-            DateTimeOffset.UtcNow,
-            DateTimeOffset.UtcNow.AddDays(1));
+        var request = ShiftRequest.Create(slotId, requester.Id, DateTimeOffset.UtcNow);
         requestContext.Volunteers.Add(requester);
         requestContext.ShiftRequests.Add(request);
         await requestContext.SaveChangesAsync();
@@ -497,8 +501,11 @@ public sealed class WorkflowIntegrationTests
                 null,
                 Coordinator,
                 default)).AssignmentId;
-            var assignedLinks = await service.GenerateActionLinksAsync(assignedAssignmentId, Coordinator, default);
-            assignedConfirmToken = assignedLinks.ConfirmToken!;
+            assignedConfirmToken = await ScheduleTestHelpers.CreateLegacyActionTokenAsync(
+                context,
+                assignedAssignmentId,
+                VolunteerAction.Confirm,
+                DateTimeOffset.UtcNow);
 
             confirmedAssignmentId = (await service.AssignDirectlyAsync(
                 slots[2].Id,
@@ -507,12 +514,17 @@ public sealed class WorkflowIntegrationTests
                 null,
                 Coordinator,
                 default)).AssignmentId;
-            var confirmationLinks = await service.GenerateActionLinksAsync(confirmedAssignmentId, Coordinator, default);
-            await service.ApplyActionAsync(confirmationLinks.ConfirmToken!, default);
-            confirmedCancelToken = (await service.GenerateActionLinksAsync(
+            var confirmationToken = await ScheduleTestHelpers.CreateLegacyActionTokenAsync(
+                context,
                 confirmedAssignmentId,
-                Coordinator,
-                default)).CancelToken;
+                VolunteerAction.Confirm,
+                DateTimeOffset.UtcNow);
+            await service.ApplyActionAsync(confirmationToken, default);
+            confirmedCancelToken = await ScheduleTestHelpers.CreateLegacyActionTokenAsync(
+                context,
+                confirmedAssignmentId,
+                VolunteerAction.Cancel,
+                DateTimeOffset.UtcNow);
 
             var currentVersion = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId).Version;
             await service.DeactivateShiftAsync(shiftId, currentVersion, Coordinator, default);
@@ -545,7 +557,6 @@ public sealed class WorkflowIntegrationTests
             using var detail = JsonDocument.Parse(shiftAudit.DetailJson);
             Assert.Equal(1, detail.RootElement.GetProperty("SupersededRequests").GetInt32());
             Assert.Equal(2, detail.RootElement.GetProperty("CancelledAssignments").GetInt32());
-            Assert.Equal(5, detail.RootElement.GetProperty("InvalidatedTokens").GetInt32());
         }
 
         await using (var actionContext = _fixture.CreateContext())
@@ -583,7 +594,11 @@ public sealed class WorkflowIntegrationTests
             null,
             Coordinator,
             default)).AssignmentId;
-        var links = await service.GenerateActionLinksAsync(assignmentId, Coordinator, default);
+        var links = await ScheduleTestHelpers.CreateLegacyActionLinksAsync(
+            context,
+            assignmentId,
+            AssignmentStatus.Assigned,
+            DateTimeOffset.UtcNow);
         await service.ApplyActionAsync(links.ConfirmToken!, default);
 
         await service.CancelAssignmentAsync(assignmentId, Coordinator, default);
@@ -604,10 +619,55 @@ public sealed class WorkflowIntegrationTests
         Assert.Contains("\"Status\":3", audit.DetailJson);
 
         await Assert.ThrowsAsync<DomainException>(() => service.ApplyActionAsync(links.DeclineToken!, default));
-        await Assert.ThrowsAsync<DomainException>(() => service.ApplyActionAsync(links.CancelToken, default));
+        await Assert.ThrowsAsync<DomainException>(() => service.ApplyActionAsync(links.CancelToken!, default));
         Assert.Equal(
             AssignmentStatus.Cancelled,
             (await context.Assignments.SingleAsync(x => x.Id == assignmentId)).Status);
+    }
+
+
+    [Fact]
+    public async Task LegacyCancelClosesExactlyAtShiftEnd()
+    {
+        await _fixture.ResetAsync();
+        var clock = new ScheduleTestHelpers.FixedClock(
+            new DateTimeOffset(2026, 9, 1, 12, 0, 0, TimeSpan.Zero));
+        await using var context = _fixture.CreateContext();
+        var service = ScheduleTestHelpers.CreateService(context, clock);
+        var starts = clock.UtcNow.AddHours(-2);
+        var ends = clock.UtcNow;
+        var shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+            service,
+            "Ended legacy cancel",
+            null,
+            null,
+            starts,
+            ends,
+            0,
+            Coordinator);
+        var shift = await context.Shifts
+            .Include(x => x.Slots)
+            .SingleAsync(x => x.Id == shiftId);
+        var volunteer = Volunteer.Create("Ended volunteer", "ended@example.org", null, starts);
+        var assignment = Assignment.Create(
+            shift.Slots.Single().Id,
+            shift.Id,
+            volunteer.Id,
+            null,
+            Coordinator,
+            starts.AddMinutes(1));
+        context.Volunteers.Add(volunteer);
+        context.Assignments.Add(assignment);
+        await context.SaveChangesAsync();
+        var cancelToken = await ScheduleTestHelpers.CreateLegacyActionTokenAsync(
+            context,
+            assignment.Id,
+            VolunteerAction.Cancel,
+            clock.UtcNow.AddMinutes(-1));
+
+        await Assert.ThrowsAsync<DomainException>(() => service.ApplyActionAsync(cancelToken, default));
+        Assert.Equal(AssignmentStatus.Assigned, (await context.Assignments.SingleAsync()).Status);
+        Assert.Null((await context.ActionTokens.SingleAsync()).UsedAtUtc);
     }
 
     [Fact]
@@ -636,7 +696,11 @@ public sealed class WorkflowIntegrationTests
             null,
             Coordinator,
             default)).AssignmentId;
-        var originalLinks = await service.GenerateActionLinksAsync(originalId, Coordinator, default);
+        var originalLinks = await ScheduleTestHelpers.CreateLegacyActionLinksAsync(
+            context,
+            originalId,
+            AssignmentStatus.Assigned,
+            DateTimeOffset.UtcNow);
 
         var replacementId = (await service.AssignDirectlyAsync(
             slotId,
@@ -654,7 +718,7 @@ public sealed class WorkflowIntegrationTests
             actionToken => Assert.NotNull(actionToken.UsedAtUtc));
         await Assert.ThrowsAsync<DomainException>(() => service.ApplyActionAsync(originalLinks.ConfirmToken!, default));
         await Assert.ThrowsAsync<DomainException>(() => service.ApplyActionAsync(originalLinks.DeclineToken!, default));
-        await Assert.ThrowsAsync<DomainException>(() => service.ApplyActionAsync(originalLinks.CancelToken, default));
+        await Assert.ThrowsAsync<DomainException>(() => service.ApplyActionAsync(originalLinks.CancelToken!, default));
         Assert.Equal(
             AssignmentStatus.Assigned,
             (await context.Assignments.SingleAsync(x => x.Id == replacementId)).Status);
@@ -666,7 +730,7 @@ public sealed class WorkflowIntegrationTests
     }
 
     [Fact]
-    public async Task ReassignmentWaitsForSupersededSlotLockBeforeGeneratingLinks()
+    public async Task ReassignmentWaitsForSupersededSlotLock()
     {
         await _fixture.ResetAsync();
         Guid sourceSlotId;
@@ -697,19 +761,12 @@ public sealed class WorkflowIntegrationTests
                 null,
                 Coordinator,
                 default)).AssignmentId;
-            await service.GenerateActionLinksAsync(originalAssignmentId, Coordinator, default);
         }
 
         await using var lockContext = _fixture.CreateContext();
         await using var lockTransaction = await lockContext.Database.BeginTransactionAsync();
         await LockSlotAsync(lockContext, sourceSlotId);
 
-        await using var linkContext = _fixture.CreateContext();
-        var linkTask = CreateService(linkContext).GenerateActionLinksAsync(
-            originalAssignmentId,
-            Coordinator,
-            default);
-        await AssertBlockedAsync(linkTask);
 
         await using var reassignmentContext = _fixture.CreateContext();
         var reassignmentTask = CreateService(reassignmentContext).AssignDirectlyAsync(
@@ -724,19 +781,14 @@ public sealed class WorkflowIntegrationTests
         await lockTransaction.CommitAsync();
         await reassignmentTask;
 
-        var linkException = await Record.ExceptionAsync(() => linkTask);
-        Assert.True(
-            linkException is null or DomainException,
-            $"Link generation failed with an unexpected exception: {linkException}");
 
         await using var verificationContext = _fixture.CreateContext();
         var originalAssignment = await verificationContext.Assignments.SingleAsync(x => x.Id == originalAssignmentId);
         Assert.Equal(AssignmentStatus.Reassigned, originalAssignment.Status);
-        Assert.All(
+        Assert.Empty(
             await verificationContext.ActionTokens
                 .Where(x => x.AssignmentId == originalAssignmentId)
-                .ToListAsync(),
-            actionToken => Assert.NotNull(actionToken.UsedAtUtc));
+                .ToListAsync());
         Assert.Single(
             await verificationContext.Assignments
                 .Where(x => x.ShiftSlotId == destinationSlotId &&
@@ -779,10 +831,11 @@ public sealed class WorkflowIntegrationTests
                 null,
                 Coordinator,
                 default)).AssignmentId;
-            sourceConfirmToken = (await service.GenerateActionLinksAsync(
+            sourceConfirmToken = await ScheduleTestHelpers.CreateLegacyActionTokenAsync(
+                creationContext,
                 sourceAssignmentId,
-                Coordinator,
-                default)).ConfirmToken!;
+                VolunteerAction.Confirm,
+                DateTimeOffset.UtcNow);
         }
 
         await using var destinationLockContext = _fixture.CreateContext();
@@ -811,10 +864,11 @@ public sealed class WorkflowIntegrationTests
                 null,
                 Coordinator,
                 default)).AssignmentId;
-            thirdConfirmToken = (await thirdSlotService.GenerateActionLinksAsync(
+            thirdConfirmToken = await ScheduleTestHelpers.CreateLegacyActionTokenAsync(
+                thirdSlotContext,
                 thirdAssignmentId,
-                Coordinator,
-                default)).ConfirmToken!;
+                VolunteerAction.Confirm,
+                DateTimeOffset.UtcNow);
         }
 
         await destinationLockTransaction.CommitAsync();
@@ -835,9 +889,8 @@ public sealed class WorkflowIntegrationTests
         var replacedTokens = await verificationContext.ActionTokens
             .Where(x => x.AssignmentId == sourceAssignmentId || x.AssignmentId == thirdAssignmentId)
             .ToListAsync();
-        Assert.Equal(6, replacedTokens.Count);
+        Assert.Equal(2, replacedTokens.Count);
         Assert.All(replacedTokens, actionToken => Assert.NotNull(actionToken.UsedAtUtc));
-        Assert.DoesNotContain(replacedTokens, actionToken => actionToken.UsedAtUtc is null);
 
         await using var tokenContext = _fixture.CreateContext();
         var tokenService = CreateService(tokenContext);
@@ -955,12 +1008,7 @@ public sealed class WorkflowIntegrationTests
         var now = DateTimeOffset.UtcNow;
         var requester = Volunteer.Create("Requester", "requester@example.org", null, now);
         var assignedVolunteer = Volunteer.Create("Assigned", "assigned@example.org", null, now);
-        var request = ShiftRequest.Create(
-            slotId,
-            requester.Id,
-            new SecureTokenService().Generate().Hash,
-            now,
-            now.AddDays(1));
+        var request = ShiftRequest.Create(slotId, requester.Id, now);
         var assignment = Assignment.Create(
             slotId,
             shiftId,
@@ -1025,10 +1073,11 @@ public sealed class WorkflowIntegrationTests
                 null,
                 Coordinator,
                 default)).AssignmentId;
-            confirmToken = (await service.GenerateActionLinksAsync(
+            confirmToken = await ScheduleTestHelpers.CreateLegacyActionTokenAsync(
+                creationContext,
                 assignmentId,
-                Coordinator,
-                default)).ConfirmToken!;
+                VolunteerAction.Confirm,
+                DateTimeOffset.UtcNow);
         }
 
         await using var staleContext = _fixture.CreateContext();
@@ -1043,7 +1092,6 @@ public sealed class WorkflowIntegrationTests
             await CreateService(winningContext).CancelAssignmentAsync(assignmentId, Coordinator, default);
             var cancelledToken = await winningContext.ActionTokens
                 .SingleAsync(x => x.TokenHash.SequenceEqual(confirmHash));
-            await winningContext.Entry(cancelledToken).ReloadAsync();
             cancellationTimestamp = cancelledToken.UsedAtUtc;
         }
 
@@ -1063,14 +1111,15 @@ public sealed class WorkflowIntegrationTests
         Assert.Equal(
             AssignmentStatus.Cancelled,
             (await verificationContext.Assignments.SingleAsync(x => x.Id == assignmentId)).Status);
-        Assert.Equal(
-            cancellationTimestamp,
-            (await verificationContext.ActionTokens
-                .SingleAsync(x => x.TokenHash.SequenceEqual(confirmHash))).UsedAtUtc);
+        var persistedCancellationTimestamp = (await verificationContext.ActionTokens
+            .SingleAsync(x => x.TokenHash.SequenceEqual(confirmHash))).UsedAtUtc;
+        Assert.NotNull(cancellationTimestamp);
+        Assert.NotNull(persistedCancellationTimestamp);
+        Assert.Equal(cancellationTimestamp.Value.Ticks / 10, persistedCancellationTimestamp.Value.Ticks / 10);
     }
 
     [Fact]
-    public async Task StaleTrackedAssignmentCannotGenerateOrApplyLinksAfterDeactivation()
+    public async Task StaleTrackedAssignmentCannotApplyLegacyLinkAfterDeactivation()
     {
         await _fixture.ResetAsync();
         Guid shiftId;
@@ -1099,10 +1148,11 @@ public sealed class WorkflowIntegrationTests
                 null,
                 Coordinator,
                 default)).AssignmentId;
-            confirmToken = (await service.GenerateActionLinksAsync(
+            confirmToken = await ScheduleTestHelpers.CreateLegacyActionTokenAsync(
+                creationContext,
                 assignmentId,
-                Coordinator,
-                default)).ConfirmToken!;
+                VolunteerAction.Confirm,
+                DateTimeOffset.UtcNow);
             version = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId).Version;
         }
 
@@ -1122,20 +1172,14 @@ public sealed class WorkflowIntegrationTests
 
         var staleService = CreateService(staleContext);
         await Assert.ThrowsAsync<DomainException>(() =>
-            staleService.GenerateActionLinksAsync(assignmentId, Coordinator, default));
-        await Assert.ThrowsAsync<DomainException>(() =>
             staleService.ApplyActionAsync(confirmToken, default));
 
         await using var verificationContext = _fixture.CreateContext();
         var persistedTokens = await verificationContext.ActionTokens
             .Where(x => x.AssignmentId == assignmentId)
             .ToListAsync();
-        Assert.Equal(3, persistedTokens.Count);
-        Assert.All(persistedTokens, actionToken => Assert.NotNull(actionToken.UsedAtUtc));
-        Assert.Single(
-            await verificationContext.AuditEntries
-                .Where(x => x.Action == "ActionLinksGenerated" && x.EntityId == assignmentId)
-                .ToListAsync());
+        Assert.Single(persistedTokens);
+        Assert.NotNull(persistedTokens[0].UsedAtUtc);
     }
 
     [Fact]
@@ -1164,7 +1208,10 @@ public sealed class WorkflowIntegrationTests
 
         Assert.False(result.Succeeded);
         Assert.Equal(NotificationState.Failed, (await context.NotificationAttempts.SingleAsync()).State);
-        Assert.Equal("alex@example.org", (await context.NotificationAttempts.SingleAsync()).Destination);
+        Assert.DoesNotContain(
+            "alex@example.org",
+            System.Text.Json.JsonSerializer.Serialize(await context.NotificationAttempts.ToListAsync()),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private static Task<int> LockSlotAsync(VolunteerCoordinatorDbContext context, Guid slotId) =>

@@ -1,0 +1,10 @@
+@page "/Commitments/Recover/{token}"
+@model VolunteerCoordinator.Web.Pages.Commitments.RecoverTokenModel
+@{
+    ViewData["Title"] = "Recover commitment access";
+}
+<h1 tabindex="-1">Recover commitment access</h1>
+@if (Model.Error is not null)
+{
+    <div class="alert alert-error" role="alert">@Model.Error</div>
+}

@@ -3,6 +3,7 @@ using VolunteerCoordinator.Application;
 using VolunteerCoordinator.Application.Notifications;
 using VolunteerCoordinator.Application.Models;
 using VolunteerCoordinator.Domain;
+using VolunteerCoordinator.Domain.Access;
 using VolunteerCoordinator.Domain.Assignments;
 using VolunteerCoordinator.Domain.Settings;
 using VolunteerCoordinator.Domain.Schedules;
@@ -65,14 +66,15 @@ public sealed class Issue16PrivacyIntegrationTests
             var tokenService = new SecureTokenService();
             var generatedStatus = tokenService.Generate();
             statusToken = generatedStatus.RawToken;
-            var request = ShiftRequest.Create(
+            var request = ShiftRequest.Create(shift.Slots.Single().Id, volunteer.Id, FixedNow.AddDays(-400));
+            request.Approve(Coordinator, FixedNow.AddDays(-399));
+            context.ShiftRequests.Add(request);
+            context.VolunteerAccessCapabilities.Add(VolunteerAccessCapability.Create(
                 shift.Slots.Single().Id,
                 volunteer.Id,
                 generatedStatus.Hash,
                 FixedNow.AddDays(-400),
-                FixedNow.AddDays(-399));
-            request.Approve(Coordinator, FixedNow.AddDays(-399));
-            context.ShiftRequests.Add(request);
+                CapabilityIssuedReason.Request));
 
             var assignment = Assignment.Create(
                 shift.Slots.Single().Id,
@@ -107,9 +109,9 @@ public sealed class Issue16PrivacyIntegrationTests
                 "ignored-for-retention",
                 default);
             Assert.Equal(VolunteerAnonymizationOutcome.Anonymized, result.Outcome);
-            Assert.Equal(1, result.StatusTokensInvalidated);
+            Assert.Equal(1, result.CapabilitiesInvalidated);
             Assert.Equal(1, result.ActionTokensInvalidated);
-            Assert.Equal(1, result.NotificationDestinationsRedacted);
+            Assert.Equal(0, result.NotificationDestinationsRedacted);
         }
 
         await using (var verification = _fixture.CreateContext())
@@ -120,12 +122,14 @@ public sealed class Issue16PrivacyIntegrationTests
             Assert.Equal(volunteer.Email.ToUpperInvariant(), volunteer.NormalizedEmail);
             Assert.Null(volunteer.Phone);
             Assert.NotNull(volunteer.AnonymizedAtUtc);
-            Assert.NotNull((await verification.ShiftRequests.SingleAsync()).StatusTokenInvalidatedAtUtc);
+            var capability = await verification.VolunteerAccessCapabilities.SingleAsync();
+            Assert.NotNull(capability.InvalidatedAtUtc);
             Assert.NotNull((await verification.ActionTokens.SingleAsync()).UsedAtUtc);
-            Assert.Equal("removed", (await verification.NotificationAttempts.SingleAsync()).Destination);
-            var audit = Assert.Single(await verification.AuditEntries.Where(x => x.Action == "VolunteerAnonymized").ToListAsync());
-            Assert.DoesNotContain(originalEmail, audit.DetailJson, StringComparison.Ordinal);
-            Assert.DoesNotContain(originalEmail, await verification.NotificationAttempts.Select(x => x.Destination).ToListAsync());
+            var persistedAttempts = await verification.NotificationAttempts.ToListAsync();
+            Assert.DoesNotContain(
+                originalEmail,
+                System.Text.Json.JsonSerializer.Serialize(persistedAttempts),
+                StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain(originalEmail, await verification.AuditEntries.Select(x => x.DetailJson).ToListAsync());
         }
 
@@ -275,12 +279,7 @@ public sealed class Issue16PrivacyIntegrationTests
                     resolvedAt = FixedNow.AddDays(-200);
                 }
 
-                var request = ShiftRequest.Create(
-                    shift.Slots.Single().Id,
-                    volunteer.Id,
-                    Enumerable.Repeat((byte)(index + 1), 32).ToArray(),
-                    requestedAt,
-                    FixedNow.AddDays(-199));
+                var request = ShiftRequest.Create(shift.Slots.Single().Id, volunteer.Id, requestedAt);
                 request.Approve(Coordinator, resolvedAt);
                 context.ShiftRequests.Add(request);
 
@@ -471,9 +470,11 @@ public sealed class Issue16PrivacyIntegrationTests
         var volunteer = await verification.Volunteers.SingleAsync(x => x.Id == candidate.VolunteerId);
         Assert.Null(volunteer.AnonymizedAtUtc);
         Assert.Equal(candidate.Email, volunteer.Email);
-        Assert.Null((await verification.ShiftRequests.SingleAsync()).StatusTokenInvalidatedAtUtc);
         Assert.Null((await verification.ActionTokens.SingleAsync()).UsedAtUtc);
-        Assert.Equal(candidate.Email, (await verification.NotificationAttempts.SingleAsync()).Destination);
+        Assert.DoesNotContain(
+            candidate.Email,
+            System.Text.Json.JsonSerializer.Serialize(await verification.NotificationAttempts.ToListAsync()),
+            StringComparison.OrdinalIgnoreCase);
         Assert.Empty(await verification.AuditEntries.Where(x => x.Action == "VolunteerAnonymized").ToListAsync());
         Assert.Equal(
             FixedNow.AddDays(2),
@@ -524,9 +525,13 @@ public sealed class Issue16PrivacyIntegrationTests
         var volunteer = await verification.Volunteers.SingleAsync(x => x.Id == candidate.VolunteerId);
         Assert.Equal("Removed volunteer", volunteer.Name);
         Assert.NotNull(volunteer.AnonymizedAtUtc);
-        Assert.NotNull((await verification.ShiftRequests.SingleAsync()).StatusTokenInvalidatedAtUtc);
+        var capability = await verification.VolunteerAccessCapabilities.SingleAsync();
+        Assert.NotNull(capability.InvalidatedAtUtc);
         Assert.NotNull((await verification.ActionTokens.SingleAsync()).UsedAtUtc);
-        Assert.Equal("removed", (await verification.NotificationAttempts.SingleAsync()).Destination);
+        Assert.DoesNotContain(
+            candidate.Email,
+            System.Text.Json.JsonSerializer.Serialize(await verification.NotificationAttempts.ToListAsync()),
+            StringComparison.OrdinalIgnoreCase);
         Assert.Single(await verification.AuditEntries.Where(x => x.Action == "VolunteerAnonymized").ToListAsync());
         Assert.Equal(
             FixedNow.AddDays(2),
@@ -585,12 +590,7 @@ public sealed class Issue16PrivacyIntegrationTests
                 FixedNow.AddDays(-3),
                 FixedNow.AddDays(-2),
                 0);
-            var request = ShiftRequest.Create(
-                shift.Slots.Single().Id,
-                alternate.Id,
-                Enumerable.Repeat((byte)77, 32).ToArray(),
-                FixedNow.AddDays(-3),
-                FixedNow.AddDays(-2));
+            var request = ShiftRequest.Create(shift.Slots.Single().Id, alternate.Id, FixedNow.AddDays(-3));
             request.Reject(Coordinator, FixedNow.AddDays(-2));
             context.Volunteers.Add(alternate);
             context.Shifts.Add(shift);
@@ -676,12 +676,7 @@ public sealed class Issue16PrivacyIntegrationTests
                 FixedNow.AddDays(-1),
                 FixedNow,
                 0);
-            var request = ShiftRequest.Create(
-                shift.Slots.Single().Id,
-                candidate.VolunteerId,
-                Enumerable.Repeat((byte)78, 32).ToArray(),
-                FixedNow.AddDays(-1),
-                FixedNow);
+            var request = ShiftRequest.Create(shift.Slots.Single().Id, candidate.VolunteerId, FixedNow.AddDays(-1));
             request.Reject(Coordinator, FixedNow);
             context.Shifts.Add(shift);
             context.ShiftRequests.Add(request);
@@ -867,12 +862,7 @@ public sealed class Issue16PrivacyIntegrationTests
             blockedId = leading[0];
             eligibleId = leading[1];
             var token = new SecureTokenService().Generate();
-            context.ShiftRequests.Add(ShiftRequest.Create(
-                shift.Slots.Single().Id,
-                blockedId,
-                token.Hash,
-                FixedNow.AddDays(-400),
-                FixedNow.AddDays(-399)));
+            context.ShiftRequests.Add(ShiftRequest.Create(shift.Slots.Single().Id, blockedId, FixedNow.AddDays(-400)));
             await context.SaveChangesAsync();
         }
 
@@ -899,7 +889,7 @@ public sealed class Issue16PrivacyIntegrationTests
         await _fixture.ResetAsync();
         var clock = new ScheduleTestHelpers.FixedClock(FixedNow);
         Guid volunteerId;
-        string actionToken;
+        Guid requestId;
         await using (var context = _fixture.CreateContext())
         {
             context.GroupSettings.Add(GroupSettings.Create("Etc/UTC"));
@@ -915,26 +905,16 @@ public sealed class Issue16PrivacyIntegrationTests
                 "race-notification@example.org",
                 null,
                 FixedNow.AddDays(-400));
-            var assignment = Assignment.Create(
+            var request = ShiftRequest.Create(
                 shift.Slots.Single().Id,
-                shift.Id,
                 volunteer.Id,
-                null,
-                Coordinator,
                 FixedNow.AddDays(-3));
-            var generated = new SecureTokenService().Generate();
             context.Shifts.Add(shift);
             context.Volunteers.Add(volunteer);
-            context.Assignments.Add(assignment);
-            context.ActionTokens.Add(ActionToken.Create(
-                assignment.Id,
-                VolunteerAction.Cancel,
-                generated.Hash,
-                FixedNow.AddDays(-3),
-                FixedNow.AddDays(3)));
+            context.ShiftRequests.Add(request);
             await context.SaveChangesAsync();
             volunteerId = volunteer.Id;
-            actionToken = generated.RawToken;
+            requestId = request.Id;
         }
 
         await using var workflowContext = _fixture.CreateContext();
@@ -945,7 +925,7 @@ public sealed class Issue16PrivacyIntegrationTests
             clock,
             new SecureTokenService(),
             blockingNotifications);
-        var terminalWorkflow = workflowService.ApplyActionAsync(actionToken, default);
+        var terminalWorkflow = workflowService.RejectRequestAsync(requestId, Coordinator, default);
         var notificationMessage = await blockingNotifications.Called.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Equal(volunteerId, notificationMessage.VolunteerId);
@@ -968,7 +948,8 @@ public sealed class Issue16PrivacyIntegrationTests
         Assert.Empty(await verification.NotificationAttempts.ToListAsync());
         Assert.DoesNotContain(
             "race-notification@example.org",
-            await verification.NotificationAttempts.Select(x => x.Destination).ToListAsync());
+            System.Text.Json.JsonSerializer.Serialize(await verification.NotificationAttempts.ToListAsync()),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -993,12 +974,7 @@ public sealed class Issue16PrivacyIntegrationTests
                     FixedNow.AddDays(-(index + 3)),
                     FixedNow.AddDays(-(index + 2)),
                     0);
-                var request = ShiftRequest.Create(
-                    shift.Slots.Single().Id,
-                    volunteer.Id,
-                    Enumerable.Repeat((byte)(index + 1), 32).ToArray(),
-                    FixedNow.AddDays(-(index + 3)),
-                    FixedNow.AddDays(-(index + 2)));
+                var request = ShiftRequest.Create(shift.Slots.Single().Id, volunteer.Id, FixedNow.AddDays(-(index + 3)));
                 context.Shifts.Add(shift);
                 context.ShiftRequests.Add(request);
             }
@@ -1066,7 +1042,9 @@ public sealed class Issue16PrivacyIntegrationTests
             .SqlQueryRaw<string>(
                 """SELECT column_name AS "Value" FROM information_schema.columns WHERE table_name = 'ShiftRequests'""")
             .ToListAsync();
-        Assert.Contains("StatusTokenInvalidatedAtUtc", requestColumns);
+        Assert.DoesNotContain("StatusTokenHash", requestColumns);
+        Assert.DoesNotContain("StatusTokenExpiresAtUtc", requestColumns);
+        Assert.DoesNotContain("StatusTokenInvalidatedAtUtc", requestColumns);
     }
     private async Task<ShiftEditRaceCandidate> SeedShiftEditRaceCandidateAsync(
         ScheduleTestHelpers.FixedClock clock)
@@ -1094,14 +1072,15 @@ public sealed class Issue16PrivacyIntegrationTests
 
         var tokenService = new SecureTokenService();
         var statusToken = tokenService.Generate();
-        var request = ShiftRequest.Create(
+        var request = ShiftRequest.Create(shift.Slots.Single().Id, volunteer.Id, FixedNow.AddDays(-400));
+        request.Approve(Coordinator, FixedNow.AddDays(-399));
+        context.ShiftRequests.Add(request);
+        context.VolunteerAccessCapabilities.Add(VolunteerAccessCapability.Create(
             shift.Slots.Single().Id,
             volunteer.Id,
             statusToken.Hash,
             FixedNow.AddDays(-400),
-            FixedNow.AddDays(-399));
-        request.Approve(Coordinator, FixedNow.AddDays(-399));
-        context.ShiftRequests.Add(request);
+            CapabilityIssuedReason.Request));
 
         var assignment = Assignment.Create(
             shift.Slots.Single().Id,
@@ -1167,12 +1146,7 @@ public sealed class Issue16PrivacyIntegrationTests
         foreach (var shift in orderedShifts)
         {
             relationshipIndex++;
-            var request = ShiftRequest.Create(
-                shift.Slots.Single().Id,
-                volunteer.Id,
-                Enumerable.Repeat((byte)relationshipIndex, 32).ToArray(),
-                FixedNow.AddDays(-401),
-                FixedNow.AddDays(-400));
+            var request = ShiftRequest.Create(shift.Slots.Single().Id, volunteer.Id, FixedNow.AddDays(-401));
             request.Reject(Coordinator, FixedNow.AddDays(-400));
             requests.Add(request);
 
@@ -1190,12 +1164,7 @@ public sealed class Issue16PrivacyIntegrationTests
         for (var duplicateIndex = 0; duplicateIndex < 9; duplicateIndex++)
         {
             relationshipIndex++;
-            var request = ShiftRequest.Create(
-                orderedShifts[0].Slots.Single().Id,
-                volunteer.Id,
-                Enumerable.Repeat((byte)relationshipIndex, 32).ToArray(),
-                FixedNow.AddDays(-401),
-                FixedNow.AddDays(-400));
+            var request = ShiftRequest.Create(orderedShifts[0].Slots.Single().Id, volunteer.Id, FixedNow.AddDays(-401));
             request.Reject(Coordinator, FixedNow.AddDays(-400));
             requests.Add(request);
 

@@ -21,11 +21,17 @@ public sealed class AnonymousRateLimitOptions
         PermitLimit = 10,
         Window = TimeSpan.FromMinutes(1)
     };
+    public TierOptions Recovery { get; set; } = new()
+    {
+        PermitLimit = 5,
+        Window = TimeSpan.FromMinutes(15)
+    };
 
     public bool IsValid() =>
         IsValid(RequestMutation) &&
         IsValid(PrivateTokenRead) &&
-        IsValid(AssignmentActionMutation);
+        IsValid(AssignmentActionMutation) &&
+        IsValid(Recovery);
 
     private static bool IsValid(TierOptions? tier) =>
         tier is not null &&

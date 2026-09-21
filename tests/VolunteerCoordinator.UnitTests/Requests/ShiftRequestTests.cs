@@ -18,16 +18,7 @@ public sealed class ShiftRequestTests
         Assert.Throws<DomainException>(() => request.Reject("COORDINATOR@EXAMPLE.ORG", Now.AddMinutes(2)));
     }
 
-    [Fact]
-    public void StatusToken_RemainsReadOnlyReusableUntilExpiry()
-    {
-        var request = Create();
-
-        Assert.True(request.IsStatusTokenUsable(Now.AddDays(29)));
-        Assert.True(request.IsStatusTokenUsable(Now.AddDays(30)));
-        Assert.False(request.IsStatusTokenUsable(Now.AddDays(30).AddTicks(1)));
-    }
 
     private static ShiftRequest Create() =>
-        ShiftRequest.Create(Guid.NewGuid(), Guid.NewGuid(), new byte[32], Now, Now.AddDays(30));
+        ShiftRequest.Create(Guid.NewGuid(), Guid.NewGuid(), Now);
 }

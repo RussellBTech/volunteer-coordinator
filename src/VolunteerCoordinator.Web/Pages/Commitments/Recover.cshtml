@@ -1,0 +1,20 @@
+@page "/Commitments/Recover"
+@model VolunteerCoordinator.Web.Pages.Commitments.RecoverModel
+@{
+    ViewData["Title"] = "Recover commitment access";
+}
+<h1 tabindex="-1">Recover commitment access</h1>
+@if (Model.Receipt is not null)
+{
+    <div class="alert alert-success" role="status">@Model.Receipt</div>
+}
+else
+{
+    <p>Enter the email used for scheduling and the commitment date in the group's local time zone.</p>
+    <form method="post">
+        <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+        <div class="form-group"><label asp-for="Email"></label><input asp-for="Email" autocomplete="email" /></div>
+        <div class="form-group"><label asp-for="CommitmentDate">Commitment date</label><input asp-for="CommitmentDate" type="date" /></div>
+        <button type="submit">Send recovery email</button>
+    </form>
+}

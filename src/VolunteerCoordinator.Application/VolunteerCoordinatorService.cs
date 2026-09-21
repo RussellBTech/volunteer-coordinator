@@ -3,6 +3,7 @@ using VolunteerCoordinator.Application.Models;
 using VolunteerCoordinator.Application.Notifications;
 using VolunteerCoordinator.Application.Ports;
 using VolunteerCoordinator.Domain;
+using VolunteerCoordinator.Domain.Access;
 using VolunteerCoordinator.Domain.Assignments;
 using VolunteerCoordinator.Domain.Auditing;
 using VolunteerCoordinator.Domain.Notifications;
@@ -21,12 +22,11 @@ public sealed class VolunteerCoordinatorService
     private const int VolunteerRetentionDays = VolunteerRetentionPolicy.MinimumRetentionDays;
     private const int MaxAssignmentLockAttempts = 3;
     private const string AssignmentLockConflictMessage = "The requested change conflicts with current schedule state. Reload and try again.";
-    private static readonly TimeSpan StatusTokenLifetime = TimeSpan.FromDays(30);
-    private static readonly TimeSpan ActionTokenLifetime = TimeSpan.FromDays(7);
     private readonly IWorkflowStore _store;
     private readonly IClock _clock;
     private readonly ITokenService _tokens;
     private readonly INotificationService _notifications;
+    private readonly ITransientLinkMaterialStore? _transientLinkMaterial;
     private sealed class AssignmentLockRestartException : Exception
     {
     }
@@ -44,12 +44,14 @@ public sealed class VolunteerCoordinatorService
         IWorkflowStore store,
         IClock clock,
         ITokenService tokens,
-        INotificationService notifications)
+        INotificationService notifications,
+        ITransientLinkMaterialStore? transientLinkMaterial = null)
     {
         _store = store;
         _clock = clock;
         _tokens = tokens;
         _notifications = notifications;
+        _transientLinkMaterial = transientLinkMaterial;
     }
 
     public async Task<GroupSettingsDto?> GetGroupSettingsAsync(CancellationToken cancellationToken)
@@ -355,7 +357,11 @@ public sealed class VolunteerCoordinatorService
                         throw new DomainException("A backup slot with an active assignment or pending request cannot be removed.");
                     }
                 }
-
+                var oldTitle = shift.Title;
+                var oldLocation = shift.Location;
+                var oldInstructions = shift.VolunteerInstructions;
+                var oldStartsAtUtc = shift.StartsAtUtc;
+                var oldEndsAtUtc = shift.EndsAtUtc;
                 var existingSlotIds = shift.Slots.Select(slot => slot.Id).ToHashSet();
                 shift.Edit(
                     title,
@@ -367,6 +373,43 @@ public sealed class VolunteerCoordinatorService
                     now);
                 shift.ConfigureBackupSlots(backupSlotCount);
                 _store.AddShiftSlots(shift.Slots.Where(slot => !existingSlotIds.Contains(slot.Id)).ToArray());
+                var visibleChanged =
+                    !string.Equals(oldTitle, shift.Title, StringComparison.Ordinal) ||
+                    !string.Equals(oldLocation, shift.Location, StringComparison.Ordinal) ||
+                    !string.Equals(oldInstructions, shift.VolunteerInstructions, StringComparison.Ordinal) ||
+                    oldStartsAtUtc != shift.StartsAtUtc ||
+                    oldEndsAtUtc != shift.EndsAtUtc;
+                if (visibleChanged)
+                {
+                    var activeAssignments = await _store.GetActiveAssignmentsAsync(
+                        shift.Slots.Select(slot => slot.Id).ToArray(),
+                        token);
+                    foreach (var assignment in activeAssignments)
+                    {
+                        QueueNotification(
+                            assignment.Id,
+                            assignment.VolunteerId,
+                            assignment.ShiftSlotId,
+                            $"correction:{shift.Id:N}:{assignment.ShiftSlotId:N}:{assignment.VolunteerId:N}:{now.Ticks}",
+                            "ScheduleCorrection",
+                            now);
+                    }
+
+                    var pendingRequests = await _store.GetPendingRequestsAsync(
+                        shift.Slots.Select(slot => slot.Id).ToArray(),
+                        token);
+                    foreach (var request in pendingRequests)
+                    {
+                        QueueNotification(
+                            request.Id,
+                            request.VolunteerId,
+                            request.ShiftSlotId,
+                            $"correction:{shift.Id:N}:{request.ShiftSlotId:N}:{request.VolunteerId:N}:{now.Ticks}",
+                            "ScheduleCorrection",
+                            now);
+                    }
+                }
+
                 _store.AddAuditEntry(AuditEntry.Create(
                     now,
                     actor,
@@ -445,6 +488,38 @@ public sealed class VolunteerCoordinatorService
                 foreach (var request in pendingRequests)
                 {
                     request.Supersede(actor, now);
+                    await CancelPendingAccessIntentsAsync(
+                        request.VolunteerId,
+                        request.ShiftSlotId,
+                        now,
+                        token);
+                    QueueNotification(
+                        request.Id,
+                        request.VolunteerId,
+                        request.ShiftSlotId,
+                        $"request:{request.Id:N}:deactivated",
+                        "Deactivation",
+                        now);
+                    if (_store is IAccessStore accessStore)
+                    {
+                        foreach (var capability in await accessStore.GetActiveCapabilitiesAsync(
+                                     request.VolunteerId,
+                                     request.ShiftSlotId,
+                                     token))
+                        {
+                            capability.Invalidate(now);
+                        }
+
+                        foreach (var recovery in await accessStore.GetRecoveryTokensForVolunteerAsync(
+                                     request.VolunteerId,
+                                     token))
+                        {
+                            if (recovery.ShiftSlotId == request.ShiftSlotId)
+                            {
+                                recovery.Invalidate(now);
+                            }
+                        }
+                    }
                 }
 
                 var invalidatedTokenCount = await CancelAssignmentsAsync(
@@ -973,6 +1048,7 @@ public sealed class VolunteerCoordinatorService
         }
 
         var now = _clock.UtcNow;
+        NotificationIntent? requestIntent = null;
         var generatedToken = _tokens.Generate();
         var result = await _store.ExecuteInTransactionAsync(
             async token =>
@@ -1015,41 +1091,393 @@ public sealed class VolunteerCoordinatorService
                     throw new DomainException("You already have a pending request for this slot.");
                 }
 
-                var request = ShiftRequest.Create(slot.Id, volunteer.Id, generatedToken.Hash, now, now.Add(StatusTokenLifetime));
+                var request = ShiftRequest.Create(slot.Id, volunteer.Id, now);
                 _store.AddRequest(request);
+                if (_store is IAccessStore accessStore)
+                {
+                    foreach (var previous in await accessStore.GetActiveCapabilitiesAsync(volunteer.Id, slot.Id, token))
+                    {
+                        previous.Invalidate(now);
+                    }
+
+                    accessStore.AddCapability(VolunteerAccessCapability.Create(
+                        slot.Id,
+                        volunteer.Id,
+                        generatedToken.Hash,
+                        now,
+                        CapabilityIssuedReason.Request));
+                }
+
+                requestIntent = QueueNotification(
+                    request.Id,
+                    volunteer.Id,
+                    slot.Id,
+                    $"request:{request.Id:N}:receipt",
+                    "RequestReceipt",
+                    now);
                 _store.AddAuditEntry(AuditEntry.Create(now, $"volunteer:{volunteer.Id}", "RequestSubmitted", nameof(ShiftRequest), request.Id, Detail(new { request.ShiftSlotId, request.VolunteerId })));
                 return (request.Id, VolunteerId: volunteer.Id, Commitment: BuildCommitment(shift, settings, slot, SlotLabel(slot)));
             },
             cancellationToken);
+        if (requestIntent is not null)
+        {
+            _transientLinkMaterial?.PutHubToken(
+                requestIntent.Id,
+                generatedToken.RawToken,
+                now.AddMinutes(15));
+        }
+
 
         var notification = await NotifySafelyAsync(new NotificationMessage(result.Id, "RequestReceived", result.VolunteerId), cancellationToken);
         return new RequestSubmission(result.Id, generatedToken.RawToken, notification.Warning, result.Commitment);
     }
 
-    public async Task<RequestStatusDto> GetRequestStatusAsync(string rawStatusToken, CancellationToken cancellationToken)
+    public async Task<RequestStatusDto> GetRequestStatusAsync(
+        string rawStatusToken,
+        CancellationToken cancellationToken)
+    {
+        var hub = await InspectCommitmentHubAsync(rawStatusToken, cancellationToken);
+        return new RequestStatusDto(
+            hub.RequestId,
+            hub.VolunteerName,
+            hub.Commitment,
+            hub.RequestStatus,
+            hub.AssignmentStatus);
+    }
+
+    public async Task<CommitmentHubDto> InspectCommitmentHubAsync(
+        string rawCapability,
+        CancellationToken cancellationToken)
     {
         var settings = await _store.GetGroupSettingsAsync(cancellationToken)
             ?? throw new DomainException(CommitmentUnavailableMessage);
-        var hash = HashRequiredToken(rawStatusToken);
-        var request = await _store.GetRequestByStatusHashAsync(hash, cancellationToken);
-        if (request is null || !_tokens.FixedTimeEquals(hash, request.StatusTokenHash) || !request.IsStatusTokenUsable(_clock.UtcNow))
+        if (_store is not IAccessStore accessStore)
         {
-            throw new DomainException("This request status link is invalid or has expired.");
+            throw InvalidHub();
         }
 
-        var slot = await RequireSlotAsync(request.ShiftSlotId, cancellationToken);
-        var shift = await RequireShiftAsync(slot.ShiftId, cancellationToken);
-        var volunteer = await RequireVolunteerAsync(request.VolunteerId, cancellationToken);
-        var assignment = await _store.GetAssignmentBySourceRequestAsync(request.Id, cancellationToken);
+        var hash = HashRequiredToken(rawCapability);
+        var slotId = await accessStore.GetCapabilitySlotIdByHashAsync(hash, cancellationToken);
+        if (!slotId.HasValue)
+        {
+            throw InvalidHub();
+        }
 
-        return new RequestStatusDto(
-            request.Id,
+        var capability = await accessStore.GetCapabilityByHashAsync(hash, cancellationToken);
+        if (capability is null || !_tokens.FixedTimeEquals(hash, capability.TokenHash))
+        {
+            throw InvalidHub();
+        }
+
+        var slot = await RequireSlotAsync(slotId.Value, cancellationToken);
+        var shift = await RequireShiftAsync(slot.ShiftId, cancellationToken);
+        var volunteer = await RequireVolunteerAsync(capability.VolunteerId, cancellationToken);
+        if (!capability.IsUsable(
+                _clock.UtcNow,
+                shift.EndsAtUtc,
+                slot.IsActive,
+                shift.IsActive,
+                volunteer.AnonymizedAtUtc.HasValue))
+        {
+            throw InvalidHub();
+        }
+
+        var request = await accessStore.GetRequestForVolunteerSlotAsync(
+            capability.VolunteerId,
+            slot.Id,
+            cancellationToken);
+        var assignment = await FindLatestAssignmentAsync(
+            capability.VolunteerId,
+            slot.Id,
+            cancellationToken);
+        var requestId = request?.Id ?? assignment?.SourceRequestId ?? Guid.Empty;
+        var requestStatus = request?.Status.ToString() ?? "None";
+        var assignmentStatus = assignment?.Status.ToString();
+        var offered = OfferedHubActions(assignment, shift, _clock.UtcNow);
+        return new CommitmentHubDto(
+            capability.Id,
+            requestId,
             volunteer.Name,
             BuildCommitment(shift, settings, slot, SlotLabel(slot)),
-            request.Status.ToString(),
-            assignment?.Status.ToString());
+            requestStatus,
+            assignmentStatus,
+            offered,
+            HubStatusMessage(requestStatus, assignmentStatus, offered, shift, _clock.UtcNow));
     }
-    public async Task<IReadOnlyList<CoordinatorRequestDto>> ListRequestsAsync(CancellationToken cancellationToken)
+
+    public async Task<CommandResult<string>> ApplyHubActionAsync(
+        string rawCapability,
+        string action,
+        CancellationToken cancellationToken)
+    {
+        if (_store is not IAccessStore accessStore)
+        {
+            throw InvalidHub();
+        }
+
+        var normalizedAction = action.Trim();
+        if (normalizedAction is not ("Confirm" or "Decline" or "Cancel"))
+        {
+            throw InvalidHub();
+        }
+
+        var hash = HashRequiredToken(rawCapability);
+        var now = _clock.UtcNow;
+        var result = await _store.ExecuteInTransactionAsync(
+            async token =>
+            {
+                var slotId = await accessStore.GetCapabilitySlotIdByHashAsync(hash, token);
+                if (!slotId.HasValue)
+                {
+                    throw InvalidHub();
+                }
+
+                await _store.LockSlotAsync(slotId.Value, token);
+                var capability = await accessStore.GetCapabilityByHashAsync(hash, token);
+                if (capability is null || !_tokens.FixedTimeEquals(hash, capability.TokenHash))
+                {
+                    throw InvalidHub();
+                }
+
+                var slot = await RequireSlotAsync(slotId.Value, token);
+                var shift = await RequireShiftAsync(slot.ShiftId, token);
+                var volunteer = await RequireVolunteerAsync(capability.VolunteerId, token);
+                if (!capability.IsUsable(
+                        now,
+                        shift.EndsAtUtc,
+                        slot.IsActive,
+                        shift.IsActive,
+                        volunteer.AnonymizedAtUtc.HasValue))
+                {
+                    throw InvalidHub();
+                }
+
+                var assignment = await FindLatestAssignmentAsync(
+                    capability.VolunteerId,
+                    slot.Id,
+                    token);
+                if (assignment is null || !OfferedHubActions(assignment, shift, now).Contains(normalizedAction, StringComparer.Ordinal))
+                {
+                    throw InvalidHub();
+                }
+
+                switch (normalizedAction)
+                {
+                    case "Confirm":
+                        assignment.Confirm(now);
+                        break;
+                    case "Decline":
+                        assignment.Decline(now);
+                        break;
+                    case "Cancel":
+                        assignment.Cancel(now);
+                        break;
+                }
+
+                _store.AddAuditEntry(AuditEntry.Create(
+                    now,
+                    "volunteer-token",
+                    $"Assignment{normalizedAction}",
+                    nameof(VolunteerAccessCapability),
+                    capability.Id,
+                    Detail(new { assignment.Status, assignment.ShiftSlotId })));
+                QueueNotification(
+                    assignment.Id,
+                    volunteer.Id,
+                    slot.Id,
+                    $"action:{assignment.Id:N}:{normalizedAction}:{assignment.Status}",
+                    $"Volunteer{normalizedAction}",
+                    now);
+                return (Action: normalizedAction, VolunteerId: volunteer.Id);
+            },
+            cancellationToken);
+        var notification = await NotifySafelyAsync(
+            new NotificationMessage(Guid.NewGuid(), $"Assignment{result.Action}", result.VolunteerId),
+            cancellationToken);
+        return new CommandResult<string>(result.Action, notification.Warning);
+    }
+
+    public async Task<RecoveryRequestResult> RequestRecoveryAsync(
+        string email,
+        DateOnly commitmentDate,
+        CancellationToken cancellationToken)
+    {
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken)
+            ?? throw new DomainException(CommitmentUnavailableMessage);
+        var normalizedEmail = Volunteer.NormalizeEmail(email);
+        if (string.IsNullOrWhiteSpace(normalizedEmail))
+        {
+            throw new DomainException("Enter a valid email address.");
+        }
+
+        var zone = TimeZoneInfo.FindSystemTimeZoneById(settings.TimeZoneId);
+        var localStart = commitmentDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified);
+        var startUtc = new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(localStart, zone));
+        var endUtc = startUtc.AddDays(1);
+        if (_store is IAccessStore accessStore && _store is INotificationOutboxStore outbox)
+        {
+            var matches = await FindRecoveryMatchesAsync(
+                normalizedEmail,
+                startUtc,
+                endUtc,
+                cancellationToken);
+            foreach (var match in matches.Take(3))
+            {
+                var eventKey = $"recovery:{match.VolunteerId:N}:{match.SlotId:N}:{commitmentDate:yyyyMMdd}";
+                if (await outbox.HasEquivalentPendingIntentAsync(eventKey, cancellationToken))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    await _store.ExecuteInTransactionAsync(
+                        async token =>
+                        {
+                            await _store.LockSlotAsync(match.SlotId, token);
+                            if (await outbox.HasEquivalentPendingIntentAsync(eventKey, token))
+                            {
+                                return true;
+                            }
+
+                            if (await _store.GetVolunteerAsync(match.VolunteerId, token) is not { AnonymizedAtUtc: null })
+                            {
+                                return true;
+                            }
+
+                            var currentRequest = (await accessStore.GetRequestsForVolunteerSlotAsync(
+                                    match.VolunteerId,
+                                    match.SlotId,
+                                    token))
+                                .OrderByDescending(x => x.RequestedAtUtc)
+                                .ThenByDescending(x => x.Id)
+                                .FirstOrDefault();
+                            var currentAssignment = (await _store.GetAssignmentsForVolunteerAsync(
+                                    match.VolunteerId,
+                                    token))
+                                .Where(x => x.ShiftSlotId == match.SlotId && x.IsActive)
+                                .OrderByDescending(x => x.AssignedAtUtc)
+                                .ThenByDescending(x => x.Id)
+                                .FirstOrDefault();
+                            if (currentAssignment is null && currentRequest?.Status != RequestStatus.Pending)
+                            {
+                                return true;
+                            }
+
+                            QueueNotification(
+                                Guid.NewGuid(),
+                                match.VolunteerId,
+                                match.SlotId,
+                                eventKey,
+                                "AccessRecovery",
+                                _clock.UtcNow);
+                            return true;
+                        },
+                        cancellationToken);
+                }
+                catch (DomainException)
+                {
+                    // A concurrent equivalent enqueue has the same generic caller outcome.
+                }
+            }
+        }
+
+        return new RecoveryRequestResult(
+            "If those details match an eligible commitment, a recovery email will arrive shortly. The current link remains valid until replacement access is completed.");
+    }
+
+    public async Task<string> RedeemRecoveryAsync(
+        string rawRecoveryToken,
+        CancellationToken cancellationToken)
+    {
+        if (_store is not IAccessStore accessStore)
+        {
+            throw InvalidRecovery();
+        }
+
+        var hash = HashRequiredToken(rawRecoveryToken);
+        var now = _clock.UtcNow;
+        var result = await _store.ExecuteInTransactionAsync(
+            async token =>
+            {
+                var slotId = await accessStore.GetRecoverySlotIdByHashAsync(hash, token);
+                if (!slotId.HasValue)
+                {
+                    throw InvalidRecovery();
+                }
+
+                await _store.LockSlotAsync(slotId.Value, token);
+                var recovery = await accessStore.GetRecoveryTokenByHashAsync(hash, token);
+                if (recovery is null || !_tokens.FixedTimeEquals(hash, recovery.TokenHash) || !recovery.IsUsable(now))
+                {
+                    throw InvalidRecovery();
+                }
+
+                var slot = await RequireSlotAsync(slotId.Value, token);
+                var shift = await RequireShiftAsync(slot.ShiftId, token);
+                var volunteer = await RequireVolunteerAsync(recovery.VolunteerId, token);
+                if (!slot.IsActive || !shift.IsActive || volunteer.AnonymizedAtUtc.HasValue || now > shift.EndsAtUtc.AddDays(7))
+                {
+                    throw InvalidRecovery();
+                }
+
+                var latestRequest = (await accessStore.GetRequestsForVolunteerSlotAsync(
+                        recovery.VolunteerId,
+                        slot.Id,
+                        token))
+                    .OrderByDescending(x => x.RequestedAtUtc)
+                    .ThenByDescending(x => x.Id)
+                    .FirstOrDefault();
+                var currentAssignment = (await _store.GetAssignmentsForVolunteerAsync(
+                        recovery.VolunteerId,
+                        token))
+                    .Where(x => x.ShiftSlotId == slot.Id && x.IsActive)
+                    .OrderByDescending(x => x.AssignedAtUtc)
+                    .ThenByDescending(x => x.Id)
+                    .FirstOrDefault();
+                if (currentAssignment is null && latestRequest?.Status != RequestStatus.Pending)
+                {
+                    throw InvalidRecovery();
+                }
+
+                recovery.Consume(now);
+                foreach (var capability in await accessStore.GetActiveCapabilitiesAsync(
+                             recovery.VolunteerId,
+                             slot.Id,
+                             token))
+                {
+                    capability.Invalidate(now);
+                }
+
+                var generated = _tokens.Generate();
+                accessStore.AddCapability(VolunteerAccessCapability.Create(
+                    slot.Id,
+                    recovery.VolunteerId,
+                    generated.Hash,
+                    now,
+                    CapabilityIssuedReason.Recovery));
+                QueueNotification(
+                    Guid.NewGuid(),
+                    volunteer.Id,
+                    slot.Id,
+                    $"recovery:{recovery.Id:N}:redeemed",
+                    "RecoveryRedeemed",
+                    now);
+                _store.AddAuditEntry(AuditEntry.Create(
+                    now,
+                    "volunteer-recovery",
+                    "VolunteerAccessRecovered",
+                    nameof(RecoveryToken),
+                    recovery.Id,
+                    Detail(new { recovery.VolunteerId, recovery.ShiftSlotId })));
+                return generated.RawToken;
+            },
+            cancellationToken);
+        return result;
+    }
+
+    public async Task<IReadOnlyList<CoordinatorRequestDto>> ListRequestsAsync(
+        CancellationToken cancellationToken)
     {
         var settings = await _store.GetGroupSettingsAsync(cancellationToken);
         if (settings is null)
@@ -1150,6 +1578,14 @@ public sealed class VolunteerCoordinatorService
                 var assignment = Assignment.Create(slot.Id, shift.Id, volunteer.Id, request.Id, actor, now);
                 _store.AddAssignment(assignment);
                 request.Approve(actor, now);
+
+                QueueNotification(
+                    assignment.Id,
+                    volunteer.Id,
+                    slot.Id,
+                    $"assignment:{assignment.Id:N}:access",
+                    "AssignmentAccess",
+                    now);
                 await SupersedeOtherRequestsAsync(slot.Id, request.Id, actor, now, token);
                 _store.AddAuditEntry(AuditEntry.Create(now, actor, "RequestApproved", nameof(ShiftRequest), request.Id, Detail(new { AssignmentId = assignment.Id, assignment.ShiftSlotId, assignment.VolunteerId })));
                 return (assignment.Id, VolunteerId: volunteer.Id, Commitment: BuildCommitment(shift, settings, slot, SlotLabel(slot)));
@@ -1173,6 +1609,13 @@ public sealed class VolunteerCoordinatorService
                 var request = await RequireRequestAsync(requestId, token);
                 var volunteer = await RequireVolunteerAsync(request.VolunteerId, token);
                 request.Reject(actor, now);
+                QueueNotification(
+                    request.Id,
+                    volunteer.Id,
+                    request.ShiftSlotId,
+                    $"request:{request.Id:N}:rejected",
+                    "RequestDecision",
+                    now);
                 _store.AddAuditEntry(AuditEntry.Create(now, actor, "RequestRejected", nameof(ShiftRequest), request.Id, "{}"));
                 return (request.Id, VolunteerId: volunteer.Id);
             },
@@ -1246,6 +1689,14 @@ public sealed class VolunteerCoordinatorService
                     token);
                 var assignment = Assignment.Create(slot.Id, shift.Id, volunteer.Id, null, actor, now);
                 _store.AddAssignment(assignment);
+
+                QueueNotification(
+                    assignment.Id,
+                    volunteer.Id,
+                    slot.Id,
+                    $"assignment:{assignment.Id:N}:access",
+                    "AssignmentAccess",
+                    now);
                 await SupersedeOtherRequestsAsync(slot.Id, null, actor, now, token);
                 _store.AddAuditEntry(AuditEntry.Create(now, actor, "AssignmentCreatedOrReassigned", nameof(Assignment), assignment.Id, Detail(new { assignment.ShiftSlotId, assignment.VolunteerId })));
                 return (assignment.Id, VolunteerId: volunteer.Id, Commitment: BuildCommitment(shift, settings, slot, SlotLabel(slot)));
@@ -1442,6 +1893,14 @@ public sealed class VolunteerCoordinatorService
                     token);
                 var assignment = Assignment.Create(slot.Id, shift.Id, volunteer.Id, null, actor, now);
                 _store.AddAssignment(assignment);
+
+                QueueNotification(
+                    assignment.Id,
+                    volunteer.Id,
+                    slot.Id,
+                    $"assignment:{assignment.Id:N}:access",
+                    "AssignmentAccess",
+                    now);
                 await SupersedeOtherRequestsAsync(slot.Id, null, actor, now, token);
                 _store.AddAuditEntry(AuditEntry.Create(
                     now,
@@ -1534,6 +1993,112 @@ public sealed class VolunteerCoordinatorService
             cancellationToken);
     }
 
+    public async Task RequestAccessReissueAsync(
+        Guid assignmentId,
+        bool revokeNow,
+        string coordinatorEmail,
+        CancellationToken cancellationToken)
+    {
+        var actor = RequireCoordinator(coordinatorEmail);
+        var now = _clock.UtcNow;
+        await _store.ExecuteInTransactionAsync(
+            async token =>
+            {
+                var slotId = await _store.GetAssignmentSlotIdAsync(assignmentId, token)
+                    ?? throw new DomainException("The assignment was not found.");
+                await _store.LockSlotAsync(slotId, token);
+                var assignment = await RequireAssignmentAsync(assignmentId, token);
+                if (!assignment.IsActive)
+                {
+                    throw new DomainException("Only an active assignment can receive replacement access.");
+                }
+
+                var volunteer = await RequireVolunteerAsync(assignment.VolunteerId, token);
+                if (volunteer.AnonymizedAtUtc.HasValue)
+                {
+                    throw new DomainException("Removed volunteer contact data cannot receive access.");
+                }
+
+                if (revokeNow && _store is IAccessStore accessStore)
+                {
+                    foreach (var capability in await accessStore.GetActiveCapabilitiesAsync(
+                                 assignment.VolunteerId,
+                                 assignment.ShiftSlotId,
+                                 token))
+                    {
+                        capability.Invalidate(now);
+                    }
+
+                    foreach (var recovery in await accessStore.GetRecoveryTokensForVolunteerAsync(
+                                 assignment.VolunteerId,
+                                 token))
+                    {
+                        if (recovery.ShiftSlotId == assignment.ShiftSlotId)
+                        {
+                            recovery.Invalidate(now);
+                        }
+                    }
+
+                    await CancelPendingAccessIntentsAsync(
+                        assignment.VolunteerId,
+                        assignment.ShiftSlotId,
+                        now,
+                        token);
+
+                    _store.AddAuditEntry(AuditEntry.Create(
+                        now,
+                        actor,
+                        "VolunteerAccessRevokedByCoordinator",
+                        nameof(Assignment),
+                        assignment.Id,
+                        Detail(new { assignment.ShiftSlotId, assignment.VolunteerId })));
+                }
+
+                var mode = revokeNow ? "RevokeNow" : "Normal";
+                var eventKey = $"reissue:{assignment.Id:N}:{mode}";
+                NotificationIntent? notificationIntent = null;
+                if (_store is INotificationOutboxStore outbox)
+                {
+                    notificationIntent = await outbox.GetEquivalentPendingIntentAsync(
+                        eventKey,
+                        token);
+                    notificationIntent ??= QueueNotification(
+                        assignment.Id,
+                        volunteer.Id,
+                        assignment.ShiftSlotId,
+                        eventKey,
+                        "CoordinatorAccessReissue",
+                        now);
+                }
+                else
+                {
+                    notificationIntent = QueueNotification(
+                        assignment.Id,
+                        volunteer.Id,
+                        assignment.ShiftSlotId,
+                        eventKey,
+                        "CoordinatorAccessReissue",
+                        now);
+                }
+
+                _store.AddAuditEntry(AuditEntry.Create(
+                    now,
+                    actor,
+                    "VolunteerAccessReissueRequested",
+                    nameof(Assignment),
+                    assignment.Id,
+                    Detail(new
+                    {
+                        assignment.ShiftSlotId,
+                        assignment.VolunteerId,
+                        Mode = mode,
+                        NotificationCorrelationId = notificationIntent?.Id
+                    })));
+                return true;
+            },
+            cancellationToken);
+    }
+
     public async Task<IReadOnlyList<VolunteerDto>> ListVolunteersAsync(CancellationToken cancellationToken)
     {
         var volunteers = await _store.GetVolunteersAsync(cancellationToken);
@@ -1618,6 +2183,140 @@ public sealed class VolunteerCoordinatorService
             projection.PageSize,
             projection.TotalCount,
             messages);
+    }
+
+    public async Task<IReadOnlyList<NotificationIntentDto>> ListNotificationIntentsAsync(
+        CancellationToken cancellationToken)
+    {
+        if (_store is not INotificationOutboxStore outbox)
+        {
+            return [];
+        }
+
+        var settings = await _store.GetGroupSettingsAsync(cancellationToken);
+        if (settings is null)
+        {
+            return [];
+        }
+
+        var intents = await outbox.GetNotificationIntentsAsync(500, cancellationToken);
+        var attempts = (await outbox.GetDeliveryAttemptsAsync(
+                intents.Select(x => x.Id).ToArray(),
+                cancellationToken))
+            .GroupBy(x => x.NotificationIntentId)
+            .ToDictionary(x => x.Key, x => x
+                .OrderBy(attempt => attempt.Ordinal)
+                .Select(attempt => new NotificationAttemptDto(
+                    attempt.Ordinal,
+                    attempt.StartedAtUtc,
+                    attempt.CompletedAtUtc,
+                    attempt.OutcomeCategory))
+                .ToArray());
+        var volunteers = (await _store.GetVolunteersByIdsAsync(
+                intents.Select(x => x.VolunteerId).Distinct().ToArray(),
+                cancellationToken))
+            .ToDictionary(x => x.Id);
+        var result = new List<NotificationIntentDto>(intents.Count);
+        foreach (var intent in intents)
+        {
+            volunteers.TryGetValue(intent.VolunteerId, out var volunteer);
+            CommitmentDto? commitment = null;
+            Guid? accessAssignmentId = null;
+            if (intent.ShiftSlotId is Guid slotId &&
+                await _store.GetSlotAsync(slotId, cancellationToken) is { } slot &&
+                await _store.GetShiftAsync(slot.ShiftId, cancellationToken) is { } shift)
+            {
+                commitment = BuildCommitment(
+                    shift,
+                    settings,
+                    slot,
+                    SlotLabel(slot));
+                if (IsLinkBearingNotificationKind(intent.Kind))
+                {
+                    var slotAssignment = await _store.GetActiveAssignmentForSlotAsync(
+                        slot.Id,
+                        cancellationToken);
+                    if (slotAssignment?.VolunteerId == intent.VolunteerId)
+                    {
+                        accessAssignmentId = slotAssignment.Id;
+                    }
+                }
+            }
+
+            result.Add(new NotificationIntentDto(
+                intent.Id,
+                intent.VolunteerId,
+                volunteer?.AnonymizedAtUtc.HasValue == true ? "Removed volunteer" : volunteer?.Name ?? "Removed volunteer",
+                commitment,
+                intent.Kind,
+                intent.State.ToString(),
+                intent.CreatedAtUtc,
+                intent.NextAttemptAtUtc,
+                intent.AttemptCount,
+                intent.FailureCategory,
+                attempts.TryGetValue(intent.Id, out var rows) ? rows : [],
+                accessAssignmentId));
+        }
+
+        return result;
+    }
+
+    public async Task RequestNotificationResendAsync(
+        Guid intentId,
+        string coordinatorEmail,
+        CancellationToken cancellationToken)
+    {
+        var actor = RequireCoordinator(coordinatorEmail);
+        if (_store is not INotificationOutboxStore outbox)
+        {
+            throw new DomainException("Transactional messaging is unavailable.");
+        }
+
+        await _store.ExecuteInTransactionAsync(
+            async token =>
+            {
+                var intent = await outbox.GetNotificationIntentForUpdateAsync(
+                        intentId,
+                        token)
+                    ?? throw new DomainException("The message was not found.");
+                if (IsLinkBearingNotificationKind(intent.Kind))
+                {
+                    throw new DomainException(
+                        "Access messages must use replacement access controls.");
+                }
+
+                if (intent.State is NotificationIntentState.Pending or
+                    NotificationIntentState.RetryScheduled or
+                    NotificationIntentState.InFlight)
+                {
+                    throw new DomainException("This message is already waiting for delivery.");
+                }
+
+                var eventKey = $"resend:{intent.Id:N}";
+                if (await outbox.GetEquivalentPendingIntentAsync(eventKey, token) is not null)
+                {
+                    throw new DomainException("Another copy is already waiting for delivery.");
+                }
+
+                var now = _clock.UtcNow;
+                QueueNotification(
+                    intent.TransitionId,
+                    intent.VolunteerId,
+                    intent.ShiftSlotId,
+                    eventKey,
+                    intent.Kind,
+                    now);
+
+                _store.AddAuditEntry(AuditEntry.Create(
+                    now,
+                    actor,
+                    "NotificationResendRequested",
+                    nameof(NotificationIntent),
+                    intent.Id,
+                    Detail(new { intent.VolunteerId, intent.ShiftSlotId, intent.Kind })));
+                return true;
+            },
+            cancellationToken);
     }
 
     public async Task<VolunteerAnonymizationResult> AnonymizeVolunteerAsync(
@@ -1787,8 +2486,6 @@ public sealed class VolunteerCoordinatorService
                 VolunteerAnonymizationBlocker.None,
                 0,
                 null,
-                0,
-                0,
                 0);
         }
 
@@ -1809,8 +2506,6 @@ public sealed class VolunteerCoordinatorService
                         VolunteerAnonymizationBlocker.None,
                         0,
                         null,
-                        0,
-                        0,
                         0);
                 }
 
@@ -1827,8 +2522,6 @@ public sealed class VolunteerCoordinatorService
                         VolunteerAnonymizationBlocker.None,
                         0,
                         null,
-                        0,
-                        0,
                         0);
                 }
 
@@ -1843,45 +2536,6 @@ public sealed class VolunteerCoordinatorService
             cancellationToken);
         return result;
     }
-    public async Task<ActionLinkBundle> GenerateActionLinksAsync(Guid assignmentId, string coordinatorEmail, CancellationToken cancellationToken)
-    {
-        var actor = RequireCoordinator(coordinatorEmail);
-        var now = _clock.UtcNow;
-        return await _store.ExecuteInTransactionAsync(
-            async token =>
-            {
-                var slotId = await _store.GetAssignmentSlotIdAsync(assignmentId, token)
-                    ?? throw new DomainException("The assignment was not found.");
-                await _store.LockSlotAsync(slotId, token);
-                var assignment = await RequireAssignmentAsync(assignmentId, token);
-                if (!assignment.IsActive)
-                {
-                    throw new DomainException("Action links can be generated only for an active assignment.");
-                }
-
-                var settings = await _store.GetGroupSettingsAsync(token)
-                    ?? throw new DomainException(CommitmentUnavailableMessage);
-                var slot = await RequireSlotAsync(assignment.ShiftSlotId, token);
-                var shift = await RequireShiftAsync(slot.ShiftId, token);
-                string? confirm = null;
-                string? decline = null;
-                if (assignment.Status == AssignmentStatus.Assigned)
-                {
-                    confirm = await RegenerateActionTokenAsync(assignment.Id, VolunteerAction.Confirm, now, token);
-                    decline = await RegenerateActionTokenAsync(assignment.Id, VolunteerAction.Decline, now, token);
-                }
-
-                var cancel = await RegenerateActionTokenAsync(assignment.Id, VolunteerAction.Cancel, now, token);
-                _store.AddAuditEntry(AuditEntry.Create(now, actor, "ActionLinksGenerated", nameof(Assignment), assignment.Id, "{}"));
-                return new ActionLinkBundle(
-                    assignment.Id,
-                    confirm,
-                    decline,
-                    cancel,
-                    BuildCommitment(shift, settings, slot, SlotLabel(slot)));
-            },
-            cancellationToken);
-    }
 
     public async Task<ActionInspectionDto> InspectActionAsync(string rawToken, CancellationToken cancellationToken)
     {
@@ -1891,7 +2545,8 @@ public sealed class VolunteerCoordinatorService
         var slot = await RequireSlotAsync(assignment.ShiftSlotId, cancellationToken);
         var shift = await RequireShiftAsync(slot.ShiftId, cancellationToken);
         var volunteer = await RequireVolunteerAsync(assignment.VolunteerId, cancellationToken);
-        var canApply = CanApply(token.Action, assignment.Status);
+        var canApply = CanApply(token.Action, assignment.Status) &&
+            LegacyActionDeadlineOpen(token.Action, shift, _clock.UtcNow);
         return new ActionInspectionDto(
             volunteer.Name,
             BuildCommitment(shift, settings, slot, SlotLabel(slot)),
@@ -1909,13 +2564,17 @@ public sealed class VolunteerCoordinatorService
         }
 
         var now = _clock.UtcNow;
+        if (_store is not ILegacyActionTokenStore legacyStore)
+        {
+            throw new DomainException("This action link is invalid, expired, or already used.");
+        }
         var hash = HashRequiredToken(rawToken);
         var result = await _store.ExecuteInTransactionAsync(
             async tokenCancellation =>
             {
                 _ = await _store.GetGroupSettingsAsync(tokenCancellation)
                     ?? throw new DomainException(CommitmentUnavailableMessage);
-                var slotId = await _store.GetActionTokenSlotIdAsync(hash, tokenCancellation);
+                var slotId = await legacyStore.GetActionTokenSlotIdAsync(hash, tokenCancellation);
                 if (!slotId.HasValue)
                 {
                     throw new DomainException("This action link is invalid, expired, or already used.");
@@ -1929,6 +2588,12 @@ public sealed class VolunteerCoordinatorService
                 }
 
                 actionToken.Consume(now);
+                var legacySlot = await RequireSlotAsync(assignment.ShiftSlotId, tokenCancellation);
+                var legacyShift = await RequireShiftAsync(legacySlot.ShiftId, tokenCancellation);
+                if (!LegacyActionDeadlineOpen(actionToken.Action, legacyShift, now))
+                {
+                    throw new DomainException("This action no longer applies to the current assignment state.");
+                }
                 switch (actionToken.Action)
                 {
                     case VolunteerAction.Confirm:
@@ -1945,6 +2610,13 @@ public sealed class VolunteerCoordinatorService
                 }
 
                 var volunteer = await RequireVolunteerAsync(assignment.VolunteerId, tokenCancellation);
+                QueueNotification(
+                    assignment.Id,
+                    volunteer.Id,
+                    assignment.ShiftSlotId,
+                    $"legacy-action:{assignment.Id:N}:{actionToken.Action}:{now:O}",
+                    $"Volunteer{actionToken.Action}",
+                    now);
                 _store.AddAuditEntry(AuditEntry.Create(now, "volunteer-token", $"Assignment{actionToken.Action}", nameof(Assignment), assignment.Id, Detail(new { assignment.Status })));
                 return (assignment.Id, VolunteerId: volunteer.Id, Action: actionToken.Action.ToString());
             },
@@ -1986,6 +2658,13 @@ public sealed class VolunteerCoordinatorService
                     AssignmentStatus.Confirmed => "Confirmed",
                     _ => "Uncovered"
                 };
+                var access = assignment is null || volunteer is null
+                    ? null
+                    : await GetAccessStateAsync(
+                        volunteer.Id,
+                        slot.Id,
+                        shift,
+                        cancellationToken);
                 result.Add(new CoverageDto(
                     slot.Id,
                     shift.Id,
@@ -1993,7 +2672,8 @@ public sealed class VolunteerCoordinatorService
                     BuildCommitment(shift, settings, slot, SlotLabel(slot)),
                     state,
                     volunteer?.AnonymizedAtUtc.HasValue == true ? "Removed volunteer" : volunteer?.Name,
-                    volunteer?.AnonymizedAtUtc.HasValue == true ? null : volunteer?.Email));
+                    volunteer?.AnonymizedAtUtc.HasValue == true ? null : volunteer?.Email,
+                    access));
             }
         }
 
@@ -2042,8 +2722,6 @@ public sealed class VolunteerCoordinatorService
                 VolunteerAnonymizationBlocker.None,
                 0,
                 null,
-                0,
-                0,
                 0);
         }
 
@@ -2054,8 +2732,6 @@ public sealed class VolunteerCoordinatorService
                 VolunteerAnonymizationBlocker.None,
                 0,
                 state.Volunteer.AnonymizedAtUtc,
-                0,
-                0,
                 0);
         }
 
@@ -2101,30 +2777,48 @@ public sealed class VolunteerCoordinatorService
                 anchor);
         }
 
-        var invalidatedStatusTokens = 0;
-        foreach (var request in state.Requests)
-        {
-            if (request.InvalidateStatusToken(now))
-            {
-                invalidatedStatusTokens++;
-            }
-        }
-
         var invalidatedActionTokens = 0;
         foreach (var actionToken in state.UnusedActionTokens)
         {
             actionToken.Invalidate(now);
             invalidatedActionTokens++;
         }
-
-        var redactedNotifications = 0;
-        foreach (var notification in state.Notifications)
+        var invalidatedCapabilities = 0;
+        var invalidatedRecoveryTokens = 0;
+        if (_store is IAccessStore accessStore)
         {
-            if (notification.RedactDestination())
+            foreach (var capability in await accessStore.GetCapabilitiesForVolunteerAsync(
+                         state.Volunteer.Id,
+                         cancellationToken))
             {
-                redactedNotifications++;
+                if (capability.Invalidate(now))
+                {
+                    invalidatedCapabilities++;
+                }
+            }
+
+            foreach (var recovery in await accessStore.GetRecoveryTokensForVolunteerAsync(
+                         state.Volunteer.Id,
+                         cancellationToken))
+            {
+                if (recovery.Invalidate(now))
+                {
+                    invalidatedRecoveryTokens++;
+                }
             }
         }
+
+        if (_store is INotificationOutboxStore outbox)
+        {
+            foreach (var intent in await outbox.GetNotificationIntentsForVolunteerAsync(
+                         state.Volunteer.Id,
+                         cancellationToken))
+            {
+                intent.Cancel(now, "ContactRemoved");
+            }
+        }
+
+        const int redactedNotifications = 0;
 
         if (!state.Volunteer.Anonymize(now))
         {
@@ -2133,8 +2827,6 @@ public sealed class VolunteerCoordinatorService
                 VolunteerAnonymizationBlocker.None,
                 0,
                 anchor,
-                0,
-                0,
                 0);
         }
 
@@ -2151,8 +2843,9 @@ public sealed class VolunteerCoordinatorService
                 AnchorUtc = anchor,
                 RequestCount = state.Requests.Count,
                 AssignmentCount = state.Assignments.Count,
-                StatusTokensInvalidated = invalidatedStatusTokens,
                 ActionTokensInvalidated = invalidatedActionTokens,
+                CapabilitiesInvalidated = invalidatedCapabilities,
+                RecoveryTokensInvalidated = invalidatedRecoveryTokens,
                 NotificationDestinationsRedacted = redactedNotifications
             })));
 
@@ -2161,12 +2854,13 @@ public sealed class VolunteerCoordinatorService
             VolunteerAnonymizationBlocker.None,
             0,
             anchor,
-            invalidatedStatusTokens,
-            invalidatedActionTokens,
             redactedNotifications)
         {
             RequestCount = state.Requests.Count,
-            AssignmentCount = state.Assignments.Count
+            ActionTokensInvalidated = invalidatedActionTokens,
+            AssignmentCount = state.Assignments.Count,
+            CapabilitiesInvalidated = invalidatedCapabilities,
+            RecoveryTokensInvalidated = invalidatedRecoveryTokens
         };
     }
 
@@ -2263,11 +2957,44 @@ public sealed class VolunteerCoordinatorService
             blocker,
             count,
             anchor,
-            0,
-            0,
             0);
 
 
+    private async Task CancelPendingAccessIntentsAsync(
+        Guid volunteerId,
+        Guid slotId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (_store is not INotificationOutboxStore outbox)
+        {
+            return;
+        }
+
+        var intents = await outbox.GetNotificationIntentsForVolunteerAsync(
+            volunteerId,
+            cancellationToken);
+        foreach (var intent in intents.Where(intent =>
+                     intent.ShiftSlotId == slotId &&
+                     IsAccessIntentKind(intent.Kind) &&
+                     intent.State is NotificationIntentState.Pending or
+                         NotificationIntentState.RetryScheduled or
+                         NotificationIntentState.InFlight))
+        {
+            intent.Cancel(now, "CommitmentNoLongerEligible");
+        }
+    }
+
+    private static bool IsAccessIntentKind(string kind) =>
+        string.Equals(kind, "RequestReceipt", StringComparison.Ordinal) ||
+        kind.Contains("Access", StringComparison.OrdinalIgnoreCase) ||
+        kind.Contains("Recovery", StringComparison.OrdinalIgnoreCase) ||
+        kind.Contains("Reissue", StringComparison.OrdinalIgnoreCase);
+    private static bool IsLinkBearingNotificationKind(string kind) =>
+        string.Equals(kind, "RequestReceipt", StringComparison.Ordinal) ||
+        string.Equals(kind, "AssignmentAccess", StringComparison.Ordinal) ||
+        string.Equals(kind, "AccessRecovery", StringComparison.Ordinal) ||
+        string.Equals(kind, "CoordinatorAccessReissue", StringComparison.Ordinal);
 
     private async Task<int> CancelAssignmentsAsync(
         IReadOnlyCollection<Assignment> assignments,
@@ -2288,6 +3015,39 @@ public sealed class VolunteerCoordinatorService
                 actionToken.Invalidate(now);
             }
 
+            if (_store is IAccessStore accessStore)
+            {
+                foreach (var capability in await accessStore.GetActiveCapabilitiesAsync(
+                             assignment.VolunteerId,
+                             assignment.ShiftSlotId,
+                             cancellationToken))
+                {
+                    capability.Invalidate(now);
+                }
+
+                foreach (var recovery in await accessStore.GetRecoveryTokensForVolunteerAsync(
+                             assignment.VolunteerId,
+                             cancellationToken))
+                {
+                    if (recovery.ShiftSlotId == assignment.ShiftSlotId)
+                    {
+                        recovery.Invalidate(now);
+                    }
+                }
+            }
+            await CancelPendingAccessIntentsAsync(
+                assignment.VolunteerId,
+                assignment.ShiftSlotId,
+                now,
+                cancellationToken);
+
+            QueueNotification(
+                assignment.Id,
+                assignment.VolunteerId,
+                assignment.ShiftSlotId,
+                $"assignment:{assignment.Id:N}:cancelled:{auditAction}",
+                "Cancellation",
+                now);
             _store.AddAuditEntry(AuditEntry.Create(
                 now,
                 coordinatorEmail,
@@ -2296,22 +3056,9 @@ public sealed class VolunteerCoordinatorService
                 assignment.Id,
                 Detail(new { assignment.ShiftSlotId, assignment.VolunteerId, assignment.Status })));
         }
-
         return tokens.Count;
     }
 
-    private async Task<string> RegenerateActionTokenAsync(Guid assignmentId, VolunteerAction action, DateTimeOffset now, CancellationToken cancellationToken)
-    {
-        var existingTokens = await _store.GetUnusedActionTokensAsync(assignmentId, action, cancellationToken);
-        foreach (var existingToken in existingTokens)
-        {
-            existingToken.Invalidate(now);
-        }
-
-        var generated = _tokens.Generate();
-        _store.AddActionToken(ActionToken.Create(assignmentId, action, generated.Hash, now, now.Add(ActionTokenLifetime)));
-        return generated.RawToken;
-    }
     private async Task<T> ExecuteWithAssignmentLockRetryAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken)
@@ -2414,6 +3161,33 @@ public sealed class VolunteerCoordinatorService
                 actionToken.Invalidate(now);
             }
 
+            if (_store is IAccessStore accessStore)
+            {
+                foreach (var capability in await accessStore.GetActiveCapabilitiesAsync(
+                             assignment.VolunteerId,
+                             assignment.ShiftSlotId,
+                             cancellationToken))
+                {
+                    capability.Invalidate(now);
+                }
+
+                foreach (var recovery in await accessStore.GetRecoveryTokensForVolunteerAsync(
+                             assignment.VolunteerId,
+                             cancellationToken))
+                {
+                    if (recovery.ShiftSlotId == assignment.ShiftSlotId)
+                    {
+                        recovery.Invalidate(now);
+                    }
+                }
+            }
+
+            await CancelPendingAccessIntentsAsync(
+                assignment.VolunteerId,
+                assignment.ShiftSlotId,
+                now,
+                cancellationToken);
+
             _store.AddAuditEntry(AuditEntry.Create(
                 now,
                 coordinatorEmail,
@@ -2425,13 +3199,29 @@ public sealed class VolunteerCoordinatorService
         await _store.FlushAsync(cancellationToken);
     }
 
-
-    private async Task SupersedeOtherRequestsAsync(Guid slotId, Guid? approvedRequestId, string coordinatorEmail, DateTimeOffset now, CancellationToken cancellationToken)
+    private async Task SupersedeOtherRequestsAsync(
+        Guid slotId,
+        Guid? approvedRequestId,
+        string coordinatorEmail,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
     {
         var requests = await _store.GetPendingRequestsForSlotAsync(slotId, cancellationToken);
         foreach (var request in requests.Where(x => x.Id != approvedRequestId))
         {
             request.Supersede(coordinatorEmail, now);
+            await CancelPendingAccessIntentsAsync(
+                request.VolunteerId,
+                request.ShiftSlotId,
+                now,
+                cancellationToken);
+            QueueNotification(
+                request.Id,
+                request.VolunteerId,
+                request.ShiftSlotId,
+                $"request:{request.Id:N}:superseded",
+                "RequestDecision",
+                now);
         }
     }
 
@@ -2440,21 +3230,249 @@ public sealed class VolunteerCoordinatorService
 
     private async Task<(ActionToken Token, Assignment Assignment)> ResolveActionAsync(byte[] hash, CancellationToken cancellationToken)
     {
-        var actionToken = await _store.GetActionTokenByHashAsync(hash, cancellationToken);
+        if (_store is not ILegacyActionTokenStore legacyStore)
+        {
+            throw new DomainException("This action link is invalid, expired, or already used.");
+        }
+
+        var actionToken = await legacyStore.GetActionTokenByHashAsync(hash, cancellationToken);
         if (actionToken is null || !_tokens.FixedTimeEquals(hash, actionToken.TokenHash) || !actionToken.IsUsable(_clock.UtcNow))
         {
             throw new DomainException("This action link is invalid, expired, or already used.");
         }
 
         var assignment = await RequireAssignmentAsync(actionToken.AssignmentId, cancellationToken);
-        if (!assignment.IsActive)
+        if (!assignment.IsActive ||
+            (await RequireVolunteerAsync(assignment.VolunteerId, cancellationToken)).AnonymizedAtUtc.HasValue)
         {
-            throw new DomainException("This assignment is no longer active.");
+            throw new DomainException("This action link is invalid, expired, or already used.");
         }
 
         return (actionToken, assignment);
     }
 
+
+    private async Task<AccessStateDto?> GetAccessStateAsync(
+        Guid volunteerId,
+        Guid slotId,
+        Shift shift,
+        CancellationToken cancellationToken)
+    {
+        if (_store is not IAccessStore accessStore)
+        {
+            return null;
+        }
+
+        var now = _clock.UtcNow;
+        var capabilities = await accessStore.GetActiveCapabilitiesAsync(
+            volunteerId,
+            slotId,
+            cancellationToken);
+        var intents = _store is INotificationOutboxStore outbox
+            ? await outbox.GetNotificationIntentsForVolunteerAsync(volunteerId, cancellationToken)
+            : [];
+        var latest = intents
+            .Where(x => x.ShiftSlotId == slotId && IsAccessIntentKind(x.Kind))
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .FirstOrDefault();
+        if (volunteerId == Guid.Empty)
+        {
+            return new AccessStateDto("Revoked");
+        }
+
+        if (latest?.State is NotificationIntentState.Failed or
+            NotificationIntentState.Bounced or
+            NotificationIntentState.Complained)
+        {
+            return new AccessStateDto("Message not sent", latest.CreatedAtUtc);
+        }
+
+        if (latest?.State is NotificationIntentState.Pending or
+            NotificationIntentState.RetryScheduled or
+            NotificationIntentState.InFlight)
+        {
+            return new AccessStateDto("Delivery pending", latest.CreatedAtUtc);
+        }
+
+        if (capabilities.Any() && now <= shift.EndsAtUtc.AddDays(7))
+        {
+            return new AccessStateDto("Active", latest?.CreatedAtUtc);
+        }
+
+        return new AccessStateDto(
+            now > shift.EndsAtUtc.AddDays(7) ? "Expired" : "Revoked",
+            latest?.CreatedAtUtc);
+    }
+
+    private async Task<IReadOnlyList<(Guid VolunteerId, Guid SlotId)>> FindRecoveryMatchesAsync(
+        string normalizedEmail,
+        DateTimeOffset startUtc,
+        DateTimeOffset endUtc,
+        CancellationToken cancellationToken)
+    {
+        var volunteerId = await _store.GetVolunteerIdByNormalizedEmailAsync(
+            normalizedEmail,
+            cancellationToken);
+        if (!volunteerId.HasValue)
+        {
+            return [];
+        }
+
+        var volunteer = await _store.GetVolunteerAsync(volunteerId.Value, cancellationToken);
+        if (volunteer is null || volunteer.AnonymizedAtUtc.HasValue)
+        {
+            return [];
+        }
+
+        var now = _clock.UtcNow;
+        var requests = await _store.GetRequestsForVolunteerAsync(volunteer.Id, cancellationToken);
+        var assignments = await _store.GetAssignmentsForVolunteerAsync(volunteer.Id, cancellationToken);
+        var slotIds = requests.Select(x => x.ShiftSlotId)
+            .Concat(assignments.Select(x => x.ShiftSlotId))
+            .Distinct()
+            .ToArray();
+        var matches = new List<(Guid VolunteerId, Guid SlotId)>();
+        foreach (var slotId in slotIds)
+        {
+            var latestRequest = requests
+                .Where(x => x.ShiftSlotId == slotId)
+                .OrderByDescending(x => x.RequestedAtUtc)
+                .ThenByDescending(x => x.Id)
+                .FirstOrDefault();
+            var activeAssignment = assignments
+                .Where(x => x.ShiftSlotId == slotId && x.IsActive)
+                .OrderByDescending(x => x.AssignedAtUtc)
+                .ThenByDescending(x => x.Id)
+                .FirstOrDefault();
+            if (activeAssignment is null && latestRequest?.Status != RequestStatus.Pending)
+            {
+                continue;
+            }
+
+            var slot = await _store.GetSlotAsync(slotId, cancellationToken);
+            if (slot is null || !slot.IsActive)
+            {
+                continue;
+            }
+
+            var shift = await _store.GetShiftAsync(slot.ShiftId, cancellationToken);
+            if (shift is null ||
+                !shift.IsActive ||
+                shift.StartsAtUtc < startUtc ||
+                shift.StartsAtUtc >= endUtc ||
+                now > shift.EndsAtUtc.AddDays(7))
+            {
+                continue;
+            }
+
+            matches.Add((volunteer.Id, slot.Id));
+        }
+
+        return matches
+            .Distinct()
+            .OrderBy(x => x.SlotId)
+            .Take(3)
+            .ToArray();
+    }
+
+    private async Task<Assignment?> FindLatestAssignmentAsync(
+        Guid volunteerId,
+        Guid slotId,
+        CancellationToken cancellationToken)
+    {
+        var assignments = await _store.GetAssignmentsForVolunteerAsync(volunteerId, cancellationToken);
+        return assignments
+            .Where(x => x.ShiftSlotId == slotId)
+            .OrderByDescending(x => x.AssignedAtUtc)
+            .ThenByDescending(x => x.Id)
+            .FirstOrDefault();
+    }
+
+
+    private NotificationIntent? QueueNotification(
+        Guid transitionId,
+        Guid volunteerId,
+        Guid? slotId,
+        string eventKey,
+        string kind,
+        DateTimeOffset nowUtc)
+    {
+        if (_store is not INotificationOutboxStore outbox)
+        {
+            return null;
+        }
+
+        var intent = NotificationIntent.Create(
+            eventKey,
+            transitionId,
+            volunteerId,
+            slotId,
+            kind,
+            nowUtc);
+        outbox.AddNotificationIntent(intent);
+        return intent;
+    }
+
+    private static IReadOnlyList<string> OfferedHubActions(
+        Assignment? assignment,
+        Shift shift,
+        DateTimeOffset nowUtc)
+    {
+        if (assignment is null)
+        {
+            return [];
+        }
+
+        if (assignment.Status == AssignmentStatus.Assigned && nowUtc < shift.StartsAtUtc)
+        {
+            return ["Confirm", "Decline"];
+        }
+
+        if (assignment.Status == AssignmentStatus.Confirmed && nowUtc < shift.EndsAtUtc)
+        {
+            return ["Cancel"];
+        }
+
+        return [];
+    }
+
+    private static string HubStatusMessage(
+        string requestStatus,
+        string? assignmentStatus,
+        IReadOnlyList<string> actions,
+        Shift shift,
+        DateTimeOffset nowUtc)
+    {
+        if (actions.Count > 0)
+        {
+            return $"Your commitment is {assignmentStatus ?? requestStatus}. Choose an available action below.";
+        }
+
+        if (assignmentStatus is null)
+        {
+            return requestStatus == nameof(RequestStatus.Pending)
+                ? "Your request is waiting for coordinator review."
+                : $"Your request is {requestStatus}.";
+        }
+
+        if (assignmentStatus == nameof(AssignmentStatus.Assigned) && nowUtc >= shift.StartsAtUtc)
+        {
+            return "The confirmation deadline has passed. This page is read-only.";
+        }
+
+        if (assignmentStatus == nameof(AssignmentStatus.Confirmed) && nowUtc >= shift.EndsAtUtc)
+        {
+            return "The cancellation deadline has passed. This page is read-only.";
+        }
+
+        return $"Your assignment is {assignmentStatus}. This page is read-only.";
+    }
+
+    private static DomainException InvalidHub() =>
+        new("This commitment link is invalid or has expired.");
+
+    private static DomainException InvalidRecovery() =>
+        new("This recovery link is invalid or has expired.");
 
     private byte[] HashRequiredToken(string rawToken)
     {
@@ -2691,7 +3709,6 @@ public sealed class VolunteerCoordinatorService
         "AssignmentReassigned" => "An earlier volunteer assignment was replaced.",
         "AssignmentCancelledByCoordinator" => "A coordinator cancelled a volunteer assignment.",
         "AssignmentCancelledByShiftDeactivation" => "A volunteer assignment was cancelled because its schedule entry was deactivated.",
-        "ActionLinksGenerated" => "Volunteer action links were refreshed.",
         "VolunteerAnonymized" => "A volunteer's identifying contact data was removed.",
         _ when action.StartsWith("Assignment", StringComparison.Ordinal) => "A volunteer response changed an assignment.",
         _ => "A recorded coordinator action occurred."
@@ -2765,6 +3782,16 @@ public sealed class VolunteerCoordinatorService
         VolunteerAction.Cancel => status is AssignmentStatus.Assigned or AssignmentStatus.Confirmed,
         _ => false
     };
+    private static bool LegacyActionDeadlineOpen(
+        VolunteerAction action,
+        Shift shift,
+        DateTimeOffset nowUtc) =>
+        action switch
+        {
+            VolunteerAction.Confirm or VolunteerAction.Decline => nowUtc < shift.StartsAtUtc,
+            VolunteerAction.Cancel => nowUtc < shift.EndsAtUtc,
+            _ => false
+        };
 
     private static string RequireCoordinator(string coordinatorEmail)
     {

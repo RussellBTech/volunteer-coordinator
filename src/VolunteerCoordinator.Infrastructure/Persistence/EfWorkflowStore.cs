@@ -3,6 +3,7 @@ using Npgsql;
 using VolunteerCoordinator.Application.Models;
 using VolunteerCoordinator.Application.Ports;
 using VolunteerCoordinator.Domain;
+using VolunteerCoordinator.Domain.Access;
 using VolunteerCoordinator.Domain.Assignments;
 using VolunteerCoordinator.Domain.Auditing;
 using VolunteerCoordinator.Domain.Notifications;
@@ -13,7 +14,7 @@ using VolunteerCoordinator.Domain.Volunteers;
 
 namespace VolunteerCoordinator.Infrastructure.Persistence;
 
-public sealed class EfWorkflowStore : IWorkflowStore
+public sealed class EfWorkflowStore : IWorkflowStore, IAccessStore, INotificationOutboxStore, ILegacyActionTokenStore
 {
     private const int RemovalLookupFetchLimit = 20;
     private const int RemovalLookupResultLimit = 10;
@@ -351,10 +352,150 @@ public sealed class EfWorkflowStore : IWorkflowStore
             .Where(x => volunteerIds.Contains(x.Id))
             .ToListAsync(cancellationToken);
     }
+    public Task<Guid?> GetCapabilitySlotIdByHashAsync(
+        byte[] hash,
+        CancellationToken cancellationToken) =>
+        _dbContext.VolunteerAccessCapabilities
+            .AsNoTracking()
+            .Where(x => x.TokenHash.SequenceEqual(hash))
+            .Select(x => (Guid?)x.ShiftSlotId)
+            .SingleOrDefaultAsync(cancellationToken);
+
+    public Task<VolunteerAccessCapability?> GetCapabilityByHashAsync(
+        byte[] hash,
+        CancellationToken cancellationToken) =>
+        _dbContext.VolunteerAccessCapabilities
+            .SingleOrDefaultAsync(x => x.TokenHash.SequenceEqual(hash), cancellationToken);
+
+    public async Task<IReadOnlyList<VolunteerAccessCapability>> GetActiveCapabilitiesAsync(
+        Guid volunteerId,
+        Guid shiftSlotId,
+        CancellationToken cancellationToken) =>
+        await _dbContext.VolunteerAccessCapabilities
+            .Where(x => x.VolunteerId == volunteerId &&
+                        x.ShiftSlotId == shiftSlotId &&
+                        x.InvalidatedAtUtc == null)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<VolunteerAccessCapability>> GetCapabilitiesForVolunteerAsync(
+        Guid volunteerId,
+        CancellationToken cancellationToken) =>
+        await _dbContext.VolunteerAccessCapabilities
+            .Where(x => x.VolunteerId == volunteerId)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<RecoveryToken>> GetRecoveryTokensForVolunteerAsync(
+        Guid volunteerId,
+        CancellationToken cancellationToken) =>
+        await _dbContext.RecoveryTokens
+            .Where(x => x.VolunteerId == volunteerId)
+            .ToListAsync(cancellationToken);
+
+    public Task<Guid?> GetRecoverySlotIdByHashAsync(
+        byte[] hash,
+        CancellationToken cancellationToken) =>
+        _dbContext.RecoveryTokens
+            .AsNoTracking()
+            .Where(x => x.TokenHash.SequenceEqual(hash))
+            .Select(x => (Guid?)x.ShiftSlotId)
+            .SingleOrDefaultAsync(cancellationToken);
+
+    public Task<RecoveryToken?> GetRecoveryTokenByHashAsync(
+        byte[] hash,
+        CancellationToken cancellationToken) =>
+        _dbContext.RecoveryTokens
+            .SingleOrDefaultAsync(x => x.TokenHash.SequenceEqual(hash), cancellationToken);
+
+    public Task<ShiftRequest?> GetRequestForVolunteerSlotAsync(
+        Guid volunteerId,
+        Guid shiftSlotId,
+        CancellationToken cancellationToken) =>
+        _dbContext.ShiftRequests
+            .OrderByDescending(x => x.RequestedAtUtc)
+            .ThenByDescending(x => x.Id)
+            .FirstOrDefaultAsync(
+                x => x.VolunteerId == volunteerId && x.ShiftSlotId == shiftSlotId,
+                cancellationToken);
+
+    public async Task<IReadOnlyList<ShiftRequest>> GetRequestsForVolunteerSlotAsync(
+        Guid volunteerId,
+        Guid shiftSlotId,
+        CancellationToken cancellationToken) =>
+        await _dbContext.ShiftRequests
+            .Where(x => x.VolunteerId == volunteerId && x.ShiftSlotId == shiftSlotId)
+            .OrderByDescending(x => x.RequestedAtUtc)
+            .ToListAsync(cancellationToken);
+
+    public void AddCapability(VolunteerAccessCapability capability) =>
+        _dbContext.VolunteerAccessCapabilities.Add(capability);
+
+    public void AddRecoveryToken(RecoveryToken token) =>
+        _dbContext.RecoveryTokens.Add(token);
+
+    public void AddNotificationIntent(NotificationIntent intent) =>
+        _dbContext.NotificationIntents.Add(intent);
+    public Task<NotificationIntent?> GetNotificationIntentForUpdateAsync(
+        Guid intentId,
+        CancellationToken cancellationToken) =>
+        _dbContext.NotificationIntents
+            .FromSqlInterpolated(
+                $"""SELECT * FROM "NotificationIntents" WHERE "Id" = {intentId} FOR UPDATE""")
+            .SingleOrDefaultAsync(cancellationToken);
+
+    public Task<bool> HasEquivalentPendingIntentAsync(
+        string eventKey,
+        CancellationToken cancellationToken) =>
+        _dbContext.NotificationIntents.AnyAsync(
+            x => x.EventKey == eventKey &&
+                 (x.State == NotificationIntentState.Pending ||
+                  x.State == NotificationIntentState.RetryScheduled ||
+                  x.State == NotificationIntentState.InFlight),
+            cancellationToken);
+
+    public Task<NotificationIntent?> GetEquivalentPendingIntentAsync(
+        string eventKey,
+        CancellationToken cancellationToken) =>
+        _dbContext.NotificationIntents
+            .Where(x => x.EventKey == eventKey &&
+                        (x.State == NotificationIntentState.Pending ||
+                         x.State == NotificationIntentState.RetryScheduled ||
+                         x.State == NotificationIntentState.InFlight))
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<NotificationIntent>> GetNotificationIntentsForVolunteerAsync(
+        Guid volunteerId,
+        CancellationToken cancellationToken) =>
+        await _dbContext.NotificationIntents
+            .Where(x => x.VolunteerId == volunteerId)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .ToListAsync(cancellationToken);
+    public async Task<IReadOnlyList<NotificationIntent>> GetNotificationIntentsAsync(
+        int limit,
+        CancellationToken cancellationToken) =>
+        await _dbContext.NotificationIntents
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Take(Math.Clamp(limit, 1, 500))
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<NotificationDeliveryAttempt>> GetDeliveryAttemptsAsync(
+        IReadOnlyCollection<Guid> intentIds,
+        CancellationToken cancellationToken)
+    {
+        if (intentIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await _dbContext.NotificationDeliveryAttempts
+            .Where(x => intentIds.Contains(x.NotificationIntentId))
+            .OrderBy(x => x.NotificationIntentId)
+            .ThenBy(x => x.Ordinal)
+            .ToListAsync(cancellationToken);
+    }
 
 
-    public Task<ShiftRequest?> GetRequestByStatusHashAsync(byte[] hash, CancellationToken cancellationToken) =>
-        _dbContext.ShiftRequests.SingleOrDefaultAsync(x => x.StatusTokenHash.SequenceEqual(hash), cancellationToken);
+
 
     public async Task<IReadOnlyList<ShiftRequest>> GetRequestsAsync(CancellationToken cancellationToken) =>
         await _dbContext.ShiftRequests.OrderByDescending(x => x.RequestedAtUtc).ToListAsync(cancellationToken);
@@ -490,7 +631,6 @@ public sealed class EfWorkflowStore : IWorkflowStore
         return await _dbContext.ActionTokens
             .SingleOrDefaultAsync(x => x.TokenHash.SequenceEqual(hash), cancellationToken);
     }
-
     public async Task<IReadOnlyList<ActionToken>> GetUnusedActionTokensAsync(
         Guid assignmentId,
         VolunteerAction action,
@@ -512,6 +652,7 @@ public sealed class EfWorkflowStore : IWorkflowStore
             .Where(x => assignmentIds.Contains(x.AssignmentId) && x.UsedAtUtc == null)
             .ToListAsync(cancellationToken);
     }
+
 
     public async Task<IReadOnlyList<AuditEntry>> GetAuditEntriesAsync(
         int limit,
@@ -810,7 +951,6 @@ public sealed class EfWorkflowStore : IWorkflowStore
 
     public void AddAssignment(Assignment assignment) => _dbContext.Assignments.Add(assignment);
 
-    public void AddActionToken(ActionToken actionToken) => _dbContext.ActionTokens.Add(actionToken);
 
     public void AddAuditEntry(AuditEntry auditEntry) => _dbContext.AuditEntries.Add(auditEntry);
 }

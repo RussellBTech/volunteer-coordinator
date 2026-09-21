@@ -84,3 +84,61 @@ else
         </nav>
     }
 }
+@if (Model.NotificationIntents.Count > 0)
+{
+    <section aria-labelledby="durable-messages">
+        <h2 id="durable-messages">Transactional message delivery</h2>
+        <div class="message-list">
+        @foreach (var intent in Model.NotificationIntents)
+        {
+            var state = intent.State switch
+            {
+                "Pending" => "Waiting to send",
+                "RetryScheduled" => "Trying again",
+                "Accepted" => "Accepted by email service",
+                "Delivered" => "Delivered to mail server",
+                "Bounced" => "Bounced",
+                "Complained" => "Recipient reported spam",
+                "Cancelled" => "Cancelled",
+                _ => "Not sent"
+            };
+            <article class="card message-card">
+                <h3>@intent.VolunteerName</h3>
+                @if (intent.Commitment is not null)
+                {
+                    <partial name="_CommitmentDetails" model="intent.Commitment" />
+                }
+                <p><strong>Purpose:</strong> @intent.Kind</p>
+                <p><strong>Delivery:</strong> @state</p>
+                <p><strong>Attempts:</strong> @intent.AttemptCount</p>
+                @if (intent.FailureCategory is not null)
+                {
+                    <p><strong>Safe outcome:</strong> @intent.FailureCategory</p>
+                }
+                <p class="field-help">Delivered means the receiving mail server accepted the message; it does not show that the volunteer read it.</p>
+                @if (intent.State is "Failed" or "Bounced" or "Complained")
+                {
+                    @if (intent.AccessAssignmentId is Guid accessAssignmentId)
+                    {
+                        <a class="button button-secondary"
+                           asp-page="/Coordinator/Assignments/Access"
+                           asp-route-assignmentId="@accessAssignmentId">Manage replacement access</a>
+                    }
+                    else if (intent.Kind is "RequestReceipt" or "AssignmentAccess" or "AccessRecovery" or "CoordinatorAccessReissue")
+                    {
+                        <a class="button button-secondary"
+                           asp-page="/Coordinator/Coverage">Review volunteer access</a>
+                    }
+                    else
+                    {
+                        <form method="post" asp-page-handler="Resend">
+                            <input type="hidden" name="intentId" value="@intent.Id" />
+                            <button type="submit">Send another copy</button>
+                        </form>
+                    }
+                }
+            </article>
+        }
+        </div>
+    </section>
+}

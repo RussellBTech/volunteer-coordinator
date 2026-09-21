@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using VolunteerCoordinator.Application;
 using VolunteerCoordinator.Application.Models;
+using VolunteerCoordinator.Domain.Assignments;
 using VolunteerCoordinator.Infrastructure.Notifications;
 using VolunteerCoordinator.Infrastructure.Persistence;
 using VolunteerCoordinator.Infrastructure.Security;
@@ -51,7 +52,11 @@ public sealed class Issue15WebIntegrationTests
             var submission = await service.SubmitRequestAsync(slotId, "Bootstrap volunteer", "bootstrap@example.org", null, default);
             statusToken = submission.StatusToken;
             var assignment = await service.AssignDirectlyAsync(assignmentSlotId, "Bootstrap volunteer", "bootstrap@example.org", null, Coordinator, default);
-            actionToken = (await service.GenerateActionLinksAsync(assignment.AssignmentId, Coordinator, default)).ConfirmToken!;
+            actionToken = await ScheduleTestHelpers.CreateLegacyActionTokenAsync(
+                context,
+                assignment.AssignmentId,
+                VolunteerAction.Confirm,
+                FixedNow);
         }
 
         using var factory = new CoordinatorWebFactory(_fixture.ConnectionString, clock: clock);
@@ -204,7 +209,11 @@ public sealed class Issue15WebIntegrationTests
             var service = CreateService(approvalContext, clock);
             var assignment = await service.ApproveRequestAsync(requestId, Coordinator, default);
             assignmentId = assignment.AssignmentId;
-            actionToken = (await service.GenerateActionLinksAsync(assignmentId, Coordinator, default)).ConfirmToken!;
+            actionToken = await ScheduleTestHelpers.CreateLegacyActionTokenAsync(
+                approvalContext,
+                assignmentId,
+                VolunteerAction.Confirm,
+                FixedNow);
         }
 
         var statusHtml = await ReadAsync(publicClient, $"/Requests/Status/{statusToken}");
@@ -229,7 +238,7 @@ public sealed class Issue15WebIntegrationTests
             "/Coordinator/Requests",
             "/Coordinator/Coverage",
             $"/Coordinator/Assignments/Assign/{slotId}",
-            $"/Coordinator/Assignments/Links/{assignmentId}"
+            $"/Coordinator/Assignments/Access/{assignmentId}"
         })
         {
             var html = await ReadAsync(coordinatorClient, path);

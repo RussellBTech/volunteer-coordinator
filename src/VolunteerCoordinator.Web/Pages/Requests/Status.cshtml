@@ -1,19 +1,32 @@
 @page "/Requests/Status/{token}"
 @model VolunteerCoordinator.Web.Pages.Requests.StatusModel
 @{
-    ViewData["Title"] = "Request status";
+    ViewData["Title"] = "Your commitment";
 }
-<h1 tabindex="-1">Request status</h1>
+<h1 tabindex="-1">Your commitment</h1>
 @if (Model.Error is not null)
 {
     <div class="alert alert-error" role="alert">@Model.Error</div>
 }
-else if (Model.Status is not null)
+else if (Model.Hub is not null)
 {
     <article class="card">
-        <partial name="_CommitmentDetails" model="Model.Status.Commitment" />
-        <p><strong>Volunteer:</strong> @Model.Status.VolunteerName</p>
-        <p><strong>Request status:</strong> <span class="badge badge-pending">@Model.Status.RequestStatus</span></p>
-        <p><strong>Assignment status:</strong> @(Model.Status.AssignmentStatus ?? "Not assigned")</p>
+        <partial name="_CommitmentDetails" model="Model.Hub.Commitment" />
+        <p><strong>Volunteer:</strong> @Model.Hub.VolunteerName</p>
+        <p><strong>Request status:</strong> @Model.Hub.RequestStatus</p>
+        <p><strong>Assignment status:</strong> @(Model.Hub.AssignmentStatus ?? "Not assigned")</p>
+        <p>@Model.Hub.StatusMessage</p>
+        @if (Model.Hub.OfferedActions.Count > 0)
+        {
+            <div class="actions">
+                @foreach (var action in Model.Hub.OfferedActions)
+                {
+                    <form method="post">
+                        <input type="hidden" name="action" value="@action" />
+                        <button type="submit">@(action == "Cancel" ? "Cancel commitment" : action + " commitment")</button>
+                    </form>
+                }
+            </div>
+        }
     </article>
 }

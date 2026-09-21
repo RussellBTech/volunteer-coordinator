@@ -9,23 +9,11 @@ public sealed class ShiftRequest
     private ShiftRequest(
         Guid shiftSlotId,
         Guid volunteerId,
-        byte[] statusTokenHash,
-        DateTimeOffset requestedAtUtc,
-        DateTimeOffset statusTokenExpiresAtUtc)
+        DateTimeOffset requestedAtUtc)
     {
-        if (statusTokenHash.Length != 32)
-        {
-            throw new DomainException("A SHA-256 status-token hash is required.");
-        }
-
-        if (requestedAtUtc.Offset != TimeSpan.Zero || statusTokenExpiresAtUtc.Offset != TimeSpan.Zero)
+        if (requestedAtUtc.Offset != TimeSpan.Zero)
         {
             throw new DomainException("Request timestamps must be UTC.");
-        }
-
-        if (statusTokenExpiresAtUtc <= requestedAtUtc)
-        {
-            throw new DomainException("The status token must expire after the request is created.");
         }
 
         Id = Guid.NewGuid();
@@ -33,8 +21,6 @@ public sealed class ShiftRequest
         VolunteerId = volunteerId;
         Status = RequestStatus.Pending;
         RequestedAtUtc = requestedAtUtc;
-        StatusTokenHash = statusTokenHash.ToArray();
-        StatusTokenExpiresAtUtc = statusTokenExpiresAtUtc;
     }
 
     public Guid Id { get; private set; }
@@ -51,19 +37,12 @@ public sealed class ShiftRequest
 
     public string? ResolvedByCoordinatorEmail { get; private set; }
 
-    public byte[] StatusTokenHash { get; private set; } = [];
-
-    public DateTimeOffset StatusTokenExpiresAtUtc { get; private set; }
-
-    public DateTimeOffset? StatusTokenInvalidatedAtUtc { get; private set; }
 
     public static ShiftRequest Create(
         Guid shiftSlotId,
         Guid volunteerId,
-        byte[] statusTokenHash,
-        DateTimeOffset requestedAtUtc,
-        DateTimeOffset statusTokenExpiresAtUtc) =>
-        new(shiftSlotId, volunteerId, statusTokenHash, requestedAtUtc, statusTokenExpiresAtUtc);
+        DateTimeOffset requestedAtUtc) =>
+        new(shiftSlotId, volunteerId, requestedAtUtc);
 
     public void Approve(string coordinatorEmail, DateTimeOffset nowUtc) =>
         Resolve(RequestStatus.Approved, coordinatorEmail, nowUtc);
@@ -74,24 +53,6 @@ public sealed class ShiftRequest
     public void Supersede(string coordinatorEmail, DateTimeOffset nowUtc) =>
         Resolve(RequestStatus.Superseded, coordinatorEmail, nowUtc);
 
-    public bool IsStatusTokenUsable(DateTimeOffset nowUtc) =>
-        StatusTokenInvalidatedAtUtc is null && nowUtc <= StatusTokenExpiresAtUtc;
-
-    public bool InvalidateStatusToken(DateTimeOffset nowUtc)
-    {
-        if (nowUtc.Offset != TimeSpan.Zero)
-        {
-            throw new DomainException("Request timestamps must be UTC.");
-        }
-
-        if (StatusTokenInvalidatedAtUtc.HasValue)
-        {
-            return false;
-        }
-
-        StatusTokenInvalidatedAtUtc = nowUtc;
-        return true;
-    }
 
     private void Resolve(RequestStatus status, string coordinatorEmail, DateTimeOffset nowUtc)
     {

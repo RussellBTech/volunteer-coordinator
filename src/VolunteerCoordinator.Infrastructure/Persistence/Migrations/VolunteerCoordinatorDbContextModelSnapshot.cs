@@ -22,6 +22,95 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("VolunteerCoordinator.Domain.Access.RecoveryToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("InvalidatedAtUtc")
+                        .IsConcurrencyToken()
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ShiftSlotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<byte[]>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<DateTimeOffset?>("UsedAtUtc")
+                        .IsConcurrencyToken()
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("VolunteerId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ShiftSlotId");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("VolunteerId", "ShiftSlotId", "ExpiresAtUtc");
+
+                    b.ToTable("RecoveryTokens", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_RecoveryTokens_TokenHash", "octet_length(\"TokenHash\") = 32");
+                        });
+                });
+
+            modelBuilder.Entity("VolunteerCoordinator.Domain.Access.VolunteerAccessCapability", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("InvalidatedAtUtc")
+                        .IsConcurrencyToken()
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("IssuedReason")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ShiftSlotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<byte[]>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<Guid>("VolunteerId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("VolunteerId");
+
+                    b.HasIndex("ShiftSlotId", "VolunteerId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_VolunteerAccessCapabilities_ActiveCommitment")
+                        .HasFilter("\"InvalidatedAtUtc\" IS NULL");
+
+                    b.ToTable("VolunteerAccessCapabilities", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_VolunteerAccessCapabilities_TokenHash", "octet_length(\"TokenHash\") = 32");
+                        });
+                });
+
             modelBuilder.Entity("VolunteerCoordinator.Domain.Assignments.ActionToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -169,11 +258,6 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("Destination")
-                        .IsRequired()
-                        .HasMaxLength(320)
-                        .HasColumnType("character varying(320)");
-
                     b.Property<string>("ErrorSummary")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -194,6 +278,176 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                     b.HasIndex("TransitionId", "State");
 
                     b.ToTable("NotificationAttempts", (string)null);
+                });
+
+            modelBuilder.Entity("VolunteerCoordinator.Domain.Notifications.NotificationDeliveryAttempt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("NotificationIntentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("OutcomeCategory")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ProviderMessageId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("NotificationIntentId", "Ordinal")
+                        .IsUnique();
+
+                    b.ToTable("NotificationDeliveryAttempts", (string)null);
+                });
+
+            modelBuilder.Entity("VolunteerCoordinator.Domain.Notifications.NotificationIntent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("AcceptedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("ClaimOwnerToken")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DeliveredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EventKey")
+                        .IsRequired()
+                        .HasMaxLength(240)
+                        .HasColumnType("character varying(240)");
+
+                    b.Property<string>("FailureCategory")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset?>("LastProviderEventAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LeaseUntilUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("NextAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProviderMessageId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("RecoveryTokenId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ShiftSlotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("State")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TransitionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("VolunteerId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EventKey")
+                        .IsUnique()
+                        .HasFilter("\"State\" IN (0, 1, 2)");
+
+                    b.HasIndex("ProviderMessageId")
+                        .IsUnique()
+                        .HasFilter("\"ProviderMessageId\" IS NOT NULL");
+
+                    b.HasIndex("RecoveryTokenId");
+
+                    b.HasIndex("ShiftSlotId");
+
+                    b.HasIndex("VolunteerId");
+
+                    b.HasIndex("State", "NextAttemptAtUtc", "CreatedAtUtc");
+
+                    b.ToTable("NotificationIntents", (string)null);
+                });
+
+            modelBuilder.Entity("VolunteerCoordinator.Domain.Notifications.ResendWebhookReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset>("ProcessedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProviderMessageId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("ProviderOccurredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SvixId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProviderMessageId");
+
+                    b.HasIndex("SvixId")
+                        .IsUnique();
+
+                    b.ToTable("ResendWebhookReceipts", (string)null);
                 });
 
             modelBuilder.Entity("VolunteerCoordinator.Domain.Requests.ShiftRequest", b =>
@@ -219,24 +473,10 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                         .IsConcurrencyToken()
                         .HasColumnType("integer");
 
-                    b.Property<DateTimeOffset>("StatusTokenExpiresAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<byte[]>("StatusTokenHash")
-                        .IsRequired()
-                        .HasColumnType("bytea");
-
-                    b.Property<DateTimeOffset?>("StatusTokenInvalidatedAtUtc")
-                        .IsConcurrencyToken()
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<Guid>("VolunteerId")
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("StatusTokenHash")
-                        .IsUnique();
 
                     b.HasIndex("VolunteerId");
 
@@ -245,10 +485,7 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("UX_ShiftRequests_Pending")
                         .HasFilter("\"Status\" = 0");
 
-                    b.ToTable("ShiftRequests", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_ShiftRequests_StatusTokenHash", "octet_length(\"StatusTokenHash\") = 32");
-                        });
+                    b.ToTable("ShiftRequests", (string)null);
                 });
 
             modelBuilder.Entity("VolunteerCoordinator.Domain.Schedules.Shift", b =>
@@ -405,6 +642,36 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                     b.ToTable("Volunteers", (string)null);
                 });
 
+            modelBuilder.Entity("VolunteerCoordinator.Domain.Access.RecoveryToken", b =>
+                {
+                    b.HasOne("VolunteerCoordinator.Domain.Schedules.ShiftSlot", null)
+                        .WithMany()
+                        .HasForeignKey("ShiftSlotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("VolunteerCoordinator.Domain.Volunteers.Volunteer", null)
+                        .WithMany()
+                        .HasForeignKey("VolunteerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("VolunteerCoordinator.Domain.Access.VolunteerAccessCapability", b =>
+                {
+                    b.HasOne("VolunteerCoordinator.Domain.Schedules.ShiftSlot", null)
+                        .WithMany()
+                        .HasForeignKey("ShiftSlotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("VolunteerCoordinator.Domain.Volunteers.Volunteer", null)
+                        .WithMany()
+                        .HasForeignKey("VolunteerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("VolunteerCoordinator.Domain.Assignments.ActionToken", b =>
                 {
                     b.HasOne("VolunteerCoordinator.Domain.Assignments.Assignment", null)
@@ -432,6 +699,34 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("SourceRequestId")
                         .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("VolunteerCoordinator.Domain.Volunteers.Volunteer", null)
+                        .WithMany()
+                        .HasForeignKey("VolunteerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("VolunteerCoordinator.Domain.Notifications.NotificationDeliveryAttempt", b =>
+                {
+                    b.HasOne("VolunteerCoordinator.Domain.Notifications.NotificationIntent", null)
+                        .WithMany()
+                        .HasForeignKey("NotificationIntentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("VolunteerCoordinator.Domain.Notifications.NotificationIntent", b =>
+                {
+                    b.HasOne("VolunteerCoordinator.Domain.Access.RecoveryToken", null)
+                        .WithMany()
+                        .HasForeignKey("RecoveryTokenId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("VolunteerCoordinator.Domain.Schedules.ShiftSlot", null)
+                        .WithMany()
+                        .HasForeignKey("ShiftSlotId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("VolunteerCoordinator.Domain.Volunteers.Volunteer", null)
                         .WithMany()

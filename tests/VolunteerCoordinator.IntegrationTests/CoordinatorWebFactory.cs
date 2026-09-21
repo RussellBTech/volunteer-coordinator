@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using VolunteerCoordinator.Application.Notifications;
 using VolunteerCoordinator.Application.Ports;
 using VolunteerCoordinator.Web.Security;
 
@@ -23,19 +24,28 @@ public sealed class CoordinatorWebFactory : WebApplicationFactory<Program>
     private readonly IReadOnlyList<string> _allowedEmails;
     private readonly AnonymousRateLimitOptions? _rateLimits;
     private readonly IClock? _clock;
+    private readonly ITransactionalEmailProvider? _emailProvider;
+    private readonly string? _webhookSecret;
+    private readonly ILoggerProvider? _loggerProvider;
 
     public CoordinatorWebFactory(
         string connectionString,
         bool authenticateNonCoordinator = false,
         IReadOnlyList<string>? allowedEmails = null,
         AnonymousRateLimitOptions? rateLimits = null,
-        IClock? clock = null)
+        IClock? clock = null,
+        ITransactionalEmailProvider? emailProvider = null,
+        string? webhookSecret = null,
+        ILoggerProvider? loggerProvider = null)
     {
         _connectionString = connectionString;
         _authenticateNonCoordinator = authenticateNonCoordinator;
         _allowedEmails = allowedEmails ?? ["coordinator@example.org"];
         _rateLimits = rateLimits;
         _clock = clock;
+        _emailProvider = emailProvider;
+        _webhookSecret = webhookSecret;
+        _loggerProvider = loggerProvider;
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -47,6 +57,11 @@ public sealed class CoordinatorWebFactory : WebApplicationFactory<Program>
         for (var index = 0; index < _allowedEmails.Count; index++)
         {
             builder.UseSetting($"Coordinator:AllowedEmails:{index}", _allowedEmails[index]);
+        }
+
+        if (_webhookSecret is not null)
+        {
+            builder.UseSetting("Resend:WebhookSecret", _webhookSecret);
         }
 
         builder.ConfigureTestServices(services =>
@@ -63,8 +78,17 @@ public sealed class CoordinatorWebFactory : WebApplicationFactory<Program>
                 services.RemoveAll<IClock>();
                 services.AddSingleton<IClock>(_clock);
             }
-        });
 
+            if (_emailProvider is not null)
+            {
+                services.RemoveAll<ITransactionalEmailProvider>();
+                services.AddSingleton(_emailProvider);
+            }
+            if (_loggerProvider is not null)
+            {
+                services.AddLogging(logging => logging.AddProvider(_loggerProvider));
+            }
+        });
         if (_rateLimits is not null)
         {
             builder.UseSetting(

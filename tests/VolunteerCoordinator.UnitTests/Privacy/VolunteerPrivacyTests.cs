@@ -44,25 +44,18 @@ public sealed class VolunteerPrivacyTests
     }
 
     [Fact]
-    public void StatusTokenInvalidationAndNotificationRedactionAreIdempotent()
+    public void LegacyNotificationHistoryDiscardedContactValues()
     {
-        var request = ShiftRequest.Create(
-            Guid.NewGuid(),
-            Guid.NewGuid(),
-            new byte[32],
-            Now.AddDays(-400),
-            Now.AddDays(-399));
         var attempt = NotificationAttempt.Create(
-            request.Id,
+            Guid.NewGuid(),
             "RequestReceived",
             "alex@example.org",
             Now.AddDays(-400));
+        attempt.Fail(Now.AddDays(-399), "safe failure");
 
-        Assert.True(request.InvalidateStatusToken(Now));
-        Assert.False(request.IsStatusTokenUsable(Now.AddDays(-1)));
-        Assert.False(request.InvalidateStatusToken(Now.AddMinutes(1)));
-        Assert.True(attempt.RedactDestination());
-        Assert.Equal("removed", attempt.Destination);
-        Assert.False(attempt.RedactDestination());
+        var serialized = System.Text.Json.JsonSerializer.Serialize(attempt);
+        Assert.DoesNotContain("alex@example.org", serialized, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Destination", serialized, StringComparison.Ordinal);
+        Assert.Equal(NotificationState.Failed, attempt.State);
     }
 }

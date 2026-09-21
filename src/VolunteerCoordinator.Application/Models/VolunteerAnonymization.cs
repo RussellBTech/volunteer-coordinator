@@ -29,8 +29,6 @@ public sealed record VolunteerAnonymizationResult(
     VolunteerAnonymizationBlocker Blocker,
     int BlockingCount,
     DateTimeOffset? AnchorUtc,
-    int StatusTokensInvalidated,
-    int ActionTokensInvalidated,
     int NotificationDestinationsRedacted)
 {
     public bool IsSuccessful => Outcome is VolunteerAnonymizationOutcome.Anonymized or VolunteerAnonymizationOutcome.AlreadyAnonymized;
@@ -38,6 +36,10 @@ public sealed record VolunteerAnonymizationResult(
     public int RequestCount { get; init; }
 
     public int AssignmentCount { get; init; }
+    public int CapabilitiesInvalidated { get; init; }
+
+    public int RecoveryTokensInvalidated { get; init; }
+    public int ActionTokensInvalidated { get; init; }
 }
 
 public sealed record RetentionSweepResult(

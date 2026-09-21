@@ -47,10 +47,14 @@ else
         <a class="button button-secondary" asp-page="/Coordinator/Assignments/Assign" asp-route-slotId="@item.SlotId">@(item.AssignmentId.HasValue ? "Replace volunteer" : "Assign volunteer")</a>
         @if (item.AssignmentId is Guid assignmentId)
         {
-            <a class="button button-secondary" asp-page="/Coordinator/Assignments/Links" asp-route-assignmentId="@assignmentId">Volunteer action links</a>
+            <a class="button button-secondary" asp-page="/Coordinator/Assignments/Access" asp-route-assignmentId="@assignmentId">Manage volunteer access</a>
             <a class="button button-danger" asp-page="/Coordinator/Assignments/Cancel" asp-route-assignmentId="@assignmentId">Review cancellation</a>
         }
     </div>
+    @if (item.Access is not null)
+    {
+        <p class="field-help"><strong>Volunteer access:</strong> @item.Access.State</p>
+    }
 </td>
 </tr>
 }

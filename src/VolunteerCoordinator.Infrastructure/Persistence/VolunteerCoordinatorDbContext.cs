@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using VolunteerCoordinator.Domain.Access;
 using VolunteerCoordinator.Domain.Assignments;
 using VolunteerCoordinator.Domain.Auditing;
 using VolunteerCoordinator.Domain.Notifications;
@@ -27,6 +28,15 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
     public DbSet<ShiftRequest> ShiftRequests => Set<ShiftRequest>();
 
     public DbSet<Assignment> Assignments => Set<Assignment>();
+    public DbSet<VolunteerAccessCapability> VolunteerAccessCapabilities => Set<VolunteerAccessCapability>();
+
+    public DbSet<RecoveryToken> RecoveryTokens => Set<RecoveryToken>();
+
+    public DbSet<NotificationIntent> NotificationIntents => Set<NotificationIntent>();
+
+    public DbSet<NotificationDeliveryAttempt> NotificationDeliveryAttempts => Set<NotificationDeliveryAttempt>();
+
+    public DbSet<ResendWebhookReceipt> ResendWebhookReceipts => Set<ResendWebhookReceipt>();
 
     public DbSet<ActionToken> ActionTokens => Set<ActionToken>();
 
@@ -90,22 +100,14 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
             .HasDatabaseName("IX_Volunteers_AnonymizedAtUtc");
 
         var request = modelBuilder.Entity<ShiftRequest>();
-        request.ToTable("ShiftRequests", table => table.HasCheckConstraint(
-            "CK_ShiftRequests_StatusTokenHash",
-            "octet_length(\"StatusTokenHash\") = 32"));
+        request.ToTable("ShiftRequests");
         request.HasKey(x => x.Id);
         request.Property(x => x.Status).HasConversion<int>().IsConcurrencyToken();
         request.Property(x => x.RequestedAtUtc).HasColumnType("timestamp with time zone");
         request.Property(x => x.ResolvedAtUtc).HasColumnType("timestamp with time zone");
         request.Property(x => x.ResolvedByCoordinatorEmail).HasMaxLength(320);
-        request.Property(x => x.StatusTokenHash).HasColumnType("bytea").IsRequired();
-        request.Property(x => x.StatusTokenExpiresAtUtc).HasColumnType("timestamp with time zone");
-        request.Property(x => x.StatusTokenInvalidatedAtUtc)
-            .HasColumnType("timestamp with time zone")
-            .IsConcurrencyToken();
         request.HasOne<ShiftSlot>().WithMany().HasForeignKey(x => x.ShiftSlotId).OnDelete(DeleteBehavior.Restrict);
         request.HasOne<Volunteer>().WithMany().HasForeignKey(x => x.VolunteerId).OnDelete(DeleteBehavior.Restrict);
-        request.HasIndex(x => x.StatusTokenHash).IsUnique();
         request.HasIndex(x => new { x.ShiftSlotId, x.VolunteerId })
             .IsUnique()
             .HasFilter("\"Status\" = 0")
@@ -144,6 +146,93 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
         actionToken.Property(x => x.UsedAtUtc).HasColumnType("timestamp with time zone").IsConcurrencyToken();
         actionToken.HasOne<Assignment>().WithMany().HasForeignKey(x => x.AssignmentId).OnDelete(DeleteBehavior.Cascade);
         actionToken.HasIndex(x => x.TokenHash).IsUnique();
+        var capability = modelBuilder.Entity<VolunteerAccessCapability>();
+        capability.ToTable("VolunteerAccessCapabilities", table => table.HasCheckConstraint(
+            "CK_VolunteerAccessCapabilities_TokenHash",
+            "octet_length(\"TokenHash\") = 32"));
+        capability.HasKey(x => x.Id);
+        capability.Property(x => x.TokenHash).HasColumnType("bytea").IsRequired();
+        capability.Property(x => x.IssuedReason).HasConversion<int>();
+        capability.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+        capability.Property(x => x.InvalidatedAtUtc)
+            .HasColumnType("timestamp with time zone")
+            .IsConcurrencyToken();
+        capability.HasOne<ShiftSlot>().WithMany().HasForeignKey(x => x.ShiftSlotId).OnDelete(DeleteBehavior.Restrict);
+        capability.HasOne<Volunteer>().WithMany().HasForeignKey(x => x.VolunteerId).OnDelete(DeleteBehavior.Restrict);
+        capability.HasIndex(x => x.TokenHash).IsUnique();
+        capability.HasIndex(x => new { x.ShiftSlotId, x.VolunteerId })
+            .IsUnique()
+            .HasFilter("\"InvalidatedAtUtc\" IS NULL")
+            .HasDatabaseName("UX_VolunteerAccessCapabilities_ActiveCommitment");
+
+        var recovery = modelBuilder.Entity<RecoveryToken>();
+        recovery.ToTable("RecoveryTokens", table => table.HasCheckConstraint(
+            "CK_RecoveryTokens_TokenHash",
+            "octet_length(\"TokenHash\") = 32"));
+        recovery.HasKey(x => x.Id);
+        recovery.Property(x => x.TokenHash).HasColumnType("bytea").IsRequired();
+        recovery.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+        recovery.Property(x => x.ExpiresAtUtc).HasColumnType("timestamp with time zone");
+        recovery.Property(x => x.UsedAtUtc)
+            .HasColumnType("timestamp with time zone")
+            .IsConcurrencyToken();
+        recovery.Property(x => x.InvalidatedAtUtc)
+            .HasColumnType("timestamp with time zone")
+            .IsConcurrencyToken();
+        recovery.HasOne<ShiftSlot>().WithMany().HasForeignKey(x => x.ShiftSlotId).OnDelete(DeleteBehavior.Restrict);
+        recovery.HasOne<Volunteer>().WithMany().HasForeignKey(x => x.VolunteerId).OnDelete(DeleteBehavior.Restrict);
+        recovery.HasIndex(x => x.TokenHash).IsUnique();
+        recovery.HasIndex(x => new { x.VolunteerId, x.ShiftSlotId, x.ExpiresAtUtc });
+
+        var intent = modelBuilder.Entity<NotificationIntent>();
+        intent.ToTable("NotificationIntents");
+        intent.HasKey(x => x.Id);
+        intent.Property(x => x.EventKey).HasMaxLength(240).IsRequired();
+        intent.Property(x => x.Kind).HasMaxLength(100).IsRequired();
+        intent.Property(x => x.State).HasConversion<int>();
+        intent.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+        intent.Property(x => x.NextAttemptAtUtc).HasColumnType("timestamp with time zone");
+        intent.Property(x => x.LeaseUntilUtc).HasColumnType("timestamp with time zone");
+        intent.Property(x => x.AcceptedAtUtc).HasColumnType("timestamp with time zone");
+        intent.Property(x => x.DeliveredAtUtc).HasColumnType("timestamp with time zone");
+        intent.Property(x => x.LastProviderEventAtUtc).HasColumnType("timestamp with time zone");
+        intent.Property(x => x.CompletedAtUtc).HasColumnType("timestamp with time zone");
+        intent.Property(x => x.Version).IsConcurrencyToken();
+        intent.Property(x => x.ClaimOwnerToken);
+        intent.Property(x => x.ProviderMessageId).HasMaxLength(200);
+        intent.Property(x => x.FailureCategory).HasMaxLength(100);
+        intent.HasOne<Volunteer>().WithMany().HasForeignKey(x => x.VolunteerId).OnDelete(DeleteBehavior.Restrict);
+        intent.HasOne<ShiftSlot>().WithMany().HasForeignKey(x => x.ShiftSlotId).OnDelete(DeleteBehavior.Restrict);
+        intent.HasOne<RecoveryToken>().WithMany().HasForeignKey(x => x.RecoveryTokenId).OnDelete(DeleteBehavior.SetNull);
+        intent.HasIndex(x => x.EventKey)
+            .IsUnique()
+            .HasFilter("\"State\" IN (0, 1, 2)");
+        intent.HasIndex(x => new { x.State, x.NextAttemptAtUtc, x.CreatedAtUtc });
+        intent.HasIndex(x => x.ProviderMessageId).IsUnique().HasFilter("\"ProviderMessageId\" IS NOT NULL");
+
+        var deliveryAttempt = modelBuilder.Entity<NotificationDeliveryAttempt>();
+        deliveryAttempt.ToTable("NotificationDeliveryAttempts");
+        deliveryAttempt.HasKey(x => x.Id);
+        deliveryAttempt.Property(x => x.IdempotencyKey).HasMaxLength(100).IsRequired();
+        deliveryAttempt.Property(x => x.OutcomeCategory).HasMaxLength(100);
+        deliveryAttempt.Property(x => x.ProviderMessageId).HasMaxLength(200);
+        deliveryAttempt.Property(x => x.StartedAtUtc).HasColumnType("timestamp with time zone");
+        deliveryAttempt.Property(x => x.CompletedAtUtc).HasColumnType("timestamp with time zone");
+        deliveryAttempt.HasOne<NotificationIntent>().WithMany().HasForeignKey(x => x.NotificationIntentId).OnDelete(DeleteBehavior.Cascade);
+        deliveryAttempt.HasIndex(x => new { x.NotificationIntentId, x.Ordinal }).IsUnique();
+        deliveryAttempt.HasIndex(x => x.IdempotencyKey).IsUnique();
+
+        var webhook = modelBuilder.Entity<ResendWebhookReceipt>();
+        webhook.ToTable("ResendWebhookReceipts");
+        webhook.HasKey(x => x.Id);
+        webhook.Property(x => x.SvixId).HasMaxLength(200).IsRequired();
+        webhook.Property(x => x.EventType).HasMaxLength(100).IsRequired();
+        webhook.Property(x => x.ProviderMessageId).HasMaxLength(200).IsRequired();
+        webhook.Property(x => x.ProviderOccurredAtUtc).HasColumnType("timestamp with time zone");
+        webhook.Property(x => x.ProcessedAtUtc).HasColumnType("timestamp with time zone");
+        webhook.HasIndex(x => x.SvixId).IsUnique();
+        webhook.HasIndex(x => x.ProviderMessageId);
+
         actionToken.HasIndex(x => new { x.AssignmentId, x.Action })
             .IsUnique()
             .HasFilter("\"UsedAtUtc\" IS NULL")
@@ -163,7 +252,6 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
         notification.ToTable("NotificationAttempts");
         notification.HasKey(x => x.Id);
         notification.Property(x => x.Kind).HasMaxLength(100).IsRequired();
-        notification.Property(x => x.Destination).HasMaxLength(320).IsRequired();
         notification.Property(x => x.State).HasConversion<int>();
         notification.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
         notification.Property(x => x.CompletedAtUtc).HasColumnType("timestamp with time zone");

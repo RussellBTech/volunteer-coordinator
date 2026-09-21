@@ -23,8 +23,16 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IWorkflowStore, EfWorkflowStore>();
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<ITokenService, SecureTokenService>();
-        services.AddScoped<INotificationService, UnavailableNotificationService>();
+        services.AddScoped<INotificationService, OutboxNotificationService>();
+        services.AddScoped<ITransactionalEmailProvider, UnavailableTransactionalEmailProvider>();
+        services.AddSingleton<IEmailTemplateRenderer, SafeEmailTemplateRenderer>();
+        services.AddSingleton<ITransientLinkMaterialStore, TransientLinkMaterialStore>();
+        services.AddOptions<NotificationDeliveryOptions>()
+            .Validate(static options => options.IsValid(), "Notification delivery settings are invalid.")
+            .ValidateOnStart();
+        services.AddHostedService<NotificationDeliveryHostedService>();
         services.AddScoped<VolunteerCoordinatorService>();
+        services.AddScoped<ResendWebhookProcessor>();
         return services;
     }
 }
