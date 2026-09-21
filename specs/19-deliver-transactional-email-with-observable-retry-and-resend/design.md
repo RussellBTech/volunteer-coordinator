@@ -15,6 +15,13 @@ Resend is selected because its official .NET SDK supports provider idempotency k
 
 Issue #15 is required for group-local complete context. Issue #18 and this issue should be executed together: core outbox/provider work can precede the hub, while link-bearing templates depend on #18's transient recovery/capability material contract. #16 privacy removal cancels pending intent and removes contact without copying it into delivery rows.
 
+## Verification boundary
+
+Implementation behavior remains unchanged. Issue acceptance uses the local fake provider and adapter contract, signed webhook fixtures, recovery redemption integration, retry/idempotency, browser, migration, and security-scan evidence. No real Resend credentials, recipients, provider IDs, live webhook events, or forced live provider/reissue exercise is required here.
+
+The complete real Resend evidence matrix is deferred to one final external launch issue created only after every product issue through #22 is delivered. That issue is not created by #19.
+
+
 ---
 
 ## Notification Domain and Persistence
@@ -158,11 +165,13 @@ Provider I/O is outside transactions. Polling at 15 seconds is sufficient for tr
 |-------|------|----------|
 | Application | Unit | Event-key dedup, template selection/encoding, classification, absolute retry schedule, monotonic state transitions. |
 | PostgreSQL | Integration | Intent atomicity, claim/lease/`SKIP LOCKED`, unique attempts, crash recovery, cancellation/anonymization, concurrent workers, workflow independence. |
-| Adapter contract | Stub HTTP/Resend sandbox | Headers/idempotency, payload, transient/permanent mapping, no secret logging, safe exact-payload retry. |
+| Adapter contract | Local stub HTTP/fake provider | Headers/idempotency, payload, transient/permanent mapping, no secret logging, safe exact-payload retry. |
+
 | Webhook | Signed fixtures | Raw-body verification, missing/invalid/duplicate/out-of-order delivered/bounced/complained events, no raw persistence. |
 | Web/browser | Integration | Plain state/history, authorization/antiforgery, resend dedup/audit, link delivery/redemption with #18. |
 
-Provider sandbox verification uses only reserved/test recipients and confirms accepted plus webhook transitions. Do not send production email from the automated suite.
+Local fake-provider and signed-fixture verification covers accepted state, webhook transitions, and no raw persistence. Do not send production email from the automated suite. Real Resend sandbox credentials/use, reserved recipient and verified sender/domain, template IDs or names/versions, provider message IDs, signed live delivery/bounce/complaint events, forced real timeout/429/5xx/permanent responses, and live coordinator reissue evidence are deferred to the final external launch issue after #22.
+
 
 ---
 
@@ -171,3 +180,4 @@ Provider sandbox verification uses only reserved/test recipients and confirms ac
 | Issue | Date | Summary |
 |-------|------|---------|
 | #19 | 2026-09-03 | Initial feature spec |
+| #19 | 2026-09-20 | Scope corrected: local acceptance retained; real Resend evidence deferred to the final launch issue after #22 |

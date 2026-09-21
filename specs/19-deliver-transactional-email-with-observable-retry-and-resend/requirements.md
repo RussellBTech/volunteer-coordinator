@@ -21,6 +21,13 @@ The Application notification port currently resolves to an unavailable adapter. 
 
 The approved provider is Resend through its official .NET SDK and HTTP idempotency-key contract. PostgreSQL stores non-secret notification intent and bounded attempt state; an in-process worker sends after workflow commit. Transient delivery gets five total attempts at 0, 1, 5, 30, and 120 minutes. Signed, deduplicated Resend webhooks advance accepted messages to delivered, bounced, or complained. Issue #18 supplies commitment hub/recovery link material, and issue #15 supplies complete group-local context.
 
+## Scope correction
+
+The implementation behavior and functional requirements remain unchanged. Issue acceptance is local: fake-provider delivery, adapter-contract behavior, signed-fixture webhook verification, recovery redemption integration, retry/idempotency behavior, browser journeys, migration coverage, and security scans use local providers, contract doubles, fixtures, and local/browser or PostgreSQL evidence.
+
+Real external evidence is not part of this issue's acceptance. This includes using real Resend sandbox credentials without exposing their values, a reserved sandbox recipient or recipient ID and verified sender/domain, provider template names/versions or template IDs, provider message IDs, signed live delivery/bounce/complaint events, forced real timeout/429/5xx/permanent-response exercises, and live coordinator reissue evidence. The complete matrix is deferred to one final external launch issue created only after every product issue through #22 is delivered; that issue is not created by #19.
+
+
 ---
 
 ## Acceptance Criteria
@@ -69,7 +76,8 @@ The approved provider is Resend through its official .NET SDK and HTTP idempoten
 | FR6 | Add a signed `/webhooks/resend` endpoint for delivered, bounced, and complained events, verify raw body and Svix headers/timestamp before parsing, deduplicate event IDs, and handle out-of-order events monotonically. | Must | No recipient or raw webhook payload persistence/logging. |
 | FR7 | Add coordinator Messages projections and antiforgery-protected resend/reissue controls with plain states, attempt timing, safe failure categories, affected commitment, and audits. | Must | #18 governs access replacement/revocation. |
 | FR8 | Store recipient by volunteer identifier and resolve current email only when sending; store provider message ID, safe category, timing, and counters but no rendered body, destination copy, credentials, or raw link. | Must | #16 anonymization cancels pending intent before contact removal. |
-| FR9 | Add contract, PostgreSQL, webhook, Web, and provider-sandbox coverage for template safety, scheduling, retries, leases, idempotency, crash recovery, state ordering, secret absence, workflow independence, and coordinator resend. | Must | No production recipient in tests. |
+| FR9 | Add local fake-provider, adapter-contract, PostgreSQL, signed-fixture webhook, and Web coverage for template safety, scheduling, retries, leases, idempotency, crash recovery, state ordering, secret absence, workflow independence, and coordinator resend. | Must | No production recipient in tests; real Resend evidence is deferred to the final launch issue after #22. |
+
 
 ---
 
@@ -94,3 +102,4 @@ The `enhancement` label requires one minor version increment from the implementa
 | Issue | Date | Summary |
 |-------|------|---------|
 | #19 | 2026-09-03 | Initial feature spec |
+| #19 | 2026-09-20 | Scope corrected: local acceptance retained; real Resend evidence deferred to the final launch issue after #22 |
