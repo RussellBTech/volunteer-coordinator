@@ -24,8 +24,26 @@ else
         <article class="card">
             <partial name="_CommitmentDetails" model="opening.Commitment" />
             <p><span class="badge badge-open">@opening.Status</span></p>
-            <a class="button" asp-page="/Shifts/Request" asp-route-slotId="@opening.SlotId">Request this @opening.SlotLabel.ToLowerInvariant() slot</a>
+            <a class="button" asp-page="/Shifts/Request" asp-route-slotId="@opening.SlotId">@(opening.Commitment.SignupPolicy == VolunteerCoordinator.Domain.Schedules.SignupPolicy.DirectClaim ? "Claim this commitment" : "Request this " + opening.SlotLabel.ToLowerInvariant() + " slot")</a>
         </article>
     }
     </div>
+}
+@if (Model.RecurringSeries.Count > 0)
+{
+    <section class="card" aria-labelledby="recurring-openings-heading">
+        <h2 id="recurring-openings-heading">Serve regularly</h2>
+        <p>Choose a finite recurring cadence for a published schedule. Exact included and unavailable dates are reviewed before submission.</p>
+        <div class="grid">
+        @foreach (var series in Model.RecurringSeries.Where(x => x.IsActive))
+        {
+            <article class="card">
+                <h3>@series.Title</h3>
+                <p>@series.RecurrenceDescription in @series.TimeZoneId</p>
+                <p><strong>@series.SignupPolicy</strong> — @(series.SignupPolicy == VolunteerCoordinator.Domain.Schedules.SignupPolicy.DirectClaim ? "First eligible volunteer is confirmed immediately." : "A coordinator reviews each request.")</p>
+                <a class="button" asp-page="/Recurring/Index" asp-route-seriesId="@series.Id">Serve regularly</a>
+            </article>
+        }
+        </div>
+    </section>
 }

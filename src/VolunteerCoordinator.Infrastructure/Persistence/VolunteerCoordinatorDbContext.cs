@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using VolunteerCoordinator.Domain.Commitments;
 using VolunteerCoordinator.Domain.Access;
 using VolunteerCoordinator.Domain.Assignments;
 using VolunteerCoordinator.Domain.Auditing;
@@ -37,6 +38,13 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
     public DbSet<VolunteerAccessCapability> VolunteerAccessCapabilities => Set<VolunteerAccessCapability>();
 
     public DbSet<RecoveryToken> RecoveryTokens => Set<RecoveryToken>();
+    public DbSet<RecurringCommitmentRequest> RecurringCommitmentRequests => Set<RecurringCommitmentRequest>();
+
+    public DbSet<RecurringCommitment> RecurringCommitments => Set<RecurringCommitment>();
+
+    public DbSet<RecurringCommitmentOccurrence> RecurringCommitmentOccurrences => Set<RecurringCommitmentOccurrence>();
+
+    public DbSet<RecurringCommitmentCapability> RecurringCommitmentCapabilities => Set<RecurringCommitmentCapability>();
 
     public DbSet<NotificationIntent> NotificationIntents => Set<NotificationIntent>();
 
@@ -67,6 +75,7 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
         shift.Property(x => x.PublishedAtUtc).HasColumnType("timestamp with time zone");
         shift.Property(x => x.UpdatedAtUtc).HasColumnType("timestamp with time zone");
         shift.Property(x => x.Version).IsRowVersion();
+        shift.Property(x => x.SignupPolicy).HasConversion<int>();
         shift.HasIndex(x => new { x.IsActive, x.PublishedAtUtc, x.StartsAtUtc, x.EndsAtUtc })
             .HasDatabaseName("IX_Shifts_PublicOpening");
         shift.HasMany(x => x.Slots)
@@ -117,6 +126,7 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
         recurringRevision.Property(x => x.RecurrenceKind).HasConversion<int>();
         recurringRevision.Property(x => x.WeeklyDays).HasConversion<int>();
         recurringRevision.Property(x => x.AmbiguousTimeChoice).HasConversion<int>();
+        recurringRevision.Property(x => x.SignupPolicy).HasConversion<int>();
         recurringRevision.Property(x => x.AnchorLocalDate).HasColumnType("date");
         recurringRevision.Property(x => x.EffectiveLocalDate).HasColumnType("date");
         recurringRevision.Property(x => x.LocalStartTime).HasColumnType("time without time zone");
@@ -159,6 +169,157 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
             .IsUnique()
             .HasFilter("\"ShiftId\" IS NOT NULL")
             .HasDatabaseName("UX_RecurringShiftOccurrences_Shift");
+        var recurringCommitmentRequest = modelBuilder.Entity<RecurringCommitmentRequest>();
+        recurringCommitmentRequest.ToTable("RecurringCommitmentRequests", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_RecurringCommitmentRequests_Range",
+                "\"EndLocalDate\" >= \"EffectiveLocalDate\"");
+            table.HasCheckConstraint(
+                "CK_RecurringCommitmentRequests_Horizon",
+                "(\"EndLocalDate\" - \"EffectiveLocalDate\" + 1) BETWEEN 28 AND 182");
+        });
+        recurringCommitmentRequest.HasKey(x => x.Id);
+        recurringCommitmentRequest.Property(x => x.RoleKind).HasConversion<int>();
+        recurringCommitmentRequest.Property(x => x.SourcePolicy).HasConversion<int>();
+        recurringCommitmentRequest.Property(x => x.Status).HasConversion<int>();
+        recurringCommitmentRequest.Property(x => x.EffectiveLocalDate).HasColumnType("date");
+        recurringCommitmentRequest.Property(x => x.EndLocalDate).HasColumnType("date");
+        recurringCommitmentRequest.Property(x => x.RequestedAtUtc).HasColumnType("timestamp with time zone");
+        recurringCommitmentRequest.Property(x => x.ResolvedAtUtc).HasColumnType("timestamp with time zone");
+        recurringCommitmentRequest.Property(x => x.ResolvedByCoordinatorEmail).HasMaxLength(320);
+        recurringCommitmentRequest.Property(x => x.Version).IsRowVersion();
+        recurringCommitmentRequest.HasOne<RecurringShiftSeries>()
+            .WithMany()
+            .HasForeignKey(x => x.SeriesId)
+            .OnDelete(DeleteBehavior.Restrict);
+        recurringCommitmentRequest.HasOne<RecurringShiftSeriesRevision>()
+            .WithMany()
+            .HasForeignKey(x => x.RevisionId)
+            .OnDelete(DeleteBehavior.Restrict);
+        recurringCommitmentRequest.HasOne<Volunteer>()
+            .WithMany()
+            .HasForeignKey(x => x.VolunteerId)
+            .OnDelete(DeleteBehavior.Restrict);
+        recurringCommitmentRequest.HasOne<RecurringCommitment>()
+            .WithMany()
+            .HasForeignKey(x => x.RecurringCommitmentId)
+            .OnDelete(DeleteBehavior.SetNull);
+        recurringCommitmentRequest.HasIndex(x => new
+        {
+            x.SeriesId,
+            x.VolunteerId,
+            x.RoleKind,
+            x.RolePosition,
+            x.EffectiveLocalDate,
+            x.EndLocalDate
+        })
+            .IsUnique()
+            .HasFilter("\"Status\" = 0")
+            .HasDatabaseName("UX_RecurringCommitmentRequests_Pending");
+
+        var recurringCommitment = modelBuilder.Entity<RecurringCommitment>();
+        recurringCommitment.ToTable("RecurringCommitments", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_RecurringCommitments_Range",
+                "\"EndLocalDate\" >= \"EffectiveLocalDate\"");
+            table.HasCheckConstraint(
+                "CK_RecurringCommitments_Horizon",
+                "(\"EndLocalDate\" - \"EffectiveLocalDate\" + 1) BETWEEN 28 AND 182");
+        });
+        recurringCommitment.HasKey(x => x.Id);
+        recurringCommitment.Property(x => x.RoleKind).HasConversion<int>();
+        recurringCommitment.Property(x => x.SourcePolicy).HasConversion<int>();
+        recurringCommitment.Property(x => x.State).HasConversion<int>();
+        recurringCommitment.Property(x => x.EffectiveLocalDate).HasColumnType("date");
+        recurringCommitment.Property(x => x.EndLocalDate).HasColumnType("date");
+        recurringCommitment.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+        recurringCommitment.Property(x => x.ConfirmedAtUtc).HasColumnType("timestamp with time zone");
+        recurringCommitment.Property(x => x.WithdrawnAtUtc).HasColumnType("timestamp with time zone");
+        recurringCommitment.Property(x => x.WithdrawalEffectiveLocalDate).HasColumnType("date");
+        recurringCommitment.Property(x => x.Version).IsRowVersion();
+        recurringCommitment.HasOne<RecurringShiftSeries>()
+            .WithMany()
+            .HasForeignKey(x => x.SeriesId)
+            .OnDelete(DeleteBehavior.Restrict);
+        recurringCommitment.HasOne<RecurringShiftSeriesRevision>()
+            .WithMany()
+            .HasForeignKey(x => x.RevisionId)
+            .OnDelete(DeleteBehavior.Restrict);
+        recurringCommitment.HasOne<Volunteer>()
+            .WithMany()
+            .HasForeignKey(x => x.VolunteerId)
+            .OnDelete(DeleteBehavior.Restrict);
+        recurringCommitment.HasOne<RecurringCommitmentRequest>()
+            .WithMany()
+            .HasForeignKey(x => x.SourceRequestId)
+            .OnDelete(DeleteBehavior.SetNull);
+        recurringCommitment.HasIndex(x => new
+        {
+            x.SeriesId,
+            x.RoleKind,
+            x.RolePosition,
+            x.EffectiveLocalDate,
+            x.EndLocalDate
+        })
+            .HasDatabaseName("IX_RecurringCommitments_Overlap");
+        recurringCommitment.HasIndex(x => new { x.State, x.EndLocalDate })
+            .HasDatabaseName("IX_RecurringCommitments_State_End");
+
+        var recurringJoin = modelBuilder.Entity<RecurringCommitmentOccurrence>();
+        recurringJoin.ToTable("RecurringCommitmentOccurrences");
+        recurringJoin.HasKey(x => x.Id);
+        recurringJoin.Property(x => x.State).HasConversion<int>();
+        recurringJoin.Property(x => x.Reason).HasMaxLength(1000);
+        recurringJoin.Property(x => x.Version).IsRowVersion();
+        recurringJoin.HasOne<RecurringCommitment>()
+            .WithMany()
+            .HasForeignKey(x => x.CommitmentId)
+            .OnDelete(DeleteBehavior.Cascade);
+        recurringJoin.HasOne<RecurringShiftOccurrence>()
+            .WithMany()
+            .HasForeignKey(x => x.RecurringOccurrenceId)
+            .OnDelete(DeleteBehavior.Restrict);
+        recurringJoin.HasOne<Assignment>()
+            .WithMany()
+            .HasForeignKey(x => x.AssignmentId)
+            .OnDelete(DeleteBehavior.SetNull);
+        recurringJoin.HasIndex(x => new { x.CommitmentId, x.RecurringOccurrenceId }).IsUnique();
+        recurringJoin.HasIndex(x => new { x.RecurringOccurrenceId, x.State })
+            .HasDatabaseName("IX_RecurringCommitmentOccurrences_Occurrence_State");
+        recurringJoin.HasIndex(x => x.AssignmentId)
+            .IsUnique()
+            .HasFilter("\"AssignmentId\" IS NOT NULL")
+            .HasDatabaseName("UX_RecurringCommitmentOccurrences_Assignment");
+
+        var recurringCapability = modelBuilder.Entity<RecurringCommitmentCapability>();
+        recurringCapability.ToTable("RecurringCommitmentCapabilities", table =>
+            table.HasCheckConstraint(
+                "CK_RecurringCommitmentCapabilities_TokenHash",
+                "octet_length(\"TokenHash\") = 32"));
+        recurringCapability.HasKey(x => x.Id);
+        recurringCapability.Property(x => x.TokenHash).HasColumnType("bytea").IsRequired();
+        recurringCapability.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
+        recurringCapability.Property(x => x.InvalidatedAtUtc)
+            .HasColumnType("timestamp with time zone")
+            .IsConcurrencyToken();
+        recurringCapability.Property(x => x.Version).IsRowVersion();
+        recurringCapability.HasOne<Volunteer>()
+            .WithMany()
+            .HasForeignKey(x => x.VolunteerId)
+            .OnDelete(DeleteBehavior.Restrict);
+        recurringCapability.HasOne<RecurringCommitmentRequest>()
+            .WithMany()
+            .HasForeignKey(x => x.RequestId)
+            .OnDelete(DeleteBehavior.Cascade);
+        recurringCapability.HasOne<RecurringCommitment>()
+            .WithMany()
+            .HasForeignKey(x => x.CommitmentId)
+            .OnDelete(DeleteBehavior.Cascade);
+        recurringCapability.HasIndex(x => x.TokenHash).IsUnique();
+        recurringCapability.HasIndex(x => new { x.VolunteerId, x.CommitmentId })
+            .HasDatabaseName("IX_RecurringCommitmentCapabilities_Volunteer_Commitment");
 
 
         var groupSettings = modelBuilder.Entity<GroupSettings>();

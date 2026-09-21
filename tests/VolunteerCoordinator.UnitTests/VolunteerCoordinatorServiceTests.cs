@@ -171,6 +171,8 @@ public sealed class VolunteerCoordinatorServiceTests
             Task.FromResult<Shift?>(_shift);
         public Task LockShiftAsync(Guid shiftId, CancellationToken cancellationToken) =>
             Task.CompletedTask;
+        public Task LockAssignmentAsync(Guid assignmentId, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
 
         public Task<IReadOnlyList<Shift>> GetShiftsForSlotIdsAsync(
             IReadOnlyCollection<Guid> slotIds,

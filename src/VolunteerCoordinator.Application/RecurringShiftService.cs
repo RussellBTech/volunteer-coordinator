@@ -107,7 +107,8 @@ public sealed class RecurringShiftService
                         revision.RecurrenceKind,
                         revision.Interval,
                         revision.HorizonWeeks,
-                        revision.TimeZoneId
+                        revision.TimeZoneId,
+                        revision.SignupPolicy
                     })));
                 return series.Id;
             },
@@ -152,7 +153,8 @@ public sealed class RecurringShiftService
                 protectedExceptions,
                 skipped,
                 !string.Equals(current.TimeZoneId, groupSettings.TimeZoneId, StringComparison.Ordinal),
-                series.Version));
+                series.Version,
+                current.SignupPolicy));
         }
 
         return summaries;
@@ -181,7 +183,8 @@ public sealed class RecurringShiftService
             previews.Count(x => x.IsException && x.Status == nameof(RecurringOccurrenceStatus.Generated)),
             previews.Count(x => x.Status == nameof(RecurringOccurrenceStatus.Skipped)),
             !string.Equals(current.TimeZoneId, settings.TimeZoneId, StringComparison.Ordinal),
-            series.Version);
+            series.Version,
+            current.SignupPolicy);
         return new RecurringSeriesDetailDto(
             summary,
             previews.Where(x => x.Status == nameof(RecurringOccurrenceStatus.NeedsReview)).ToArray(),
@@ -362,7 +365,8 @@ public sealed class RecurringShiftService
             revision.AmbiguousTimeChoice,
             series.Version,
             null,
-            settings.Version);
+            settings.Version,
+            revision.SignupPolicy);
     }
 
 
@@ -574,7 +578,14 @@ public sealed class RecurringShiftService
         var current = await RequireCurrentRevisionAsync(series, cancellationToken);
         var rows = await ClassifyOccurrencesAsync(seriesId, input.EffectiveLocalDate, cancellationToken);
         ValidateEffectiveRevisionBoundary(current, settings, input.EffectiveLocalDate, rows);
-        return BuildRevisionPreview(seriesId, input.EffectiveLocalDate, rows, series.Version, false);
+        return BuildRevisionPreview(
+            seriesId,
+            input.EffectiveLocalDate,
+            rows,
+            series.Version,
+            false,
+            current.SignupPolicy,
+            input.SignupPolicy);
     }
 
     public async Task<RecurringRevisionPreviewDto> PreviewZoneAdoptionAsync(
@@ -602,7 +613,14 @@ public sealed class RecurringShiftService
         var effectiveLocalDate = FindEligibleRevisionBoundary(current, settings.TimeZoneId, candidateRows);
         var rows = await ClassifyOccurrencesAsync(seriesId, effectiveLocalDate, cancellationToken);
         ValidateEffectiveRevisionBoundary(current, settings, effectiveLocalDate, rows);
-        return BuildRevisionPreview(seriesId, effectiveLocalDate, rows, series.Version, true);
+        return BuildRevisionPreview(
+            seriesId,
+            effectiveLocalDate,
+            rows,
+            series.Version,
+            true,
+            current.SignupPolicy,
+            current.SignupPolicy);
     }
 
     public async Task ApplyRevisionAsync(
@@ -637,6 +655,20 @@ public sealed class RecurringShiftService
                 }
 
                 var current = await RequireCurrentRevisionAsync(series, token);
+                if (input.ExpectedCurrentPolicy.HasValue &&
+                    input.ExpectedCurrentPolicy.Value != current.SignupPolicy)
+                {
+                    throw new DomainException(VolunteerCoordinatorService.StalePreviewMessage);
+                }
+
+                if (input.SignupPolicy != current.SignupPolicy &&
+                    (!input.ConfirmPolicyChange ||
+                     input.ExpectedClassification is null))
+                {
+                    throw new DomainException(
+                        PolicyConsequence(input.SignupPolicy));
+                }
+
                 await LockConcreteTargetsAsync(seriesId, input.EffectiveLocalDate, null, token);
                 var rows = await ClassifyOccurrencesAsync(seriesId, input.EffectiveLocalDate, token);
                 var expected = BuildClassification(rows);
@@ -706,6 +738,7 @@ public sealed class RecurringShiftService
                         resolution.StartsAtUtc!.Value,
                         resolution.StartsAtUtc.Value.AddMinutes(revision.DurationMinutes),
                         now);
+                    shift.ChangeSignupPolicy(revision.SignupPolicy);
                     var existingSlotIds = shift.Slots.Select(x => x.Id).ToHashSet();
                     shift.ConfigureBackupSlots(revision.BackupSlotCount);
                     _workflowStore.AddShiftSlots(shift.Slots.Where(x => !existingSlotIds.Contains(x.Id)).ToArray());
@@ -724,7 +757,8 @@ public sealed class RecurringShiftService
                         revision.RevisionNumber,
                         revision.EffectiveLocalDate,
                         Protected = rows.Count(x => x.Classification == "Protected"),
-                        Eligible = rows.Count(x => x.Classification == "Eligible")
+                        Eligible = rows.Count(x => x.Classification == "Eligible"),
+                        revision.SignupPolicy
                     })));
                 return true;
             },
@@ -777,7 +811,8 @@ public sealed class RecurringShiftService
             current.AmbiguousTimeChoice,
             expectedSeriesVersion,
             null,
-            settings.Version);
+            settings.Version,
+            current.SignupPolicy);
         await ApplyRevisionAsync(seriesId, input, coordinatorEmail, cancellationToken);
     }
     public async Task<RecurringPublicationPreviewDto> PreviewPublicationAsync(
@@ -1522,7 +1557,9 @@ public sealed class RecurringShiftService
             rows.Count(x => x.Status == nameof(RecurringOccurrenceStatus.NeedsReview)),
             0,
             expectedSettingsVersion,
-            BuildClassification(rows));
+            BuildClassification(rows),
+            false,
+            revision.SignupPolicy);
     }
 
     private static RecurringRevisionPreviewDto BuildRevisionPreview(
@@ -1530,7 +1567,9 @@ public sealed class RecurringShiftService
         DateOnly effectiveLocalDate,
         IReadOnlyList<ClassificationRow> rows,
         uint expectedSeriesVersion,
-        bool isZoneAdoption)
+        bool isZoneAdoption,
+        SignupPolicy currentPolicy,
+        SignupPolicy proposedPolicy)
     {
         return new RecurringRevisionPreviewDto(
             seriesId,
@@ -1548,7 +1587,10 @@ public sealed class RecurringShiftService
             rows.Count(x => x.Classification == "Skipped"),
             expectedSeriesVersion,
             BuildClassification(rows),
-            isZoneAdoption);
+            isZoneAdoption,
+            currentPolicy,
+            proposedPolicy,
+            PolicyConsequence(proposedPolicy));
     }
 
     private static string BuildClassification(IEnumerable<ClassificationRow> rows) =>
@@ -1636,7 +1678,8 @@ public sealed class RecurringShiftService
             startsAtUtc,
             startsAtUtc.AddMinutes(revision.DurationMinutes),
             revision.BackupSlotCount,
-            occurrenceId);
+            occurrenceId,
+            revision.SignupPolicy);
     }
 
     private static RecurringShiftSeriesRevision BuildRevision(
@@ -1666,7 +1709,8 @@ public sealed class RecurringShiftService
             timeZoneId,
             input.AmbiguousTimeChoice,
             actor,
-            nowUtc);
+            nowUtc,
+            input.SignupPolicy);
 
     private static RecurringShiftSeriesRevision BuildRevision(
         Guid seriesId,
@@ -1695,7 +1739,14 @@ public sealed class RecurringShiftService
             timeZoneId,
             input.AmbiguousTimeChoice,
             actor,
-            nowUtc);
+            nowUtc,
+            input.SignupPolicy);
+
+    private static string PolicyConsequence(SignupPolicy policy) => policy switch
+    {
+        SignupPolicy.DirectClaim => "Direct claim is lower maintenance: the first eligible volunteer is confirmed immediately for future submissions.",
+        _ => "Approval required is the safer default: a coordinator reviews each future recurring request before assignment."
+    };
 
     private async Task<RecurringShiftSeries> RequireSeriesAsync(Guid seriesId, CancellationToken cancellationToken) =>
         await _recurringStore.GetRecurringSeriesAsync(seriesId, cancellationToken)

@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-21
+
+### Added
+
+- Policy-based one-time direct claims and bounded recurring volunteer commitments.
+- Accountless recurring confirmation, withdrawal, occurrence exceptions, and explicit revision handoff.
+- PostgreSQL recurring range exclusion, idempotent joins, recurring hubs, delivery intents, and responsive public/coordinator flows.
+
 ## [0.11.0] - 2026-09-20
 
 ### Added

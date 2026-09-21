@@ -25,7 +25,8 @@ public sealed class RecurringShiftSeriesRevision
         string timeZoneId,
         AmbiguousTimeChoice ambiguousTimeChoice,
         string createdByCoordinator,
-        DateTimeOffset createdAtUtc)
+        DateTimeOffset createdAtUtc,
+        SignupPolicy signupPolicy = SignupPolicy.ApprovalRequired)
     {
         ValidateText(title, location, volunteerInstructions, internalCoordinatorNotes);
         if (seriesId == Guid.Empty)
@@ -78,6 +79,11 @@ public sealed class RecurringShiftSeriesRevision
             throw new DomainException("A coordinator identity is required.");
         }
 
+        if (!Enum.IsDefined(signupPolicy))
+        {
+            throw new DomainException("Choose a supported signup policy.");
+        }
+
         if (createdAtUtc.Offset != TimeSpan.Zero)
         {
             throw new DomainException("Revision timestamps must be UTC.");
@@ -101,10 +107,10 @@ public sealed class RecurringShiftSeriesRevision
         HorizonWeeks = horizonWeeks;
         TimeZoneId = timeZoneId.Trim();
         AmbiguousTimeChoice = ambiguousTimeChoice;
+        SignupPolicy = signupPolicy;
         CreatedByCoordinator = createdByCoordinator.Trim().ToUpperInvariant();
         CreatedAtUtc = createdAtUtc;
     }
-
     public Guid Id { get; private set; }
 
     public Guid SeriesId { get; private set; }
@@ -141,6 +147,8 @@ public sealed class RecurringShiftSeriesRevision
 
     public AmbiguousTimeChoice AmbiguousTimeChoice { get; private set; }
 
+    public SignupPolicy SignupPolicy { get; private set; }
+
     public string CreatedByCoordinator { get; private set; } = string.Empty;
 
     public DateTimeOffset CreatedAtUtc { get; private set; }
@@ -164,7 +172,8 @@ public sealed class RecurringShiftSeriesRevision
         string timeZoneId,
         AmbiguousTimeChoice ambiguousTimeChoice,
         string createdByCoordinator,
-        DateTimeOffset createdAtUtc) => new(
+        DateTimeOffset createdAtUtc,
+        SignupPolicy signupPolicy = SignupPolicy.ApprovalRequired) => new(
             seriesId,
             revisionNumber,
             effectiveLocalDate,
@@ -183,7 +192,8 @@ public sealed class RecurringShiftSeriesRevision
             timeZoneId,
             ambiguousTimeChoice,
             createdByCoordinator,
-            createdAtUtc);
+            createdAtUtc,
+            signupPolicy);
 
     public bool IncludesDate(DateOnly localDate)
     {

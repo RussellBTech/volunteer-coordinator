@@ -62,7 +62,7 @@ public sealed class Issue16PrivacyWebIntegrationTests
         Assert.Contains("privacy@example.invalid", requestHtml, StringComparison.Ordinal);
         Assert.True(
             requestHtml.IndexOf("privacy-notice", StringComparison.Ordinal) <
-            requestHtml.IndexOf("Submit request", StringComparison.Ordinal));
+            requestHtml.IndexOf("Send request", StringComparison.Ordinal));
     }
     [Fact]
     public async Task InitialRetentionCompletesBeforeReadinessAndWebServing()

@@ -3,6 +3,7 @@ using Npgsql;
 using VolunteerCoordinator.Application.Models;
 using VolunteerCoordinator.Application.Ports;
 using VolunteerCoordinator.Domain;
+using VolunteerCoordinator.Domain.Commitments;
 using VolunteerCoordinator.Domain.Access;
 using VolunteerCoordinator.Domain.Assignments;
 using VolunteerCoordinator.Domain.Auditing;
@@ -14,7 +15,7 @@ using VolunteerCoordinator.Domain.Volunteers;
 
 namespace VolunteerCoordinator.Infrastructure.Persistence;
 
-public sealed class EfWorkflowStore : IWorkflowStore, IRecurringShiftStore, IAccessStore, INotificationOutboxStore, ILegacyActionTokenStore
+public sealed class EfWorkflowStore : IWorkflowStore, IRecurringShiftStore, IRecurringCommitmentStore, IAccessStore, INotificationOutboxStore, ILegacyActionTokenStore
 {
     private const int RemovalLookupFetchLimit = 20;
     private const int RemovalLookupResultLimit = 10;
@@ -128,6 +129,11 @@ public sealed class EfWorkflowStore : IWorkflowStore, IRecurringShiftStore, IAcc
 
         return await _dbContext.Shifts.Include(x => x.Slots).SingleOrDefaultAsync(x => x.Id == shiftId, cancellationToken);
     }
+    public Task LockAssignmentAsync(Guid assignmentId, CancellationToken cancellationToken) =>
+        _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""SELECT 1 FROM "Assignments" WHERE "Id" = {assignmentId} FOR UPDATE""",
+            cancellationToken);
+
     public Task LockShiftAsync(Guid shiftId, CancellationToken cancellationToken) =>
         _dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"""SELECT 1 FROM "Shifts" WHERE "Id" = {shiftId} FOR UPDATE""",
@@ -1105,4 +1111,191 @@ public sealed class EfWorkflowStore : IWorkflowStore, IRecurringShiftStore, IAcc
 
 
     public void AddAuditEntry(AuditEntry auditEntry) => _dbContext.AuditEntries.Add(auditEntry);
+    public async Task<RecurringCommitmentRequest?> GetRecurringCommitmentRequestAsync(
+        Guid requestId,
+        CancellationToken cancellationToken)
+    {
+        var trackedEntry = _dbContext.ChangeTracker
+            .Entries<RecurringCommitmentRequest>()
+            .SingleOrDefault(x => x.Entity.Id == requestId);
+        if (trackedEntry is not null)
+        {
+            await trackedEntry.ReloadAsync(cancellationToken);
+            return trackedEntry.State == EntityState.Detached ? null : trackedEntry.Entity;
+        }
+
+        return await _dbContext.RecurringCommitmentRequests
+            .SingleOrDefaultAsync(x => x.Id == requestId, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<RecurringCommitmentRequest>> GetRecurringCommitmentRequestsAsync(
+        CancellationToken cancellationToken) =>
+        await _dbContext.RecurringCommitmentRequests
+            .OrderByDescending(x => x.RequestedAtUtc)
+            .ThenBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<RecurringCommitmentRequest>> GetPendingRecurringCommitmentRequestsAsync(
+        Guid seriesId,
+        CancellationToken cancellationToken) =>
+        await _dbContext.RecurringCommitmentRequests
+            .Where(x => x.SeriesId == seriesId && x.Status == RecurringCommitmentRequestStatus.Pending)
+            .OrderBy(x => x.EffectiveLocalDate)
+            .ThenBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+    public async Task<RecurringCommitment?> GetRecurringCommitmentAsync(
+        Guid commitmentId,
+        CancellationToken cancellationToken)
+    {
+        var trackedEntry = _dbContext.ChangeTracker
+            .Entries<RecurringCommitment>()
+            .SingleOrDefault(x => x.Entity.Id == commitmentId);
+        if (trackedEntry is not null)
+        {
+            await trackedEntry.ReloadAsync(cancellationToken);
+            return trackedEntry.State == EntityState.Detached ? null : trackedEntry.Entity;
+        }
+
+        return await _dbContext.RecurringCommitments
+            .SingleOrDefaultAsync(x => x.Id == commitmentId, cancellationToken);
+    }
+    public async Task<IReadOnlyList<RecurringCommitment>> GetRecurringCommitmentsAsync(
+        CancellationToken cancellationToken) =>
+        await _dbContext.RecurringCommitments
+            .OrderBy(x => x.EffectiveLocalDate)
+            .ThenBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<RecurringCommitment>> GetRecurringCommitmentsForVolunteerAsync(
+        Guid volunteerId,
+        CancellationToken cancellationToken) =>
+        await _dbContext.RecurringCommitments
+            .Where(x => x.VolunteerId == volunteerId)
+            .OrderBy(x => x.EffectiveLocalDate)
+            .ThenBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<RecurringCommitment>> GetRecurringCommitmentsForSeriesAsync(
+        Guid seriesId,
+        CancellationToken cancellationToken) =>
+        await _dbContext.RecurringCommitments
+            .Where(x => x.SeriesId == seriesId)
+            .OrderBy(x => x.EffectiveLocalDate)
+            .ThenBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<RecurringCommitment>> GetOverlappingRecurringCommitmentsAsync(
+        Guid seriesId,
+        SlotKind roleKind,
+        int rolePosition,
+        DateOnly effectiveLocalDate,
+        DateOnly endLocalDate,
+        CancellationToken cancellationToken) =>
+        await _dbContext.RecurringCommitments
+            .Where(x =>
+                x.SeriesId == seriesId &&
+                x.RoleKind == roleKind &&
+                x.RolePosition == rolePosition &&
+                (x.State == RecurringCommitmentState.AwaitingConfirmation ||
+                 x.State == RecurringCommitmentState.Active) &&
+                x.EffectiveLocalDate <= endLocalDate &&
+                x.EndLocalDate >= effectiveLocalDate)
+            .OrderBy(x => x.EffectiveLocalDate)
+            .ThenBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<RecurringCommitmentOccurrence>> GetRecurringCommitmentOccurrencesAsync(
+        Guid commitmentId,
+        CancellationToken cancellationToken) =>
+        await _dbContext.RecurringCommitmentOccurrences
+            .Where(x => x.CommitmentId == commitmentId)
+            .OrderBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+    public async Task<RecurringCommitmentOccurrence?> GetRecurringCommitmentOccurrenceAsync(
+        Guid commitmentId,
+        Guid recurringOccurrenceId,
+        CancellationToken cancellationToken)
+    {
+        var trackedEntry = _dbContext.ChangeTracker
+            .Entries<RecurringCommitmentOccurrence>()
+            .SingleOrDefault(x =>
+                x.Entity.CommitmentId == commitmentId &&
+                x.Entity.RecurringOccurrenceId == recurringOccurrenceId);
+        if (trackedEntry is not null)
+        {
+            await trackedEntry.ReloadAsync(cancellationToken);
+            return trackedEntry.State == EntityState.Detached ? null : trackedEntry.Entity;
+        }
+
+        return await _dbContext.RecurringCommitmentOccurrences
+            .SingleOrDefaultAsync(
+                x => x.CommitmentId == commitmentId && x.RecurringOccurrenceId == recurringOccurrenceId,
+                cancellationToken);
+    }
+    public Task<RecurringCommitmentOccurrence?> GetRecurringCommitmentOccurrenceByAssignmentAsync(
+        Guid assignmentId,
+        CancellationToken cancellationToken) =>
+        _dbContext.RecurringCommitmentOccurrences
+            .SingleOrDefaultAsync(x => x.AssignmentId == assignmentId, cancellationToken);
+
+    public Task<RecurringCommitmentCapability?> GetRecurringCommitmentCapabilityByHashAsync(
+        byte[] hash,
+        CancellationToken cancellationToken) =>
+        _dbContext.RecurringCommitmentCapabilities
+            .SingleOrDefaultAsync(x => x.TokenHash.SequenceEqual(hash), cancellationToken);
+
+    public async Task<IReadOnlyList<RecurringCommitmentCapability>> GetActiveRecurringCapabilitiesAsync(
+        Guid volunteerId,
+        Guid? commitmentId,
+        CancellationToken cancellationToken) =>
+        await _dbContext.RecurringCommitmentCapabilities
+            .Where(x =>
+                x.VolunteerId == volunteerId &&
+                x.InvalidatedAtUtc == null &&
+                (!commitmentId.HasValue || x.CommitmentId == commitmentId))
+            .ToListAsync(cancellationToken);
+
+    public Task LockRecurringCommitmentRequestAsync(Guid requestId, CancellationToken cancellationToken) =>
+        _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""SELECT 1 FROM "RecurringCommitmentRequests" WHERE "Id" = {requestId} FOR UPDATE""",
+            cancellationToken);
+
+    public Task LockRecurringCommitmentAsync(Guid commitmentId, CancellationToken cancellationToken) =>
+        _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""SELECT 1 FROM "RecurringCommitments" WHERE "Id" = {commitmentId} FOR UPDATE""",
+            cancellationToken);
+
+    public Task LockRecurringCommitmentRoleAsync(
+        Guid seriesId,
+        SlotKind roleKind,
+        int rolePosition,
+        CancellationToken cancellationToken)
+    {
+        var lockKey = $"{seriesId:N}:{(int)roleKind}:{rolePosition}";
+        return _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""SELECT pg_advisory_xact_lock(hashtextextended({lockKey}, 0))""",
+            cancellationToken);
+    }
+
+    public Task LockRecurringCommitmentOccurrenceAsync(
+        Guid joinId,
+        CancellationToken cancellationToken) =>
+        _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""SELECT 1 FROM "RecurringCommitmentOccurrences" WHERE "Id" = {joinId} FOR UPDATE""",
+            cancellationToken);
+
+    public void AddRecurringCommitmentRequest(RecurringCommitmentRequest request) =>
+        _dbContext.RecurringCommitmentRequests.Add(request);
+
+    public void AddRecurringCommitment(RecurringCommitment commitment) =>
+        _dbContext.RecurringCommitments.Add(commitment);
+
+    public void AddRecurringCommitmentOccurrence(RecurringCommitmentOccurrence occurrence) =>
+        _dbContext.RecurringCommitmentOccurrences.Add(occurrence);
+
+    public void AddRecurringCommitmentCapability(RecurringCommitmentCapability capability) =>
+        _dbContext.RecurringCommitmentCapabilities.Add(capability);
+
 }

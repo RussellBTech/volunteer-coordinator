@@ -107,13 +107,42 @@ public sealed class Issue18LocalRecoveryBrowserTests
         Assert.NotEmpty(recoveryUrl);
         var recoveryPath = new Uri(recoveryUrl).PathAndQuery;
 
-        var redemption = await client.GetAsync(recoveryPath);
+        var inspection = await client.GetAsync(recoveryPath);
+        Assert.Equal(HttpStatusCode.OK, inspection.StatusCode);
+        Assert.Contains("redeemed only after you submit", await inspection.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        var redemptionTokenMatch = Regex.Match(
+            await inspection.Content.ReadAsStringAsync(),
+            "(?:name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"|value=\"([^\"]+)\"[^>]*name=\"__RequestVerificationToken\")");
+        var redemptionToken = redemptionTokenMatch.Groups[1].Success
+            ? redemptionTokenMatch.Groups[1].Value
+            : redemptionTokenMatch.Groups[2].Value;
+        Assert.NotEmpty(redemptionToken);
+        var redemption = await client.PostAsync(
+            recoveryPath,
+            new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["__RequestVerificationToken"] = redemptionToken
+            }));
         Assert.Equal(HttpStatusCode.Redirect, redemption.StatusCode);
         var hubPath = redemption.Headers.Location?.OriginalString;
         Assert.StartsWith("/Requests/Status/", hubPath, StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(hubPath)).StatusCode);
 
-        var replay = await client.GetAsync(recoveryPath);
+        var replayInspection = await client.GetAsync(recoveryPath);
+        Assert.Equal(HttpStatusCode.OK, replayInspection.StatusCode);
+        var replayHtml = await replayInspection.Content.ReadAsStringAsync();
+        var replayTokenMatch = Regex.Match(
+            replayHtml,
+            "(?:name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"|value=\"([^\"]+)\"[^>]*name=\"__RequestVerificationToken\")");
+        var replayToken = replayTokenMatch.Groups[1].Success
+            ? replayTokenMatch.Groups[1].Value
+            : replayTokenMatch.Groups[2].Value;
+        var replay = await client.PostAsync(
+            recoveryPath,
+            new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["__RequestVerificationToken"] = replayToken
+            }));
         Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
         Assert.Contains("invalid or has expired", await replay.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 

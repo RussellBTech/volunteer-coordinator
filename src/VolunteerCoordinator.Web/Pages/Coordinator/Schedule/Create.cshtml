@@ -24,6 +24,22 @@
     <div class="form-group"><label asp-for="Location"></label><input asp-for="Location"><span asp-validation-for="Location"></span></div>
     <div class="form-group"><label asp-for="VolunteerInstructions">Volunteer instructions</label><textarea asp-for="VolunteerInstructions"></textarea><span asp-validation-for="VolunteerInstructions"></span></div>
     <div class="form-group"><label asp-for="Notes">Internal coordinator notes</label><textarea asp-for="Notes"></textarea><span asp-validation-for="Notes"></span></div>
+    <fieldset class="form-group">
+        <legend>How volunteers sign up</legend>
+        <p class="field-help">This one choice applies to every role in this schedule entry.</p>
+        <div class="choice-grid">
+            <label class="choice-card">
+                <input asp-for="SignupPolicy" type="radio" value="ApprovalRequired">
+                <strong>Approval required (safer default)</strong>
+                <span>A volunteer sends a request. A coordinator reviews it before the commitment is assigned.</span>
+            </label>
+            <label class="choice-card">
+                <input asp-for="SignupPolicy" type="radio" value="DirectClaim">
+                <strong>Direct claim (lower maintenance)</strong>
+                <span>The first eligible volunteer who submits is confirmed immediately.</span>
+            </label>
+        </div>
+    </fieldset>
     <div class="form-group"><label asp-for="StartsAtLocal">Starts at (local time)</label><input asp-for="StartsAtLocal" type="datetime-local"><span asp-validation-for="StartsAtLocal"></span></div>
     @if (Model.Resolution?.StartCandidates.Count > 0)
     {

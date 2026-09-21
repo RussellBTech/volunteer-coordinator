@@ -368,22 +368,36 @@ static string? GetAnonymousRateLimitTier(HttpContext context)
             return "request-mutation";
         }
 
+        if (HasSingleRouteValue(path, "/Recurring/Hub"))
+        {
+            return "assignment-action-mutation";
+        }
+
+        if (HasSingleRouteValue(path, "/Recurring"))
+        {
+            return "request-mutation";
+        }
+
         if (HasSingleRouteValue(path, "/Actions") ||
             HasSingleRouteValue(path, "/Requests/Status"))
         {
             return "assignment-action-mutation";
         }
 
-        if (string.Equals(path, "/Commitments/Recover", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(path, "/Commitments/Recover/", StringComparison.OrdinalIgnoreCase))
+        if (HasSingleRouteValue(path, "/Commitments/Recover"))
         {
             return "recovery";
         }
     }
     else if (HttpMethods.IsGet(context.Request.Method))
     {
-        if (HasSingleRouteValue(path, "/Requests/Status") ||
+        if (HasSingleRouteValue(path, "/Recurring/Hub") ||
+            HasSingleRouteValue(path, "/Requests/Status") ||
             HasSingleRouteValue(path, "/Actions"))
+        {
+            return "private-token-read";
+        }
+        if (HasSingleRouteValue(path, "/Commitments/Recover"))
         {
             return "private-token-read";
         }

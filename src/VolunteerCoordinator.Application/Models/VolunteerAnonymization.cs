@@ -21,6 +21,7 @@ public enum VolunteerAnonymizationBlocker
     TooRecent,
     PendingRequests,
     ActiveAssignments,
+    ActiveRecurringCommitments,
     FutureCommitments
 }
 

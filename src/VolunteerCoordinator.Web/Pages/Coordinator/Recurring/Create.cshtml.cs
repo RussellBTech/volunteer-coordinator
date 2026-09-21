@@ -60,6 +60,8 @@ public sealed class CreateModel : PageModel
 
     [BindProperty]
     public AmbiguousTimeChoice AmbiguousTimeChoice { get; set; } = AmbiguousTimeChoice.FirstOccurrence;
+    [BindProperty]
+    public SignupPolicy SignupPolicy { get; set; } = SignupPolicy.ApprovalRequired;
 
     [BindProperty]
     public uint ExpectedSettingsVersion { get; set; }
@@ -134,7 +136,8 @@ public sealed class CreateModel : PageModel
         BackupSlotCount,
         HorizonWeeks,
         AmbiguousTimeChoice,
-        ExpectedSettingsVersion);
+        ExpectedSettingsVersion,
+        SignupPolicy);
 
     private async Task LoadSettingsAsync(CancellationToken cancellationToken)
     {

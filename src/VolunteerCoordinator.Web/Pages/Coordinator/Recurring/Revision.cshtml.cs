@@ -65,6 +65,8 @@ public sealed class RevisionModel : PageModel
 
     [BindProperty]
     public AmbiguousTimeChoice AmbiguousTimeChoice { get; set; }
+    [BindProperty]
+    public SignupPolicy SignupPolicy { get; set; } = SignupPolicy.ApprovalRequired;
 
     [BindProperty]
     public uint ExpectedSeriesVersion { get; set; }
@@ -74,6 +76,12 @@ public sealed class RevisionModel : PageModel
 
     [BindProperty]
     public uint ExpectedSettingsVersion { get; set; }
+    [BindProperty]
+    public bool ConfirmPolicyChange { get; set; }
+
+    [BindProperty]
+    public SignupPolicy? ExpectedCurrentPolicy { get; set; }
+
 
     public async Task<IActionResult> OnGetAsync(Guid id, CancellationToken cancellationToken)
     {
@@ -97,6 +105,9 @@ public sealed class RevisionModel : PageModel
         {
             Preview = await _service.PreviewRevisionAsync(id, BuildInput(), cancellationToken);
             ExpectedSeriesVersion = Preview.ExpectedSeriesVersion;
+            ExpectedCurrentPolicy = Preview.CurrentPolicy;
+            ConfirmPolicyChange = false;
+
             ExpectedClassification = Preview.ExpectedClassification;
             return Page();
         }
@@ -141,7 +152,10 @@ public sealed class RevisionModel : PageModel
         AmbiguousTimeChoice,
         ExpectedSeriesVersion,
         ExpectedClassification,
-        ExpectedSettingsVersion);
+        ExpectedSettingsVersion,
+        SignupPolicy,
+        ConfirmPolicyChange,
+        ExpectedCurrentPolicy);
 
     private void Apply(RecurringRevisionInput input)
     {
@@ -160,8 +174,11 @@ public sealed class RevisionModel : PageModel
         HorizonWeeks = input.HorizonWeeks;
         TimeZoneId = input.TimeZoneId;
         AmbiguousTimeChoice = input.AmbiguousTimeChoice;
+        SignupPolicy = input.SignupPolicy;
         ExpectedSeriesVersion = input.ExpectedSeriesVersion;
         ExpectedClassification = input.ExpectedClassification;
         ExpectedSettingsVersion = input.ExpectedSettingsVersion;
+        ConfirmPolicyChange = input.ConfirmPolicyChange;
+        ExpectedCurrentPolicy = input.ExpectedCurrentPolicy;
     }
 }

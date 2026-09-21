@@ -23,6 +23,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IWorkflowStore, EfWorkflowStore>();
         services.AddScoped<IRecurringShiftStore>(serviceProvider =>
             (IRecurringShiftStore)serviceProvider.GetRequiredService<IWorkflowStore>());
+        services.AddScoped<IRecurringCommitmentStore>(serviceProvider =>
+            (IRecurringCommitmentStore)serviceProvider.GetRequiredService<IWorkflowStore>());
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<ITokenService, SecureTokenService>();
         services.AddScoped<INotificationService, OutboxNotificationService>();
@@ -35,6 +37,7 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<NotificationDeliveryHostedService>();
         services.AddScoped<RecurringShiftService>();
         services.AddHostedService<RecurringSeriesGenerationHostedService>();
+        services.AddScoped<RecurringCommitmentService>();
 
         services.AddScoped<VolunteerCoordinatorService>();
         services.AddScoped<ResendWebhookProcessor>();
