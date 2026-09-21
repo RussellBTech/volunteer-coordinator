@@ -17,12 +17,18 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
 
     public string ConnectionString => _container.GetConnectionString();
 
-    public VolunteerCoordinatorDbContext CreateContext(string? connectionString = null)
+    public VolunteerCoordinatorDbContext CreateContext(
+        string? connectionString = null,
+        params Microsoft.EntityFrameworkCore.Diagnostics.IDbCommandInterceptor[] interceptors)
     {
-        var options = new DbContextOptionsBuilder<VolunteerCoordinatorDbContext>()
-            .UseNpgsql(connectionString ?? ConnectionString)
-            .Options;
-        return new VolunteerCoordinatorDbContext(options);
+        var optionsBuilder = new DbContextOptionsBuilder<VolunteerCoordinatorDbContext>()
+            .UseNpgsql(connectionString ?? ConnectionString);
+        if (interceptors.Length > 0)
+        {
+            optionsBuilder.AddInterceptors(interceptors);
+        }
+
+        return new VolunteerCoordinatorDbContext(optionsBuilder.Options);
     }
 
     public async Task InitializeAsync()

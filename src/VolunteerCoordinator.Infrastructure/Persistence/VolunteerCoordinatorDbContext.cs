@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using VolunteerCoordinator.Application.Models;
 using VolunteerCoordinator.Domain.Commitments;
 using VolunteerCoordinator.Domain.Access;
 using VolunteerCoordinator.Domain.Assignments;
@@ -57,6 +58,17 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
 
     public DbSet<NotificationAttempt> NotificationAttempts => Set<NotificationAttempt>();
+
+    public DbSet<CoordinatorWorkQueryRow> CoordinatorWorkQueryRows => Set<CoordinatorWorkQueryRow>();
+
+    public DbSet<AuditHistoryQueryRow> AuditHistoryQueryRows => Set<AuditHistoryQueryRow>();
+    public DbSet<CoordinatorCoverageQueryRow> CoordinatorCoverageQueryRows => Set<CoordinatorCoverageQueryRow>();
+
+    public DbSet<CoordinatorRequestQueryRow> CoordinatorRequestQueryRows => Set<CoordinatorRequestQueryRow>();
+
+    public DbSet<CoordinatorRecurringRequestQueryRow> CoordinatorRecurringRequestQueryRows => Set<CoordinatorRecurringRequestQueryRow>();
+
+    public DbSet<CoordinatorNotificationIntentQueryRow> CoordinatorNotificationIntentQueryRows => Set<CoordinatorNotificationIntentQueryRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder) => ConfigureModel(modelBuilder);
 
@@ -340,10 +352,17 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
 
         var volunteer = modelBuilder.Entity<Volunteer>();
         volunteer.ToTable("Volunteers");
+        volunteer.HasIndex(x => x.NormalizedEmail)
+            .HasFilter("\"AnonymizedAtUtc\" IS NULL")
+            .HasDatabaseName("IX_Volunteers_NormalizedEmail_Active");
         volunteer.HasKey(x => x.Id);
         volunteer.Property(x => x.Name).HasMaxLength(120).IsRequired();
         volunteer.Property(x => x.Email).HasMaxLength(320).IsRequired();
         volunteer.Property(x => x.NormalizedEmail).HasMaxLength(320).IsRequired();
+        volunteer.Property(x => x.NormalizedName).HasMaxLength(120).IsRequired();
+        volunteer.HasIndex(x => x.NormalizedName)
+            .HasFilter("\"AnonymizedAtUtc\" IS NULL")
+            .HasDatabaseName("IX_Volunteers_NormalizedName");
         volunteer.Property(x => x.Phone).HasMaxLength(40);
         volunteer.Property(x => x.CreatedAtUtc).HasColumnType("timestamp with time zone");
         volunteer.Property(x => x.UpdatedAtUtc).HasColumnType("timestamp with time zone");
@@ -499,7 +518,40 @@ public sealed class VolunteerCoordinatorDbContext : DbContext
         audit.Property(x => x.Action).HasMaxLength(100).IsRequired();
         audit.Property(x => x.EntityKind).HasMaxLength(100).IsRequired();
         audit.Property(x => x.DetailJson).HasColumnType("jsonb").IsRequired();
-        audit.HasIndex(x => x.OccurredAtUtc);
+        audit.Property(x => x.ShiftId);
+        audit.Property(x => x.VolunteerId);
+        audit.HasIndex(x => new { x.OccurredAtUtc, x.Id })
+            .IsDescending()
+            .HasDatabaseName("IX_AuditEntries_OccurredAtUtc_Id");
+        audit.HasIndex(x => new { x.Actor, x.OccurredAtUtc, x.Id })
+            .IsDescending(false, true, true)
+            .HasDatabaseName("IX_AuditEntries_Actor_OccurredAtUtc_Id");
+        audit.HasIndex(x => new { x.Action, x.OccurredAtUtc, x.Id })
+            .IsDescending(false, true, true)
+            .HasDatabaseName("IX_AuditEntries_Action_OccurredAtUtc_Id");
+        audit.HasIndex(x => new { x.ShiftId, x.OccurredAtUtc, x.Id })
+            .HasFilter("\"ShiftId\" IS NOT NULL")
+            .IsDescending(false, true, true)
+            .HasDatabaseName("IX_AuditEntries_Shift_OccurredAtUtc_Id");
+        audit.HasIndex(x => new { x.VolunteerId, x.OccurredAtUtc, x.Id })
+            .HasFilter("\"VolunteerId\" IS NOT NULL")
+            .IsDescending(false, true, true)
+            .HasDatabaseName("IX_AuditEntries_Volunteer_OccurredAtUtc_Id");
+
+        var workQuery = modelBuilder.Entity<CoordinatorWorkQueryRow>();
+        workQuery.HasNoKey().ToView(null);
+        workQuery.Property(x => x.DueAtUtc).HasColumnType("timestamp with time zone");
+        workQuery.Property(x => x.StartsAtUtc).HasColumnType("timestamp with time zone");
+        workQuery.Property(x => x.EndsAtUtc).HasColumnType("timestamp with time zone");
+
+        var auditHistoryQuery = modelBuilder.Entity<AuditHistoryQueryRow>();
+        auditHistoryQuery.HasNoKey().ToView(null);
+        auditHistoryQuery.Property(x => x.OccurredAtUtc).HasColumnType("timestamp with time zone");
+        auditHistoryQuery.Property(x => x.ShiftStartsAtUtc).HasColumnType("timestamp with time zone");
+        modelBuilder.Entity<CoordinatorCoverageQueryRow>().HasNoKey().ToView(null);
+        modelBuilder.Entity<CoordinatorRequestQueryRow>().HasNoKey().ToView(null);
+        modelBuilder.Entity<CoordinatorRecurringRequestQueryRow>().HasNoKey().ToView(null);
+        modelBuilder.Entity<CoordinatorNotificationIntentQueryRow>().HasNoKey().ToView(null);
 
         var notification = modelBuilder.Entity<NotificationAttempt>();
         notification.ToTable("NotificationAttempts");

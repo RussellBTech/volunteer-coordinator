@@ -29,7 +29,7 @@ public sealed class AssignModel : PageModel
 
     public Guid SlotId { get; private set; }
 
-    public IReadOnlyList<VolunteerDto> ExistingVolunteers { get; private set; } = [];
+    public IReadOnlyList<VolunteerSearchResultDto> SearchResults { get; private set; } = [];
 
     public string Mode { get; private set; } = "choose";
 
@@ -40,6 +40,9 @@ public sealed class AssignModel : PageModel
 
     [BindProperty]
     public Guid? KnownVolunteerId { get; set; }
+    [BindProperty, StringLength(100)]
+    [Display(Name = "Name or email beginning")]
+    public string? SearchTerm { get; set; } = string.Empty;
 
     [BindProperty, StringLength(120)]
     [Display(Name = "Volunteer name")]
@@ -67,6 +70,24 @@ public sealed class AssignModel : PageModel
             return SettingsMissing ? RedirectToPage("/Coordinator/Settings") : NotFound();
         }
 
+        return Page();
+    }
+
+    public async Task<IActionResult> OnPostSearchAsync(
+        Guid slotId,
+        CancellationToken cancellationToken)
+    {
+        SlotId = slotId;
+        Mode = "known";
+        if (string.IsNullOrWhiteSpace(SearchTerm) || SearchTerm.Trim().Length is < 3 or > 100)
+        {
+            ModelState.AddModelError(nameof(SearchTerm), "Enter the beginning of a name or email (at least 3 characters).");
+            return Page();
+        }
+
+        SearchResults = (await _service.SearchAssignableVolunteersAsync(
+            SearchTerm,
+            cancellationToken)).ToArray();
         return Page();
     }
 
@@ -147,12 +168,6 @@ public sealed class AssignModel : PageModel
         }
 
         ApplyReviewState(state);
-        if (!await LoadAsync(slotId, cancellationToken, recoveryOnMissing: true))
-        {
-            return SettingsMissing
-                ? RedirectToPage("/Coordinator/Settings")
-                : Recovery is not null ? Page() : NotFound();
-        }
 
         try
         {
@@ -248,6 +263,7 @@ public sealed class AssignModel : PageModel
     {
         Mode = state.Mode;
         KnownVolunteerId = state.KnownVolunteerId;
+        SearchTerm = state.SearchTerm;
         VolunteerName = state.VolunteerName;
         VolunteerEmail = state.VolunteerEmail;
         VolunteerPhone = state.VolunteerPhone;
@@ -264,9 +280,13 @@ public sealed class AssignModel : PageModel
             return false;
         }
 
-        Coverage = (await _service.GetCoverageAsync(cancellationToken))
-            .SingleOrDefault(x => x.SlotId == slotId);
-        ExistingVolunteers = await _service.ListEligibleVolunteersAsync(cancellationToken);
+        Coverage = await _service.GetCoverageForSlotAsync(slotId, cancellationToken);
+        if (Mode == "known" && SearchTerm?.Trim().Length is >= 3 and <= 100)
+        {
+            SearchResults = (await _service.SearchAssignableVolunteersAsync(
+                SearchTerm!,
+                cancellationToken)).ToArray();
+        }
         if (Coverage is null && recoveryOnMissing)
         {
             Recovery = new PreviewRecoveryViewModel(
@@ -331,7 +351,8 @@ public sealed class AssignModel : PageModel
             Preview.ExpectedSettingsVersion,
             Preview.ExpectedAffectedSet,
             Preview.ExpectedSelectedVolunteerId,
-            Preview.ExpectedSelectedVolunteerNormalizedEmail);
+            Preview.ExpectedSelectedVolunteerNormalizedEmail,
+            SearchTerm ?? string.Empty);
         ReviewToken = _reviewStateProtector.Protect(state);
         var protectedFields = new[]
         {

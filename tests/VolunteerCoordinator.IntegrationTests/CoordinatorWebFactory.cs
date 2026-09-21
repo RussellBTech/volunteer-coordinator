@@ -1,4 +1,5 @@
 using System.Globalization;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -27,6 +28,7 @@ public sealed class CoordinatorWebFactory : WebApplicationFactory<Program>
     private readonly ITransactionalEmailProvider? _emailProvider;
     private readonly string? _webhookSecret;
     private readonly ILoggerProvider? _loggerProvider;
+    private readonly DbCommandInterceptor? _commandInterceptor;
 
     public CoordinatorWebFactory(
         string connectionString,
@@ -36,7 +38,8 @@ public sealed class CoordinatorWebFactory : WebApplicationFactory<Program>
         IClock? clock = null,
         ITransactionalEmailProvider? emailProvider = null,
         string? webhookSecret = null,
-        ILoggerProvider? loggerProvider = null)
+        ILoggerProvider? loggerProvider = null,
+        DbCommandInterceptor? commandInterceptor = null)
     {
         _connectionString = connectionString;
         _authenticateNonCoordinator = authenticateNonCoordinator;
@@ -46,6 +49,7 @@ public sealed class CoordinatorWebFactory : WebApplicationFactory<Program>
         _emailProvider = emailProvider;
         _webhookSecret = webhookSecret;
         _loggerProvider = loggerProvider;
+        _commandInterceptor = commandInterceptor;
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -87,6 +91,10 @@ public sealed class CoordinatorWebFactory : WebApplicationFactory<Program>
             if (_loggerProvider is not null)
             {
                 services.AddLogging(logging => logging.AddProvider(_loggerProvider));
+            }
+            if (_commandInterceptor is not null)
+            {
+                services.AddSingleton<DbCommandInterceptor>(_commandInterceptor);
             }
         });
         if (_rateLimits is not null)

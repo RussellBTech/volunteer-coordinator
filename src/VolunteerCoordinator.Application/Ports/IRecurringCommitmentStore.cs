@@ -1,4 +1,5 @@
 using VolunteerCoordinator.Domain.Commitments;
+using VolunteerCoordinator.Application.Models;
 using VolunteerCoordinator.Domain.Schedules;
 
 namespace VolunteerCoordinator.Application.Ports;
@@ -11,6 +12,11 @@ public interface IRecurringCommitmentStore
 
     Task<IReadOnlyList<RecurringCommitmentRequest>> GetRecurringCommitmentRequestsAsync(
         CancellationToken cancellationToken);
+    Task<IReadOnlyList<CoordinatorRecurringRequestQueryRow>> GetCoordinatorRecurringRequestPageAsync(
+        DateTimeOffset nowUtc,
+        int limit,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
 
     Task<IReadOnlyList<RecurringCommitmentRequest>> GetPendingRecurringCommitmentRequestsAsync(
         Guid seriesId,

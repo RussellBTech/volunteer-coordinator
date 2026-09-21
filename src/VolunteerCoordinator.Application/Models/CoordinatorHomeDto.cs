@@ -6,7 +6,8 @@ public sealed record CoordinatorHomeDto(
     IReadOnlyList<CoordinatorAttentionDto> Attention,
     string? RecommendedActionLabel,
     string? RecommendedActionUrl,
-    string? GroupTimeZoneId)
+    string? GroupTimeZoneId,
+    CoordinatorWorkSummaryDto? WorkSummary = null)
 {
     public bool IsCaughtUp => !IsSetupMode && Attention.Count == 0;
 

@@ -119,7 +119,6 @@ public interface IWorkflowStore
     Task<IReadOnlyList<AuditEntry>> GetAuditEntriesAsync(
         int limit,
         CancellationToken cancellationToken);
-
     Task<CoordinatorHomeProjection> GetCoordinatorHomeProjectionAsync(
         DateTimeOffset nowUtc,
         CancellationToken cancellationToken);
@@ -128,11 +127,76 @@ public interface IWorkflowStore
         DateTimeOffset nowUtc,
         int limit,
         CancellationToken cancellationToken);
+
     Task<CoordinatorMessagePageProjection> GetActionableMessagePageAsync(
         DateTimeOffset nowUtc,
         int page,
         int pageSize,
         CancellationToken cancellationToken);
+
+    Task<CoordinatorWorkSummaryDto> GetCoordinatorWorkSummaryAsync(
+        DateTimeOffset nowUtc,
+        CoordinatorAttentionOptions options,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    Task<CoordinatorWorkPageDto> GetCoordinatorWorkPageAsync(
+        DateTimeOffset nowUtc,
+        CoordinatorAttentionOptions options,
+        CoordinatorWorkFilter filter,
+        CoordinatorWorkCursor? cursor,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    Task<IReadOnlyList<VolunteerSearchResultDto>> SearchAssignableVolunteersAsync(
+        string normalizedTerm,
+        int limit,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    Task<AuditHistoryQueryPage> GetAuditHistoryPageAsync(
+        AuditHistoryFilter filter,
+        AuditHistoryCursor? cursor,
+        int pageSize,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    Task<IReadOnlyList<string>> GetAuditActorsAsync(CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    Task<IReadOnlyList<CoordinatorFilterChoiceDto>> SearchAuditShiftsAsync(
+        string normalizedTerm,
+        int limit,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+    Task<IReadOnlyList<CoordinatorCoverageQueryRow>> GetCoordinatorCoveragePageAsync(
+        DateTimeOffset nowUtc,
+        string? attention,
+        int limit,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    Task<CoordinatorCoverageQueryRow?> GetCoordinatorCoverageSlotAsync(
+        DateTimeOffset nowUtc,
+        Guid slotId,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    Task<IReadOnlyList<CoordinatorRequestQueryRow>> GetCoordinatorRequestPageAsync(
+        DateTimeOffset nowUtc,
+        int limit,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    Task<IReadOnlyList<CoordinatorNotificationIntentQueryRow>> GetCoordinatorNotificationIntentPageAsync(
+        int limit,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    Task<IReadOnlyList<CoordinatorAccessVerificationDto>> GetCoordinatorAccessVerificationsAsync(
+        IReadOnlyCollection<string> normalizedEmails,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
 
     void AddShift(Shift shift);
 

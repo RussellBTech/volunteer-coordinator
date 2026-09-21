@@ -22,6 +22,374 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("VolunteerCoordinator.Application.Models.AuditHistoryQueryRow", b =>
+                {
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("OccurredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ShiftId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ShiftStartsAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ShiftTitle")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("VolunteerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("VolunteerIsAnonymized")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("VolunteerName")
+                        .HasColumnType("text");
+
+                    b.ToTable((string)null);
+
+                    b.ToView(null, (string)null);
+                });
+
+            modelBuilder.Entity("VolunteerCoordinator.Application.Models.CoordinatorCoverageQueryRow", b =>
+                {
+                    b.Property<DateTimeOffset?>("AccessLastMessageAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AccessState")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("AssignmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("EndsAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Location")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ShiftId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ShiftTitle")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("SignupPolicy")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("SlotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SlotKind")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SlotPosition")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("StartsAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("VolunteerEmail")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("VolunteerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("VolunteerInstructions")
+                        .HasColumnType("text");
+
+                    b.Property<string>("VolunteerName")
+                        .HasColumnType("text");
+
+                    b.ToTable((string)null);
+
+                    b.ToView(null, (string)null);
+                });
+
+            modelBuilder.Entity("VolunteerCoordinator.Application.Models.CoordinatorNotificationIntentQueryRow", b =>
+                {
+                    b.Property<Guid?>("AccessAssignmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("EndsAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FailureCategory")
+                        .HasColumnType("text");
+
+                    b.Property<string>("GroupTimeZoneId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Location")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("NextAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ShiftId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ShiftSlotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ShiftTitle")
+                        .HasColumnType("text");
+
+                    b.Property<int>("SignupPolicy")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SlotKind")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SlotPosition")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("StartsAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("State")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("VolunteerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("VolunteerInstructions")
+                        .HasColumnType("text");
+
+                    b.Property<string>("VolunteerName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.ToTable((string)null);
+
+                    b.ToView(null, (string)null);
+                });
+
+            modelBuilder.Entity("VolunteerCoordinator.Application.Models.CoordinatorRecurringRequestQueryRow", b =>
+                {
+                    b.Property<DateOnly>("EffectiveLocalDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly>("EndLocalDate")
+                        .HasColumnType("date");
+
+                    b.Property<int>("IncludedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("RecurringCommitmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("RoleKind")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("RolePosition")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SourcePolicy")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("TotalCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("VolunteerEmail")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("VolunteerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("VolunteerName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.ToTable((string)null);
+
+                    b.ToView(null, (string)null);
+                });
+
+            modelBuilder.Entity("VolunteerCoordinator.Application.Models.CoordinatorRequestQueryRow", b =>
+                {
+                    b.Property<bool>("CanApprove")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("EndsAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Location")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("RequestStatus")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("RequestedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ShiftId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ShiftTitle")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("SignupPolicy")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("SlotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SlotKind")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SlotPosition")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SlotState")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("StartsAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VolunteerEmail")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("VolunteerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("VolunteerInstructions")
+                        .HasColumnType("text");
+
+                    b.Property<string>("VolunteerName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.ToTable((string)null);
+
+                    b.ToView(null, (string)null);
+                });
+
+            modelBuilder.Entity("VolunteerCoordinator.Application.Models.CoordinatorWorkQueryRow", b =>
+                {
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("CategoryCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CategoryRank")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("CommitmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Context")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("DueAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("EndsAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PersonName")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("RouteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RouteKind")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("RowNumber")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("SeriesId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SeverityRank")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("ShiftId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("SlotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("StableId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("StartsAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("TotalCount")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("VolunteerId")
+                        .HasColumnType("uuid");
+
+                    b.ToTable((string)null);
+
+                    b.ToView(null, (string)null);
+                });
+
             modelBuilder.Entity("VolunteerCoordinator.Domain.Access.RecoveryToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -239,9 +607,35 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("OccurredAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("ShiftId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("VolunteerId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("OccurredAtUtc");
+                    b.HasIndex("OccurredAtUtc", "Id")
+                        .IsDescending()
+                        .HasDatabaseName("IX_AuditEntries_OccurredAtUtc_Id");
+
+                    b.HasIndex("Action", "OccurredAtUtc", "Id")
+                        .IsDescending(false, true, true)
+                        .HasDatabaseName("IX_AuditEntries_Action_OccurredAtUtc_Id");
+
+                    b.HasIndex("Actor", "OccurredAtUtc", "Id")
+                        .IsDescending(false, true, true)
+                        .HasDatabaseName("IX_AuditEntries_Actor_OccurredAtUtc_Id");
+
+                    b.HasIndex("ShiftId", "OccurredAtUtc", "Id")
+                        .IsDescending(false, true, true)
+                        .HasDatabaseName("IX_AuditEntries_Shift_OccurredAtUtc_Id")
+                        .HasFilter("\"ShiftId\" IS NOT NULL");
+
+                    b.HasIndex("VolunteerId", "OccurredAtUtc", "Id")
+                        .IsDescending(false, true, true)
+                        .HasDatabaseName("IX_AuditEntries_Volunteer_OccurredAtUtc_Id")
+                        .HasFilter("\"VolunteerId\" IS NOT NULL");
 
                     b.ToTable("AuditEntries", (string)null);
                 });
@@ -1076,6 +1470,11 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                         .HasMaxLength(320)
                         .HasColumnType("character varying(320)");
 
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
                     b.Property<string>("Phone")
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
@@ -1089,7 +1488,13 @@ namespace VolunteerCoordinator.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("IX_Volunteers_AnonymizedAtUtc");
 
                     b.HasIndex("NormalizedEmail")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("IX_Volunteers_NormalizedEmail_Active")
+                        .HasFilter("\"AnonymizedAtUtc\" IS NULL");
+
+                    b.HasIndex("NormalizedName")
+                        .HasDatabaseName("IX_Volunteers_NormalizedName")
+                        .HasFilter("\"AnonymizedAtUtc\" IS NULL");
 
                     b.ToTable("Volunteers", (string)null);
                 });

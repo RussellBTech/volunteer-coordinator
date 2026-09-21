@@ -15,7 +15,7 @@ using VolunteerCoordinator.Domain.Volunteers;
 
 namespace VolunteerCoordinator.Infrastructure.Persistence;
 
-public sealed class EfWorkflowStore : IWorkflowStore, IRecurringShiftStore, IRecurringCommitmentStore, IAccessStore, INotificationOutboxStore, ILegacyActionTokenStore
+public sealed partial class EfWorkflowStore : IWorkflowStore, IRecurringShiftStore, IRecurringCommitmentStore, IAccessStore, INotificationOutboxStore, ILegacyActionTokenStore
 {
     private const int RemovalLookupFetchLimit = 20;
     private const int RemovalLookupResultLimit = 10;
@@ -674,7 +674,6 @@ public sealed class EfWorkflowStore : IWorkflowStore, IRecurringShiftStore, IRec
         var settings = await _dbContext.GroupSettings
             .AsNoTracking()
             .SingleOrDefaultAsync(cancellationToken);
-
         var hasPublishedShift = await _dbContext.Shifts
             .AsNoTracking()
             .AnyAsync(x => x.PublishedAtUtc.HasValue, cancellationToken);
@@ -692,135 +691,34 @@ public sealed class EfWorkflowStore : IWorkflowStore, IRecurringShiftStore, IRec
             .OrderByDescending(x => x.StartsAtUtc)
             .ThenBy(x => x.Id)
             .FirstOrDefaultAsync(cancellationToken);
+        var workSummary = await GetCoordinatorWorkSummaryAsync(
+            nowUtc,
+            new CoordinatorAttentionOptions(),
+            cancellationToken);
 
-        var pendingRequests = from request in _dbContext.ShiftRequests.AsNoTracking()
-                              join slot in _dbContext.ShiftSlots.AsNoTracking()
-                                  on request.ShiftSlotId equals slot.Id
-                              join shift in _dbContext.Shifts.AsNoTracking()
-                                  on slot.ShiftId equals shift.Id
-                              join volunteer in _dbContext.Volunteers.AsNoTracking()
-                                  on request.VolunteerId equals volunteer.Id
-                              where request.Status == RequestStatus.Pending
-                                  && slot.IsActive
-                                  && shift.IsActive
-                                  && shift.EndsAtUtc > nowUtc
-                              select new HomeExampleRow
-                              {
-                                  ShiftId = shift.Id,
-                                  SlotId = slot.Id,
-                                  ShiftTitle = shift.Title,
-                                  SlotLabel = slot.Kind == SlotKind.Primary ? "Primary" : "Backup " + slot.Position,
-                                  StartsAtUtc = shift.StartsAtUtc,
-                                  EndsAtUtc = shift.EndsAtUtc,
-                                  VolunteerName = volunteer.AnonymizedAtUtc.HasValue ? "Removed volunteer" : volunteer.Name,
-                                  OccurredAtUtc = request.RequestedAtUtc
-                              };
-        var pendingRequestCount = await pendingRequests.CountAsync(cancellationToken);
-        var pendingRequestExamples = (await pendingRequests
-                .OrderBy(x => x.StartsAtUtc)
-                .ThenByDescending(x => x.OccurredAtUtc)
-                .ThenBy(x => x.ShiftId)
-                .ThenBy(x => x.SlotId)
+        static IReadOnlyList<CoordinatorHomeExample> Examples(
+            CoordinatorWorkSummaryDto summary,
+            string category) =>
+            summary.Examples
+                .Where(x => x.Category == category && x.ShiftId.HasValue && x.SlotId.HasValue)
                 .Take(3)
-                .ToListAsync(cancellationToken))
-            .Select(ToHomeExample)
-            .ToArray();
-
-        var uncoveredCommitments = from slot in _dbContext.ShiftSlots.AsNoTracking()
-                                   join shift in _dbContext.Shifts.AsNoTracking()
-                                       on slot.ShiftId equals shift.Id
-                                   where slot.IsActive
-                                       && shift.IsActive
-                                       && shift.PublishedAtUtc.HasValue
-                                       && shift.EndsAtUtc > nowUtc
-                                       && !_dbContext.Assignments.Any(assignment =>
-                                           assignment.ShiftSlotId == slot.Id
-                                           && (assignment.Status == AssignmentStatus.Assigned
-                                               || assignment.Status == AssignmentStatus.Confirmed))
-                                   select new HomeExampleRow
-                                   {
-                                       ShiftId = shift.Id,
-                                       SlotId = slot.Id,
-                                       ShiftTitle = shift.Title,
-                                       SlotLabel = slot.Kind == SlotKind.Primary ? "Primary" : "Backup " + slot.Position,
-                                       StartsAtUtc = shift.StartsAtUtc,
-                                       EndsAtUtc = shift.EndsAtUtc
-                                   };
-
-        var uncoveredCommitmentCount = await uncoveredCommitments.CountAsync(cancellationToken);
-        var uncoveredCommitmentExamples = (await uncoveredCommitments
-                .OrderBy(x => x.StartsAtUtc)
-                .ThenBy(x => x.ShiftId)
-                .ThenBy(x => x.SlotId)
-                .Take(3)
-                .ToListAsync(cancellationToken))
-            .Select(ToHomeExample)
-            .ToArray();
-
-        var unconfirmedAssignments = from assignment in _dbContext.Assignments.AsNoTracking()
-                                     join slot in _dbContext.ShiftSlots.AsNoTracking()
-                                         on assignment.ShiftSlotId equals slot.Id
-                                     join shift in _dbContext.Shifts.AsNoTracking()
-                                         on assignment.ShiftId equals shift.Id
-                                     join volunteer in _dbContext.Volunteers.AsNoTracking()
-                                         on assignment.VolunteerId equals volunteer.Id
-                                     where assignment.Status == AssignmentStatus.Assigned
-                                         && slot.IsActive
-                                         && shift.IsActive
-                                         && shift.PublishedAtUtc.HasValue
-                                         && shift.EndsAtUtc > nowUtc
-                                     select new HomeExampleRow
-                                     {
-                                         ShiftId = shift.Id,
-                                         SlotId = slot.Id,
-                                         ShiftTitle = shift.Title,
-                                         SlotLabel = slot.Kind == SlotKind.Primary ? "Primary" : "Backup " + slot.Position,
-                                         StartsAtUtc = shift.StartsAtUtc,
-                                         EndsAtUtc = shift.EndsAtUtc,
-                                         VolunteerName = volunteer.AnonymizedAtUtc.HasValue ? "Removed volunteer" : volunteer.Name,
-                                         OccurredAtUtc = assignment.AssignedAtUtc
-                                     };
-
-        var unconfirmedAssignmentCount = await unconfirmedAssignments.CountAsync(cancellationToken);
-        var unconfirmedAssignmentExamples = (await unconfirmedAssignments
-                .OrderBy(x => x.StartsAtUtc)
-                .ThenByDescending(x => x.OccurredAtUtc)
-                .ThenBy(x => x.ShiftId)
-                .ThenBy(x => x.SlotId)
-                .Take(3)
-                .ToListAsync(cancellationToken))
-            .Select(ToHomeExample)
-            .ToArray();
-
-        var assignmentFailures = BuildAssignmentFailureQuery(nowUtc);
-        var requestFailures = BuildRequestFailureQuery(nowUtc);
-        var failedMessageCount =
-            await assignmentFailures.CountAsync(cancellationToken) +
-            await requestFailures.CountAsync(cancellationToken);
-        var failedMessageExamples = (await assignmentFailures
-                .Concat(requestFailures)
-                .OrderBy(x => x.StartsAtUtc)
-                .ThenByDescending(x => x.OccurredAtUtc)
-                .ThenBy(x => x.ShiftId)
-                .ThenBy(x => x.SlotId)
-                .Take(3)
-                .ToListAsync(cancellationToken))
-            .Select(ToHomeExample)
-            .ToArray();
+                .Select(ToHomeExample)
+                .ToArray();
 
         return new CoordinatorHomeProjection(
             settings,
             hasPublishedShift,
             firstUnpublishedShift,
-            pendingRequestCount,
-            pendingRequestExamples,
-            uncoveredCommitmentCount,
-            uncoveredCommitmentExamples,
-            unconfirmedAssignmentCount,
-            unconfirmedAssignmentExamples,
-            failedMessageCount,
-            failedMessageExamples,
-            firstExpiredUnpublishedShift);
+            workSummary.Count("pending-request"),
+            Examples(workSummary, "pending-request"),
+            workSummary.Count("uncovered"),
+            Examples(workSummary, "uncovered"),
+            workSummary.Count("unconfirmed"),
+            Examples(workSummary, "unconfirmed"),
+            workSummary.Count("message"),
+            Examples(workSummary, "message"),
+            firstExpiredUnpublishedShift,
+            workSummary);
     }
 
     public async Task<IReadOnlyList<CoordinatorHomeExample>> GetActionableMessageExamplesAsync(

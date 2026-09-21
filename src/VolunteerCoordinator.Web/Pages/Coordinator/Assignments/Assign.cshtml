@@ -54,26 +54,43 @@ else
             <div class="section-heading">
                 <div>
                     <p class="eyebrow">Known volunteer</p>
-                    <h2 id="known-heading">Choose a person</h2>
+                    <h2 id="known-heading">Search for a person</h2>
                 </div>
                 <a class="text-link" href="@Url.Page("/Coordinator/Assignments/Assign", new { slotId = Model.SlotId })">Choose another path</a>
             </div>
-            <form method="post" asp-page-handler="Review">
+            <form method="post" asp-page-handler="Search">
                 <input type="hidden" name="Mode" value="known" />
                 <div class="form-group">
-                    <label asp-for="KnownVolunteerId">Volunteer</label>
-                    <select asp-for="KnownVolunteerId" aria-describedby="known-help">
-                        <option value="">Choose a volunteer</option>
-                        @foreach (var volunteer in Model.ExistingVolunteers)
-                        {
-                            <option value="@volunteer.Id">@volunteer.Name — @volunteer.Email</option>
-                        }
-                    </select>
-                    <p id="known-help" class="field-help">Only eligible saved volunteers appear here. Their contact details remain unchanged.</p>
-                    <span asp-validation-for="KnownVolunteerId"></span>
+                    <label asp-for="SearchTerm"></label>
+                    <input asp-for="SearchTerm" autocomplete="off" aria-describedby="known-help" />
+                    <p id="known-help" class="field-help">Enter the beginning of a name or email (at least 3 characters). Search results show only the saved name and full email.</p>
+                    <span asp-validation-for="SearchTerm"></span>
                 </div>
-                <div class="actions"><button type="submit">Review assignment</button><a class="button button-secondary" href="@Url.Page("/Coordinator/Coverage/Index")">Cancel</a></div>
+                <div class="actions"><button type="submit">Search volunteers</button></div>
             </form>
+            @if (Model.SearchResults.Count > 0)
+            {
+                <form method="post" asp-page-handler="Review">
+                    <input type="hidden" name="Mode" value="known" />
+                    <input type="hidden" asp-for="SearchTerm" />
+                    <fieldset class="form-group">
+                        <legend>Matching volunteers</legend>
+                        @foreach (var volunteer in Model.SearchResults)
+                        {
+                            <label class="choice-row">
+                                <input asp-for="KnownVolunteerId" type="radio" value="@volunteer.VolunteerId" />
+                                <span><strong>@volunteer.Name</strong><br><small>@volunteer.Email</small></span>
+                            </label>
+                        }
+                        <span asp-validation-for="KnownVolunteerId"></span>
+                    </fieldset>
+                    <div class="actions"><button type="submit">Choose volunteer and review</button><a class="button button-secondary" href="@Url.Page("/Coordinator/Coverage/Index")">Cancel</a></div>
+                </form>
+            }
+            else if (!string.IsNullOrWhiteSpace(Model.SearchTerm) && Model.SearchTerm.Trim().Length >= 3 && ViewData.ModelState.IsValid)
+            {
+                <p class="alert alert-warning" role="status">No eligible volunteer matches that beginning. Search again.</p>
+            }
         </section>
     }
     else if (Model.Mode == "new")

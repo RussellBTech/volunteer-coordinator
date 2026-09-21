@@ -235,7 +235,7 @@ public sealed class RecurringCommitmentService
                             request.SourcePolicy,
                             Included = included.Length,
                             Skipped = candidates.Count - included.Length
-                        })));
+                        }), shiftId: included[0].Shift!.Id, volunteerId: volunteer.Id));
                     return new SubmissionWork(
                         new RecurringCommitmentSubmission(
                             request.Id,
@@ -301,7 +301,7 @@ public sealed class RecurringCommitmentService
                         commitment.EndLocalDate,
                         Included = joins.Count(x => x.State == RecurringCommitmentOccurrenceState.Confirmed),
                         Skipped = joins.Count(x => x.State == RecurringCommitmentOccurrenceState.SkippedException)
-                    })));
+                    }), shiftId: included[0].Shift!.Id, volunteerId: volunteer.Id));
                 return new SubmissionWork(
                     new RecurringCommitmentSubmission(
                         Guid.Empty,
@@ -462,7 +462,7 @@ public sealed class RecurringCommitmentService
                         commitment.SeriesId,
                         Assigned = joins.Count(x => x.State == RecurringCommitmentOccurrenceState.Assigned),
                         Skipped = joins.Count(x => x.State == RecurringCommitmentOccurrenceState.SkippedException)
-                    })));
+                    }), shiftId: included[0].Shift!.Id, volunteerId: volunteer.Id));
                 return commitment.Id;
             },
             cancellationToken);
@@ -519,7 +519,7 @@ public sealed class RecurringCommitmentService
                         request.RolePosition,
                         request.EffectiveLocalDate,
                         request.EndLocalDate
-                    })));
+                    }), volunteerId: request.VolunteerId));
                 return true;
             },
             cancellationToken);
@@ -528,60 +528,26 @@ public sealed class RecurringCommitmentService
     public async Task<IReadOnlyList<RecurringCommitmentRequestDto>> ListRequestsAsync(
         CancellationToken cancellationToken)
     {
-        var requests = await _commitmentStore.GetRecurringCommitmentRequestsAsync(cancellationToken);
-        var volunteers = (await _workflowStore.GetVolunteersByIdsAsync(
-                requests.Select(x => x.VolunteerId).Distinct().ToArray(),
-                cancellationToken))
-            .ToDictionary(x => x.Id);
-        var series = await _recurringStore.GetRecurringSeriesAsync(cancellationToken);
-        var revisions = new Dictionary<Guid, RecurringShiftSeriesRevision>();
-        foreach (var item in series)
-        {
-            var current = (await _recurringStore.GetRecurringRevisionsAsync(item.Id, cancellationToken))
-                .SingleOrDefault(x => x.RevisionNumber == item.CurrentRevisionNumber);
-            if (current is not null)
-            {
-                revisions[item.Id] = current;
-            }
-        }
-
-        var result = new List<RecurringCommitmentRequestDto>(requests.Count);
-        foreach (var request in requests)
-        {
-            revisions.TryGetValue(request.SeriesId, out var revision);
-            volunteers.TryGetValue(request.VolunteerId, out var volunteer);
-            var candidates = revision is null
-                ? []
-                : await BuildCandidatesAsync(
-                    request.SeriesId,
-                    revision,
-                    request.RoleKind,
-                    request.RolePosition,
-                    request.EffectiveLocalDate,
-                    request.EndLocalDate,
-                    cancellationToken);
-            var included = candidates.Count(x => x.Included);
-            result.Add(new RecurringCommitmentRequestDto(
-                request.Id,
-                volunteer?.AnonymizedAtUtc.HasValue == true
-                    ? "Removed volunteer"
-                    : volunteer?.Name ?? "Removed volunteer",
-                volunteer?.AnonymizedAtUtc.HasValue == true
-                    ? string.Empty
-                    : volunteer?.Email ?? string.Empty,
-                revision?.Title ?? "Recurring commitment",
-                RoleLabel(request.RoleKind, request.RolePosition),
-                request.SourcePolicy,
-                request.Status.ToString(),
-                request.EffectiveLocalDate,
-                request.EndLocalDate,
-                included,
-                candidates.Count - included,
-                request.Status == RecurringCommitmentRequestStatus.Pending,
-                request.RecurringCommitmentId));
-        }
-
-        return result;
+        var rows = await _commitmentStore.GetCoordinatorRecurringRequestPageAsync(
+            _clock.UtcNow,
+            50,
+            cancellationToken);
+        return rows
+            .Select(row => new RecurringCommitmentRequestDto(
+                row.RequestId,
+                row.VolunteerName,
+                row.VolunteerEmail,
+                row.Title,
+                RoleLabel((SlotKind)row.RoleKind, row.RolePosition),
+                (SignupPolicy)row.SourcePolicy,
+                ((RecurringCommitmentRequestStatus)row.Status).ToString(),
+                row.EffectiveLocalDate,
+                row.EndLocalDate,
+                row.IncludedCount,
+                Math.Max(0, row.TotalCount - row.IncludedCount),
+                row.Status == (int)RecurringCommitmentRequestStatus.Pending,
+                row.RecurringCommitmentId))
+            .ToArray();
     }
     public async Task<RecurringCommitmentHandoffPreviewDto> PreviewHandoffAsync(
         Guid commitmentId,
@@ -894,7 +860,9 @@ public sealed class RecurringCommitmentService
             "RecurringCommitmentConfirmed",
             nameof(RecurringCommitment),
             commitment.Id,
-            Detail(new { commitment.Id, Confirmed = confirmedCount })));
+            Detail(new { commitment.Id, Confirmed = confirmedCount }),
+            shiftId: assignments.Values.Select(x => (Guid?)x.ShiftId).First(),
+            volunteerId: volunteer.Id));
         return ("Confirmed", volunteer.Id);
     }
 
@@ -1060,7 +1028,9 @@ public sealed class RecurringCommitmentService
             "RecurringCommitmentWithdrawn",
             nameof(RecurringCommitment),
             commitment.Id,
-            Detail(new { commitment.Id, EffectiveLocalDate = requestedDate, Cancelled = cancelledCount })));
+            Detail(new { commitment.Id, EffectiveLocalDate = requestedDate, Cancelled = cancelledCount }),
+            shiftId: assignments.Values.Select(x => (Guid?)x.ShiftId).First(),
+            volunteerId: volunteer.Id));
         return ("Withdrawn", volunteer.Id);
     }
 
@@ -1376,7 +1346,9 @@ public sealed class RecurringCommitmentService
                         effectiveLocalDate,
                         Moved = previewRows.Count(x => x.NewOccurrenceId.HasValue),
                         Skipped = previewRows.Count(x => !x.NewOccurrenceId.HasValue)
-                    })));
+                    }),
+                    shiftId: targetShifts.Keys.Select(x => (Guid?)x).First(),
+                    volunteerId: volunteer.Id));
                 return true;
             },
             cancellationToken);
@@ -1697,7 +1669,9 @@ public sealed class RecurringCommitmentService
                     "RecurringCommitmentReconciled",
                     nameof(RecurringCommitment),
                     commitment.Id,
-                    Detail(new { commitment.Id })));
+                    Detail(new { commitment.Id }),
+                    shiftId: candidates.Where(x => x.Included && x.Shift is not null).Select(x => (Guid?)x.Shift!.Id).FirstOrDefault(),
+                    volunteerId: volunteer.Id));
                 return true;
             },
             cancellationToken);
