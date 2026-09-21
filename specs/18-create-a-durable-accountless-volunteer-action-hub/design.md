@@ -15,6 +15,13 @@ The reusable hub capability authorizes status reads. A mutation is single-effect
 
 Prerequisites: #14 provides tiered anonymous rate limiting, #15 provides group-local complete commitment context, and #19 provides durable email intent/attempt delivery. Integrate #13 administrative invalidation and #16 privacy removal when present.
 
+## Verification boundary
+
+Implementation behavior remains unchanged. Issue acceptance uses local fake-provider delivery, the adapter contract, signed webhook fixtures where delivery is exercised, recovery redemption, retry/idempotency, browser, migration, and security-scan evidence. No real Resend credentials, recipients, provider IDs, live webhook events, or forced live provider/reissue exercise is required here.
+
+The complete real Resend evidence matrix is deferred to one final external launch issue created only after every product issue through #22 is delivered. That issue is not created by #18.
+
+
 ---
 
 ## Capability Model and Migration
@@ -149,8 +156,14 @@ No polling or volunteer session store is introduced. Seven-day grace is evaluate
 | Domain/Application | Unit | Capability/recovery validity boundaries, offered actions, replacement/revoke transitions, generic outcomes. |
 | PostgreSQL | Integration | Status-token migration, active uniqueness, slot-lock conflicts, concurrent action/redemption/revoke/deactivate/anonymize, one committed result, token absence. |
 | Web | Integration/browser | Same hub before/after assignment, long-future access, context, action deadlines, generic recovery, no-store/no-referrer, antiforgery, coordinator state/reissue. |
-| Delivery | Integration with #19 adapter | Recovery/direct-assignment transient token delivery, failure visibility, retry token replacement, no raw persistence/logs. |
+| Delivery | Integration with local fake provider/adapter contract | Recovery/direct-assignment transient token delivery, failure visibility, retry token replacement, no raw persistence/logs. |
+
 | Legacy | Fixed-time integration | Pre-cutover links work only until stored expiry; no new token generation; post-expiry replay changes nothing. |
+
+## External launch deferral
+
+The final launch issue will own real Resend sandbox credentials/use, the reserved recipient and verified sender/domain, template IDs or names/versions, provider message IDs, signed live delivery/bounce/complaint events, forced real timeout/429/5xx/permanent responses, and live coordinator reissue evidence. These are outside this issue's acceptance and remain deferred until after #22.
+
 
 ---
 
@@ -159,3 +172,4 @@ No polling or volunteer session store is introduced. Seven-day grace is evaluate
 | Issue | Date | Summary |
 |-------|------|---------|
 | #18 | 2026-09-03 | Initial feature spec |
+| #18 | 2026-09-20 | Scope corrected: local acceptance retained; real Resend evidence deferred to the final launch issue after #22 |

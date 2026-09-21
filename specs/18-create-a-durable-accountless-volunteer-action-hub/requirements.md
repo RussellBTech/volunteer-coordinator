@@ -23,6 +23,13 @@ The approved hub is one reusable bearer capability per volunteer and shift-slot 
 
 Implementation requires issue #15's complete local commitment projection, issue #14's anonymous abuse limits, and issue #19's real transactional-email delivery. Existing separate action links receive an explicit compatibility exception: no new link is generated after cutover, but an already-issued link remains usable only through its stored maximum seven-day expiry.
 
+## Scope correction
+
+The implementation behavior and functional requirements remain unchanged. Issue acceptance is local: fake-provider delivery, adapter-contract behavior, recovery redemption, retry/idempotency behavior, browser journeys, migration coverage, and security scans use local providers, contract doubles, signed fixtures, and local/browser or PostgreSQL evidence.
+
+Real external evidence is not part of this issue's acceptance. This includes using real Resend sandbox credentials without exposing their values, a reserved sandbox recipient or recipient ID and verified sender/domain, provider template names/versions or template IDs, provider message IDs, signed live delivery/bounce/complaint events, forced real timeout/429/5xx/permanent-response exercises, and live coordinator reissue evidence. The complete matrix is deferred to one final external launch issue created only after every product issue through #22 is delivered; that issue is not created by #18.
+
+
 ---
 
 ## Acceptance Criteria
@@ -97,3 +104,4 @@ The `enhancement` label requires one minor version increment from the implementa
 | Issue | Date | Summary |
 |-------|------|---------|
 | #18 | 2026-09-03 | Initial feature spec |
+| #18 | 2026-09-20 | Scope corrected: local acceptance retained; real Resend evidence deferred to the final launch issue after #22 |
