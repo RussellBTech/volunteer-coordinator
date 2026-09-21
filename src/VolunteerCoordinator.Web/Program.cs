@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Security.Claims;
 using System.Threading.RateLimiting;
@@ -13,20 +14,70 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using Resend;
 using VolunteerCoordinator.Application;
 using VolunteerCoordinator.Application.Models;
+using VolunteerCoordinator.Application.Notifications;
 using VolunteerCoordinator.Infrastructure.DependencyInjection;
 using VolunteerCoordinator.Infrastructure.Health;
+using VolunteerCoordinator.Infrastructure.Notifications;
 using VolunteerCoordinator.Infrastructure.Persistence;
 using VolunteerCoordinator.Web.Privacy;
 using VolunteerCoordinator.Web.Security;
 using VolunteerCoordinator.Web.Presentation;
-
 var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("Postgres")
     ?? throw new InvalidOperationException("ConnectionStrings:Postgres is required.");
+var resendConfiguration = builder.Configuration.GetSection(ResendOptions.SectionName);
+var configuredResend = resendConfiguration.Get<ResendOptions>() ?? new ResendOptions();
+var emailConfiguration = builder.Configuration.GetSection(EmailOptions.SectionName);
+var configuredEmail = emailConfiguration.Get<EmailOptions>() ?? new EmailOptions();
+var isProduction = builder.Environment.IsProduction();
+if (isProduction && (!configuredResend.IsValid() || !configuredEmail.IsValid(production: true)))
+{
+    throw new InvalidOperationException(
+        "Production requires Resend:ApiKey, Resend:WebhookSecret, Email:From, Email:ReplyTo, and an HTTPS Email:PublicBaseUrl.");
+}
+
+builder.Services.AddOptions<ResendOptions>()
+    .Bind(resendConfiguration)
+    .Validate(
+        options => !isProduction || options.IsValid(),
+        "Resend settings are incomplete for production.")
+    .ValidateOnStart();
+builder.Services.AddOptions<EmailOptions>()
+    .Bind(emailConfiguration)
+    .Validate(
+        options => !isProduction || options.IsValid(production: true),
+        "Email settings are incomplete for production.")
+    .ValidateOnStart();
+builder.Services.AddOptions<ResendWebhookOptions>()
+    .Bind(builder.Configuration.GetSection("ResendWebhook"))
+    .Validate(
+        options => options.TimestampTolerance > TimeSpan.Zero && options.MaxBodyBytes is > 0 and <= 1024 * 1024,
+        "Resend webhook settings are invalid.")
+    .ValidateOnStart();
+builder.Services.AddOptions<NotificationDeliveryOptions>()
+    .Bind(builder.Configuration.GetSection(NotificationDeliveryOptions.SectionName))
+    .Validate(static options => options.IsValid(), "Notification delivery settings are invalid.")
+    .ValidateOnStart();
+if (!string.IsNullOrWhiteSpace(configuredResend.ApiKey) &&
+    !string.IsNullOrWhiteSpace(configuredEmail.From) &&
+    !string.IsNullOrWhiteSpace(configuredEmail.ReplyTo))
+{
+    builder.Services.AddOptions<ResendClientOptions>()
+        .Configure(options => options.ApiToken = configuredResend.ApiKey);
+    builder.Services.AddHttpClient<IResend, ResendClient>();
+    builder.Services.AddScoped<ITransactionalEmailProvider, ResendTransactionalEmailProvider>();
+}
 
 builder.Services.AddVolunteerCoordinatorInfrastructure(connectionString);
+if (!string.IsNullOrWhiteSpace(configuredResend.ApiKey) &&
+    !string.IsNullOrWhiteSpace(configuredEmail.From) &&
+    !string.IsNullOrWhiteSpace(configuredEmail.ReplyTo))
+{
+    builder.Services.AddScoped<ITransactionalEmailProvider, ResendTransactionalEmailProvider>();
+}
 builder.Services.AddDataProtection();
 builder.Services.AddSingleton<CoordinatorReviewStateProtector>();
 builder.Services.AddSingleton<GroupTimeFormatter>();
@@ -99,6 +150,7 @@ builder.Services.AddRateLimiter(options =>
             "request-mutation" => configuredRateLimits.RequestMutation,
             "private-token-read" => configuredRateLimits.PrivateTokenRead,
             "assignment-action-mutation" => configuredRateLimits.AssignmentActionMutation,
+            "recovery" => configuredRateLimits.Recovery,
             _ => throw new InvalidOperationException($"Unknown anonymous rate-limit tier '{tier}'.")
         };
         var clientAddress = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
@@ -248,6 +300,47 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 {
     Predicate = registration => registration.Tags.Contains("ready")
 }).AllowAnonymous();
+app.MapPost("/webhooks/resend", async (
+    HttpContext context,
+    ResendWebhookProcessor processor,
+    IOptions<ResendWebhookOptions> webhookOptions,
+    CancellationToken cancellationToken) =>
+{
+    var maxBytes = webhookOptions.Value.MaxBodyBytes;
+    if (context.Request.ContentLength is > 0 and long contentLength && contentLength > maxBytes)
+    {
+        return Results.BadRequest();
+    }
+
+    var buffer = new byte[maxBytes + 1];
+    var total = 0;
+    while (total < buffer.Length)
+    {
+        var read = await context.Request.Body.ReadAsync(
+            buffer.AsMemory(total, buffer.Length - total),
+            cancellationToken);
+        if (read == 0)
+        {
+            break;
+        }
+
+        total += read;
+    }
+
+    if (total > maxBytes)
+    {
+        return Results.BadRequest();
+    }
+
+    var body = Encoding.UTF8.GetString(buffer, 0, total);
+    var processed = await processor.ProcessAsync(
+        body,
+        context.Request.Headers["svix-id"].ToString(),
+        context.Request.Headers["svix-timestamp"].ToString(),
+        context.Request.Headers["svix-signature"].ToString(),
+        cancellationToken);
+    return processed ? Results.Ok() : Results.BadRequest();
+}).AllowAnonymous();
 app.MapRazorPages();
 
 app.Run();
@@ -262,9 +355,16 @@ static string? GetAnonymousRateLimitTier(HttpContext context)
             return "request-mutation";
         }
 
-        if (HasSingleRouteValue(path, "/Actions"))
+        if (HasSingleRouteValue(path, "/Actions") ||
+            HasSingleRouteValue(path, "/Requests/Status"))
         {
             return "assignment-action-mutation";
+        }
+
+        if (string.Equals(path, "/Commitments/Recover", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(path, "/Commitments/Recover/", StringComparison.OrdinalIgnoreCase))
+        {
+            return "recovery";
         }
     }
     else if (HttpMethods.IsGet(context.Request.Method))

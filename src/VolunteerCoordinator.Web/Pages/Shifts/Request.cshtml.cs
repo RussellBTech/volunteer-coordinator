@@ -63,17 +63,13 @@ public sealed class RequestModel : PageModel
         try
         {
             var submission = await _service.SubmitRequestAsync(slotId, Name, Email, Phone, cancellationToken);
-            TempData["StatusUrl"] = Url.Page(
-                "/Requests/Status",
-                pageHandler: null,
-                values: new { token = submission.StatusToken },
-                protocol: Request.Scheme);
             if (submission.NotificationWarning is not null)
             {
                 TempData["Warning"] = submission.NotificationWarning;
             }
 
-            return RedirectToPage("/Shifts/RequestComplete");
+            return Redirect(
+                $"/Requests/Status/{Uri.EscapeDataString(submission.StatusToken)}");
         }
         catch (DomainException exception)
         {

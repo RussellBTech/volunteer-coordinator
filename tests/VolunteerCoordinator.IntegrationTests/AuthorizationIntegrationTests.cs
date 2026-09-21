@@ -69,7 +69,7 @@ public sealed class AuthorizationIntegrationTests
     }
 
     [Fact]
-    public async Task GeneratedActionLinksAreDisplayedInThePostResponse()
+    public async Task CoordinatorReissueIsAntiforgeryProtectedAndLegacyLinksSurfaceIsRemoved()
     {
         await _fixture.ResetAsync();
         Guid assignmentId;
@@ -84,7 +84,7 @@ public sealed class AuthorizationIntegrationTests
             var starts = DateTimeOffset.UtcNow.AddDays(2);
             var shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
                 service,
-                "Action link verification",
+                "Access reissue verification",
                 null,
                 null,
                 starts,
@@ -106,35 +106,118 @@ public sealed class AuthorizationIntegrationTests
         {
             AllowAutoRedirect = false
         });
-        var loginForm = await client.GetAsync("/development/login");
-        var loginHtml = await loginForm.Content.ReadAsStringAsync();
-        var loginToken = Regex.Match(loginHtml, "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value;
-        var signedIn = await client.PostAsync("/development/login", new FormUrlEncodedContent(new Dictionary<string, string>
-        {
-            ["__RequestVerificationToken"] = loginToken,
-            ["email"] = "coordinator@example.org"
-        }));
+        var signedIn = await SignInAsync(client, "coordinator@example.org");
         Assert.Equal(HttpStatusCode.Redirect, signedIn.StatusCode);
 
-        var path = $"/Coordinator/Assignments/Links/{assignmentId}";
-        var linkForm = await client.GetAsync(path);
-        var linkFormHtml = await linkForm.Content.ReadAsStringAsync();
-        var linkToken = Regex.Match(linkFormHtml, "name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"").Groups[1].Value;
-        Assert.NotEmpty(linkToken);
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            (await client.GetAsync($"/Coordinator/Assignments/Links/{assignmentId}")).StatusCode);
 
-        var response = await client.PostAsync(path, new FormUrlEncodedContent(new Dictionary<string, string>
-        {
-            ["__RequestVerificationToken"] = linkToken
-        }));
-        var responseHtml = await response.Content.ReadAsStringAsync();
+        var accessPath = $"/Coordinator/Assignments/Access/{assignmentId}";
+        var accessForm = await client.GetAsync(accessPath);
+        Assert.Equal(HttpStatusCode.OK, accessForm.StatusCode);
+        var accessHtml = await accessForm.Content.ReadAsStringAsync();
+        var antiforgery = Regex.Match(
+            accessHtml,
+            "name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"").Groups[1].Value;
+        Assert.NotEmpty(antiforgery);
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("Copy these links now", responseHtml);
-        Assert.Contains("<strong>Confirm</strong>", responseHtml);
-        Assert.Contains("<strong>Decline</strong>", responseHtml);
-        Assert.Contains("<strong>Cancel</strong>", responseHtml);
-        Assert.Contains("/Actions/", responseHtml);
+        var rejectedWithoutAntiforgery = await client.PostAsync(
+            accessPath,
+            new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["revokeNow"] = "false"
+            }));
+        Assert.Equal(HttpStatusCode.BadRequest, rejectedWithoutAntiforgery.StatusCode);
+
+        var queued = await client.PostAsync(
+            accessPath,
+            new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["__RequestVerificationToken"] = antiforgery,
+                ["revokeNow"] = "false"
+            }));
+        Assert.Equal("/Coordinator/Coverage", queued.Headers.Location?.OriginalString);
+
+        await using var verification = _fixture.CreateContext();
+        Assert.Single(
+            await verification.NotificationIntents
+                .Where(x => x.Kind == "CoordinatorAccessReissue" && x.State == Domain.Notifications.NotificationIntentState.Pending)
+                .ToListAsync());
+        Assert.Contains(
+            await verification.AuditEntries.ToListAsync(),
+            x => x.Action == "VolunteerAccessReissueRequested" && x.EntityId == assignmentId);
     }
+
+    [Fact]
+    public async Task FailedAccessMessageRoutesToReissueControlsWithoutGenericResend()
+    {
+        await _fixture.ResetAsync();
+        Guid assignmentId;
+        Guid intentId;
+        await using (var context = _fixture.CreateContext())
+        {
+            var service = new VolunteerCoordinatorService(
+                new EfWorkflowStore(context),
+                new SystemClock(),
+                new SecureTokenService(),
+                new UnavailableNotificationService(context, new SystemClock()));
+            var starts = DateTimeOffset.UtcNow.AddDays(2);
+            var shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+                service,
+                "Failed access message",
+                null,
+                null,
+                starts,
+                starts.AddHours(1),
+                0,
+                "coordinator@example.org");
+            var shift = (await service.ListShiftsAsync(default)).Single(x => x.Id == shiftId);
+            await service.PublishShiftAsync(shiftId, shift.Version, "coordinator@example.org", default);
+            assignmentId = (await service.AssignDirectlyAsync(
+                shift.Slots.Single().Id,
+                "Failed access volunteer",
+                "failed-access@example.org",
+                null,
+                "coordinator@example.org",
+                default)).AssignmentId;
+            var intent = await context.NotificationIntents
+                .SingleAsync(x => x.Kind == "AssignmentAccess");
+            intent.Fail(DateTimeOffset.UtcNow, "PermanentFailure");
+            intentId = intent.Id;
+            await context.SaveChangesAsync();
+        }
+
+        using var factory = new CoordinatorWebFactory(
+            _fixture.ConnectionString);
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false
+        });
+        await WaitForReadyAsync(client);
+        var anonymous = await client.GetAsync("/Coordinator/Messages");
+        Assert.Equal(HttpStatusCode.Redirect, anonymous.StatusCode);
+        Assert.Equal("/Account/Login", anonymous.Headers.Location?.AbsolutePath);
+
+        var signedIn = await SignInAsync(client, "coordinator@example.org");
+        Assert.Equal(HttpStatusCode.Redirect, signedIn.StatusCode);
+        var html = await client.GetStringAsync("/Coordinator/Messages");
+        Assert.Contains(
+            $"/Coordinator/Assignments/Access/{assignmentId}",
+            html,
+            StringComparison.Ordinal);
+        Assert.Contains("Manage replacement access", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Send another copy", html, StringComparison.Ordinal);
+
+        await using var verification = _fixture.CreateContext();
+        Assert.Equal(
+            Domain.Notifications.NotificationIntentState.Failed,
+            await verification.NotificationIntents
+                .Where(x => x.Id == intentId)
+                .Select(x => x.State)
+                .SingleAsync());
+    }
+
 
     [Fact]
     public async Task AllowlistedCoordinatorReviewsAssignmentCancellationBeforeConfirming()

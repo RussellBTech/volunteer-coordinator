@@ -1,6 +1,8 @@
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 using VolunteerCoordinator.Application;
 using VolunteerCoordinator.Application.Models;
+using VolunteerCoordinator.Domain.Assignments;
 using VolunteerCoordinator.Application.Ports;
 using VolunteerCoordinator.Application.Time;
 using VolunteerCoordinator.Infrastructure.Notifications;
@@ -107,6 +109,48 @@ internal static class ScheduleTestHelpers
             clock,
             new SecureTokenService(),
             new UnavailableNotificationService(context, clock));
+    }
+
+    public static async Task<string> CreateLegacyActionTokenAsync(
+        VolunteerCoordinatorDbContext context,
+        Guid assignmentId,
+        VolunteerAction action,
+        DateTimeOffset createdAtUtc,
+        DateTimeOffset? expiresAtUtc = null)
+    {
+        var existing = await context.ActionTokens
+            .Where(x => x.AssignmentId == assignmentId && x.Action == action && x.UsedAtUtc == null)
+            .ToListAsync();
+        foreach (var token in existing)
+        {
+            token.Invalidate(createdAtUtc);
+        }
+
+        var generated = new SecureTokenService().Generate();
+        context.ActionTokens.Add(ActionToken.Create(
+            assignmentId,
+            action,
+            generated.Hash,
+            createdAtUtc,
+            expiresAtUtc ?? createdAtUtc.AddDays(7)));
+        await context.SaveChangesAsync();
+        return generated.RawToken;
+    }
+
+    public static async Task<(string? ConfirmToken, string? DeclineToken, string? CancelToken)> CreateLegacyActionLinksAsync(
+        VolunteerCoordinatorDbContext context,
+        Guid assignmentId,
+        AssignmentStatus status,
+        DateTimeOffset createdAtUtc)
+    {
+        var confirm = status == AssignmentStatus.Assigned
+            ? await CreateLegacyActionTokenAsync(context, assignmentId, VolunteerAction.Confirm, createdAtUtc)
+            : null;
+        var decline = status == AssignmentStatus.Assigned
+            ? await CreateLegacyActionTokenAsync(context, assignmentId, VolunteerAction.Decline, createdAtUtc)
+            : null;
+        var cancel = await CreateLegacyActionTokenAsync(context, assignmentId, VolunteerAction.Cancel, createdAtUtc);
+        return (confirm, decline, cancel);
     }
 
     public static async Task AssertBlockedAsync(Task operation)

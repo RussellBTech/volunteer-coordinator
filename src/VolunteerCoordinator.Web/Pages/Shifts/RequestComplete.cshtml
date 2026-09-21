@@ -7,8 +7,7 @@
 @if (Model.StatusUrl is not null)
 {
     <div class="alert alert-success" role="status">Your request is pending.</div>
-    <p>Save this private status link now. It is shown only once and expires after 30 days.</p>
-    <a class="copy-value" href="@Model.StatusUrl">@Model.StatusUrl</a>
+    <p>Save this private commitment link. It remains useful through the commitment and read-only grace period.</p>
 }
 else
 {

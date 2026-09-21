@@ -9,12 +9,11 @@ public sealed class NotificationAttempt
     private NotificationAttempt(
         Guid transitionId,
         string kind,
-        string destination,
         DateTimeOffset createdAtUtc)
     {
-        if (string.IsNullOrWhiteSpace(kind) || string.IsNullOrWhiteSpace(destination))
+        if (string.IsNullOrWhiteSpace(kind))
         {
-            throw new DomainException("Notification kind and destination are required.");
+            throw new DomainException("Notification kind is required.");
         }
 
         if (createdAtUtc.Offset != TimeSpan.Zero)
@@ -25,7 +24,6 @@ public sealed class NotificationAttempt
         Id = Guid.NewGuid();
         TransitionId = transitionId;
         Kind = kind.Trim();
-        Destination = destination.Trim();
         State = NotificationState.Pending;
         CreatedAtUtc = createdAtUtc;
     }
@@ -35,8 +33,6 @@ public sealed class NotificationAttempt
     public Guid TransitionId { get; private set; }
 
     public string Kind { get; private set; } = string.Empty;
-
-    public string Destination { get; private set; } = string.Empty;
 
     public NotificationState State { get; private set; }
 
@@ -49,9 +45,17 @@ public sealed class NotificationAttempt
     public static NotificationAttempt Create(
         Guid transitionId,
         string kind,
-        string destination,
         DateTimeOffset createdAtUtc) =>
-        new(transitionId, kind, destination, createdAtUtc);
+        new(transitionId, kind, createdAtUtc);
+
+    // Compatibility overload for callers that already have a contact value.
+    // The value is intentionally discarded and is never mapped or persisted.
+    public static NotificationAttempt Create(
+        Guid transitionId,
+        string kind,
+        string _,
+        DateTimeOffset createdAtUtc) =>
+        new(transitionId, kind, createdAtUtc);
 
     public void Succeed(DateTimeOffset nowUtc)
     {
@@ -69,17 +73,6 @@ public sealed class NotificationAttempt
             ? "Notification delivery is unavailable."
             : safeErrorSummary.Trim();
         ErrorSummary = error.Length <= 500 ? error : error[..500];
-    }
-
-    public bool RedactDestination()
-    {
-        if (string.Equals(Destination, "removed", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        Destination = "removed";
-        return true;
     }
 
     private void EnsurePending(DateTimeOffset nowUtc)

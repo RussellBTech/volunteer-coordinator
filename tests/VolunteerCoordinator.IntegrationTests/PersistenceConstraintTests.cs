@@ -60,9 +60,9 @@ public sealed class PersistenceConstraintTests
         context.AddRange(shift, volunteer);
         await context.SaveChangesAsync();
         var slotId = shift.Slots.Single().Id;
-        context.ShiftRequests.Add(ShiftRequest.Create(slotId, volunteer.Id, Enumerable.Repeat((byte)1, 32).ToArray(), Now, Now.AddDays(30)));
+        context.ShiftRequests.Add(ShiftRequest.Create(slotId, volunteer.Id, Now));
         await context.SaveChangesAsync();
-        context.ShiftRequests.Add(ShiftRequest.Create(slotId, volunteer.Id, Enumerable.Repeat((byte)2, 32).ToArray(), Now, Now.AddDays(30)));
+        context.ShiftRequests.Add(ShiftRequest.Create(slotId, volunteer.Id, Now));
 
         await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync());
     }
@@ -160,12 +160,7 @@ public sealed class PersistenceConstraintTests
         context.AddRange(shift, volunteer);
         await context.SaveChangesAsync();
         var slotId = shift.Slots.Single().Id;
-        var request = ShiftRequest.Create(
-            slotId,
-            volunteer.Id,
-            Enumerable.Repeat((byte)1, 32).ToArray(),
-            Now,
-            Now.AddDays(30));
+        var request = ShiftRequest.Create(slotId, volunteer.Id, Now);
         var assignment = Assignment.Create(
             slotId,
             shift.Id,

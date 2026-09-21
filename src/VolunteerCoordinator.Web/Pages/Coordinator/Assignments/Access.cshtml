@@ -1,0 +1,30 @@
+@page "/Coordinator/Assignments/Access/{assignmentId:guid}"
+@model VolunteerCoordinator.Web.Pages.Coordinator.Assignments.AccessModel
+@{
+    ViewData["Title"] = "Manage volunteer access";
+}
+<h1 tabindex="-1">Manage volunteer access</h1>
+@if (Model.Error is not null)
+{
+    <div class="alert alert-error" role="alert">@Model.Error</div>
+}
+@if (Model.Commitment is not null)
+{
+    <div class="card"><partial name="_CommitmentDetails" model="Model.Commitment" /></div>
+    <div class="card">
+        <h2>Before you choose</h2>
+        <ul>
+            <li>Send replacement access: current access remains valid until the volunteer redeems replacement access.</li>
+            <li>Revoke now and send replacement: current access stops immediately; if delivery fails, no usable replacement link remains.</li>
+        </ul>
+    </div>
+    <form method="post">
+        <input type="hidden" name="revokeNow" value="false" />
+        <button type="submit">Send replacement access</button>
+    </form>
+    <form method="post">
+        <input type="hidden" name="revokeNow" value="true" />
+        <button class="button-danger" type="submit">Revoke now and send replacement</button>
+    </form>
+}
+<p><a class="button button-secondary" asp-page="/Coordinator/Coverage/Index">Return to coverage</a></p>

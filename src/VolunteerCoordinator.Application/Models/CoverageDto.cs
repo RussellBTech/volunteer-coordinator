@@ -7,7 +7,8 @@ public sealed record CoverageDto(
     CommitmentDto Commitment,
     string State,
     string? VolunteerName,
-    string? VolunteerEmail)
+    string? VolunteerEmail,
+    AccessStateDto? Access = null)
 {
     public string ShiftTitle => Commitment.ShiftTitle;
 

@@ -244,12 +244,7 @@ public sealed class Issue16PrivacyWebIntegrationTests
         context.Volunteers.Add(volunteer);
         var tokenService = new SecureTokenService();
         var generated = tokenService.Generate();
-        var request = ShiftRequest.Create(
-            shift.Slots.Single().Id,
-            volunteer.Id,
-            generated.Hash,
-            FixedNow.AddDays(-3),
-            FixedNow.AddDays(27));
+        var request = ShiftRequest.Create(shift.Slots.Single().Id, volunteer.Id, FixedNow.AddDays(-3));
         if (!pending)
         {
             request.Approve(Coordinator, FixedNow.AddDays(-2));

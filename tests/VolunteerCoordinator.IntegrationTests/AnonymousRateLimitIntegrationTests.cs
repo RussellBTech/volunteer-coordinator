@@ -303,11 +303,11 @@ public sealed class AnonymousRateLimitIntegrationTests
             null,
             "coordinator@example.org",
             default);
-        var links = await CreateService(context).GenerateActionLinksAsync(
+        return await ScheduleTestHelpers.CreateLegacyActionTokenAsync(
+            context,
             assignment.AssignmentId,
-            "coordinator@example.org",
-            default);
-        return links.ConfirmToken!;
+            VolunteerAction.Confirm,
+            DateTimeOffset.UtcNow);
     }
 
     private async Task<PersistenceSnapshot> ReadSnapshotAsync()
@@ -355,9 +355,7 @@ public sealed class AnonymousRateLimitIntegrationTests
                 x.Status,
                 x.RequestedAtUtc,
                 x.ResolvedAtUtc,
-                x.ResolvedByCoordinatorEmail,
-                Convert.ToHexString(x.StatusTokenHash),
-                x.StatusTokenExpiresAtUtc)).ToArray(),
+                x.ResolvedByCoordinatorEmail)).ToArray(),
             assignments.Select(x => new AssignmentSnapshot(
                 x.Id,
                 x.ShiftSlotId,
@@ -381,7 +379,6 @@ public sealed class AnonymousRateLimitIntegrationTests
                 x.Id,
                 x.TransitionId,
                 x.Kind,
-                x.Destination,
                 x.State,
                 x.CreatedAtUtc,
                 x.CompletedAtUtc,
@@ -480,10 +477,7 @@ public sealed class AnonymousRateLimitIntegrationTests
         RequestStatus Status,
         DateTimeOffset RequestedAtUtc,
         DateTimeOffset? ResolvedAtUtc,
-        string? ResolvedByCoordinatorEmail,
-        string StatusTokenHash,
-        DateTimeOffset StatusTokenExpiresAtUtc);
-
+        string? ResolvedByCoordinatorEmail);
     private sealed record AssignmentSnapshot(
         Guid Id,
         Guid ShiftSlotId,
@@ -509,12 +503,10 @@ public sealed class AnonymousRateLimitIntegrationTests
         Guid Id,
         Guid TransitionId,
         string Kind,
-        string Destination,
         NotificationState State,
         DateTimeOffset CreatedAtUtc,
         DateTimeOffset? CompletedAtUtc,
         string? ErrorSummary);
-
     private sealed record AuditSnapshot(
         Guid Id,
         DateTimeOffset OccurredAtUtc,

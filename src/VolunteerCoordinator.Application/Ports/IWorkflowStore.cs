@@ -66,7 +66,6 @@ public interface IWorkflowStore
 
     Task<ShiftRequest?> GetRequestAsync(Guid requestId, CancellationToken cancellationToken);
 
-    Task<ShiftRequest?> GetRequestByStatusHashAsync(byte[] hash, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<ShiftRequest>> GetRequestsAsync(CancellationToken cancellationToken);
 
@@ -105,13 +104,6 @@ public interface IWorkflowStore
     Task<IReadOnlyList<Assignment>> GetActiveAssignmentsAsync(
         IReadOnlyCollection<Guid> slotIds,
         CancellationToken cancellationToken);
-
-    Task<Guid?> GetActionTokenSlotIdAsync(
-        byte[] hash,
-        CancellationToken cancellationToken);
-
-    Task<ActionToken?> GetActionTokenByHashAsync(byte[] hash, CancellationToken cancellationToken);
-
     Task<IReadOnlyList<ActionToken>> GetUnusedActionTokensAsync(
         Guid assignmentId,
         VolunteerAction action,
@@ -120,6 +112,7 @@ public interface IWorkflowStore
     Task<IReadOnlyList<ActionToken>> GetUnusedActionTokensAsync(
         IReadOnlyCollection<Guid> assignmentIds,
         CancellationToken cancellationToken);
+
 
     Task<IReadOnlyList<AuditEntry>> GetAuditEntriesAsync(
         int limit,
@@ -150,7 +143,6 @@ public interface IWorkflowStore
 
     void AddAssignment(Assignment assignment);
 
-    void AddActionToken(ActionToken actionToken);
 
     void AddAuditEntry(AuditEntry auditEntry);
 }
