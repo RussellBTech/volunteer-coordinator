@@ -15,7 +15,8 @@ public sealed class Shift
         string? volunteerInstructions,
         DateTimeOffset startsAtUtc,
         DateTimeOffset endsAtUtc,
-        int backupSlotCount)
+        int backupSlotCount,
+        Guid? recurringOccurrenceId = null)
     {
         Validate(title, location, notes, volunteerInstructions, startsAtUtc, endsAtUtc);
         if (backupSlotCount is < 0 or > 2)
@@ -23,7 +24,13 @@ public sealed class Shift
             throw new DomainException("A shift may have zero, one, or two backup slots.");
         }
 
+        if (recurringOccurrenceId == Guid.Empty)
+        {
+            throw new DomainException("A recurring occurrence identifier must be non-empty.");
+        }
+
         Id = Guid.NewGuid();
+        RecurringOccurrenceId = recurringOccurrenceId;
         Title = title.Trim();
         Location = NormalizeOptional(location);
         Notes = NormalizeOptional(notes);
@@ -39,6 +46,8 @@ public sealed class Shift
     }
 
     public Guid Id { get; private set; }
+    public Guid? RecurringOccurrenceId { get; private set; }
+
 
     public string Title { get; private set; } = string.Empty;
 
@@ -90,6 +99,25 @@ public sealed class Shift
         int backupSlotCount,
         string? volunteerInstructions) =>
         Create(title, location, notes, volunteerInstructions, startsAtUtc, endsAtUtc, backupSlotCount);
+    public static Shift CreateRecurring(
+        string title,
+        string? location,
+        string? notes,
+        string? volunteerInstructions,
+        DateTimeOffset startsAtUtc,
+        DateTimeOffset endsAtUtc,
+        int backupSlotCount,
+        Guid recurringOccurrenceId) =>
+        new(
+            title,
+            location,
+            notes,
+            volunteerInstructions,
+            startsAtUtc,
+            endsAtUtc,
+            backupSlotCount,
+            recurringOccurrenceId);
+
 
     public void Edit(
         string title,

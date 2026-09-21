@@ -1,0 +1,11 @@
+@page "/Coordinator/Recurring/Zone/{id:guid}"
+@model VolunteerCoordinator.Web.Pages.Coordinator.Recurring.ZoneModel
+@{
+    ViewData["Title"] = "Review recurring time zone";
+}
+<header class="page-heading"><div><p class="eyebrow">Time-zone adoption</p><h1 tabindex="-1">Review the recurring schedule’s time zone</h1><p class="lead">Top-up is paused because the group time zone changed. Adopting it creates a future revision; existing protected and exception UTC shifts are not rewritten.</p></div></header>
+<div asp-validation-summary="All" class="validation-summary-errors" role="alert"></div>
+@if (Model.Preview is not null)
+{
+    <section class="card"><h2>What will be revisited</h2><p>@Model.Preview.EligibleCount eligible future occurrence(s) can use the current group zone. @Model.Preview.ProtectedCount protected occurrence(s) remain independent.</p><ul class="status-list">@foreach (var row in Model.Preview.Rows) { <li><strong>@row.LocalDate.ToString("dddd, MMMM d, yyyy")</strong> — @row.Classification@(row.ProtectionSummary is null ? string.Empty : $" ({row.ProtectionSummary})")</li> }</ul><form method="post"><input asp-for="ExpectedSeriesVersion" type="hidden"><button type="submit" asp-page-handler="Adopt">Adopt current group time zone</button><a class="button button-secondary" asp-page="/Coordinator/Recurring/Detail" asp-route-id="@Model.SeriesId">Leave paused</a></form></section>
+}
