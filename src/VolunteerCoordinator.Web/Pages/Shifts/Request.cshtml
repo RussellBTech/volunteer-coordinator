@@ -1,20 +1,33 @@
 @page "/Shifts/Request/{slotId:guid}"
+@using VolunteerCoordinator.Domain.Schedules
+@using VolunteerCoordinator.Web.Presentation
 @model VolunteerCoordinator.Web.Pages.Shifts.RequestModel
+@inject GroupTimeFormatter Formatter
 @{
-    ViewData["Title"] = "Request a shift";
+    var isDirectClaim = Model.Opening?.Commitment.SignupPolicy == SignupPolicy.DirectClaim;
+    ViewData["Title"] = isDirectClaim ? "Claim a shift" : "Request a shift";
 }
-<h1 tabindex="-1">Request a shift</h1>
+<h1 tabindex="-1">@(isDirectClaim ? "Claim a shift" : "Request a shift")</h1>
 @if (!Model.IsTimeZoneConfigured)
 {
     <div class="alert alert-warning" role="status">Commitment times are temporarily unavailable. Please contact the coordinator.</div>
 }
 else if (Model.Opening is not null)
 {
-    <div class="card">
-        <partial name="_CommitmentDetails" model="Model.Opening.Commitment" />
-        <p><span class="badge badge-open">@Model.Opening.Status</span></p>
+    <div class="card opening-card">
+        <h2>@Model.Opening.Commitment.ShiftTitle</h2>
+        <p class="opening-time"><time datetime="@Formatter.UtcDateTime(Model.Opening.Commitment.StartsAtUtc)">@Formatter.FormatLocal(Model.Opening.Commitment.StartsAtUtc, Model.Opening.Commitment.GroupTimeZoneId)</time></p>
+        <p><strong>@Model.Opening.Commitment.SlotLabel</strong> · <span class="badge badge-open">@Model.Opening.Status</span></p>
+        @if (Model.Opening.Commitment.Location is not null)
+        {
+            <p><strong>Location:</strong> @Model.Opening.Commitment.Location</p>
+        }
+        <details class="supporting-details">
+            <summary>Full shift details and instructions</summary>
+            <partial name="_CommitmentDetails" model="Model.Opening.Commitment" />
+        </details>
     </div>
-    <div class="alert @(Model.Opening.Commitment.SignupPolicy == VolunteerCoordinator.Domain.Schedules.SignupPolicy.DirectClaim ? "alert-success" : "alert-warning")" role="status">
+    <div class="alert @(isDirectClaim ? "alert-success" : "alert-warning")" role="status">
         <strong>@Model.Opening.Commitment.SignupPolicyLabel</strong> —
         @Model.Opening.Commitment.SignupPolicyConsequence
     </div>
@@ -24,6 +37,6 @@ else if (Model.Opening is not null)
         <div class="form-group"><label asp-for="Email"></label><input asp-for="Email" autocomplete="email"><span asp-validation-for="Email"></span></div>
         <div class="form-group"><label asp-for="Phone"></label><input asp-for="Phone" autocomplete="tel"><span asp-validation-for="Phone"></span></div>
         <partial name="_VolunteerPrivacyNotice" />
-        <button type="submit">@(Model.Opening.Commitment.SignupPolicy == VolunteerCoordinator.Domain.Schedules.SignupPolicy.DirectClaim ? "Claim commitment" : "Send request")</button>
+        <button type="submit">@(isDirectClaim ? "Claim commitment" : "Send request")</button>
     </form>
 }

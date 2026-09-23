@@ -37,8 +37,8 @@
         </div>
         <p class="field-help">The confirmation is stale if any mapped join, assignment, occurrence, shift, revision, local time, or state changes. A stale handoff applies nothing.</p>
         <div class="actions">
-            <button type="submit" name="handler" value="Preview">Refresh preview</button>
-            <button type="submit" name="handler" value="Confirm">Confirm reviewed handoff</button>
+            <button type="submit" asp-page-handler="Preview">Refresh preview</button>
+            <button type="submit" asp-page-handler="Confirm">Confirm reviewed handoff</button>
             <a class="button button-secondary" asp-page="/Coordinator/Requests/Index">Back without changes</a>
         </div>
     </form>

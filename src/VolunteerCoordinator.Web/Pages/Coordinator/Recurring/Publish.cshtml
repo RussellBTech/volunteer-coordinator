@@ -16,7 +16,7 @@
     <div class="form-group"><label asp-for="ThroughLocalDate">Last local date</label><input asp-for="ThroughLocalDate" type="date"></div>
     <input asp-for="ExpectedSeriesVersion" type="hidden">
     <input asp-for="ExpectedVersions" type="hidden">
-    <div class="actions"><button type="submit" name="handler" value="Preview">Review selected dates</button><a class="button button-secondary" asp-page="/Coordinator/Recurring/Detail" asp-route-id="@Model.SeriesId">Back without changes</a></div>
+    <div class="actions"><button type="submit" asp-page-handler="Preview">Review selected dates</button><a class="button button-secondary" asp-page="/Coordinator/Recurring/Detail" asp-route-id="@Model.SeriesId">Back without changes</a></div>
 </form>
 @if (Model.Preview is not null)
 {
@@ -35,7 +35,7 @@
         else
         {
             <p>All selected concrete shifts are current and eligible.</p>
-            <form method="post"><input asp-for="ExpectedSeriesVersion" type="hidden"><input asp-for="ExpectedVersions" type="hidden"><input asp-for="FromLocalDate" type="hidden"><input asp-for="ThroughLocalDate" type="hidden"><button type="submit" name="handler" value="Confirm">Publish all selected dates</button></form>
+            <form method="post"><input asp-for="ExpectedSeriesVersion" type="hidden"><input asp-for="ExpectedVersions" type="hidden"><input asp-for="FromLocalDate" type="hidden"><input asp-for="ThroughLocalDate" type="hidden"><button type="submit" asp-page-handler="Confirm">Publish all selected dates</button></form>
         }
     </section>
 }

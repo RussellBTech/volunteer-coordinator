@@ -102,5 +102,9 @@ public sealed class HandoffModel : PageModel
         ExpectedMapping = Preview.ExpectedMapping;
         ExpectedCommitmentVersion = Preview.ExpectedCommitmentVersion;
         ExpectedSeriesVersion = Preview.ExpectedSeriesVersion;
+        ModelState.Remove(nameof(EffectiveLocalDate));
+        ModelState.Remove(nameof(ExpectedMapping));
+        ModelState.Remove(nameof(ExpectedCommitmentVersion));
+        ModelState.Remove(nameof(ExpectedSeriesVersion));
     }
 }

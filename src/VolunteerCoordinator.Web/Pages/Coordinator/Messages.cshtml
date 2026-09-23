@@ -22,7 +22,7 @@
         <p class="eyebrow">All clear</p>
         <h2>No messages need follow-up</h2>
         <p>There are no unsent messages tied to a current or future commitment.</p>
-        <a class="button button-secondary" asp-page="/Coordinator">Back to coordinator home</a>
+        <a class="button button-secondary" asp-page="/Coordinator/Index">Back to coordinator home</a>
     </div>
 }
 else
@@ -127,7 +127,7 @@ else
                     else if (intent.Kind is "RequestReceipt" or "AssignmentAccess" or "AccessRecovery" or "CoordinatorAccessReissue")
                     {
                         <a class="button button-secondary"
-                           asp-page="/Coordinator/Coverage">Review volunteer access</a>
+                           asp-page="/Coordinator/Coverage/Index">Review volunteer access</a>
                     }
                     else
                     {

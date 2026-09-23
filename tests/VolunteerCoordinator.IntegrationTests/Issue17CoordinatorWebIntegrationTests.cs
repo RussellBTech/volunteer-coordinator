@@ -1,8 +1,10 @@
+using System.Globalization;
 using System.Net;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using VolunteerCoordinator.Application;
+using VolunteerCoordinator.Domain.Schedules;
 using VolunteerCoordinator.Infrastructure.Notifications;
 using VolunteerCoordinator.Infrastructure.Persistence;
 using VolunteerCoordinator.Infrastructure.Time;
@@ -46,6 +48,79 @@ public sealed class Issue17CoordinatorWebIntegrationTests
         Assert.Contains("Publish open commitments", home);
         Assert.Contains("Volunteers request a commitment. A coordinator reviews each request before anyone is assigned.", home);
         Assert.Contains("href=\"/Coordinator/Settings\"", home);
+    }
+
+    [Fact]
+    public async Task CoordinatorPrimaryNavigationReachesWorkAndReturnsHome()
+    {
+        await _fixture.ResetAsync();
+        using var factory = new CoordinatorWebFactory(_fixture.ConnectionString);
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        await SignInAsync(client);
+
+        var home = await client.GetStringAsync("/Coordinator");
+        Assert.Contains("<a href=\"/Coordinator/Work\">Work</a>", home);
+
+        var workResponse = await client.GetAsync("/Coordinator/Work");
+        Assert.Equal(HttpStatusCode.OK, workResponse.StatusCode);
+        var work = await workResponse.Content.ReadAsStringAsync();
+        Assert.Contains("<a href=\"/Coordinator\">Home</a>", work);
+    }
+
+    [Fact]
+    public async Task EditingShiftPreservesLocalFieldsAndAppliesReviewedPolicyChange()
+    {
+        await _fixture.ResetAsync();
+        var clock = new ScheduleTestHelpers.FixedClock(new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero));
+        Guid shiftId;
+        await using (var context = _fixture.CreateContext())
+        {
+            var service = ScheduleTestHelpers.CreateService(context, clock);
+            await service.ConfigureGroupTimeZoneAsync("America/Chicago", null, false, Coordinator, default);
+            shiftId = await ScheduleTestHelpers.CreateShiftFromInstantsAsync(
+                service, "Community pantry", "Hall", null,
+                new DateTimeOffset(2026, 10, 15, 23, 0, 0, TimeSpan.Zero),
+                new DateTimeOffset(2026, 10, 16, 1, 0, 0, TimeSpan.Zero),
+                0, Coordinator, volunteerInstructions: "Use the north entrance.");
+        }
+
+        using var factory = new CoordinatorWebFactory(_fixture.ConnectionString, clock: clock);
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        await SignInAsync(client);
+        var html = await client.GetStringAsync($"/Coordinator/Schedule/Edit/{shiftId}");
+
+        Assert.Equal(new DateTime(2026, 10, 15, 18, 0, 0), DateTime.Parse(Regex.Match(html, "id=\"StartsAtLocal\"[^>]*value=\"([^\"]+)\"").Groups[1].Value, CultureInfo.InvariantCulture));
+        Assert.Equal(new DateTime(2026, 10, 15, 20, 0, 0), DateTime.Parse(Regex.Match(html, "id=\"EndsAtLocal\"[^>]*value=\"([^\"]+)\"").Groups[1].Value, CultureInfo.InvariantCulture));
+        Assert.Contains("Use the north entrance.</textarea>", html);
+
+        var fields = new Dictionary<string, string>
+        {
+            ["__RequestVerificationToken"] = ExtractHiddenValue(html, "__RequestVerificationToken"),
+            ["ExpectedVersion"] = ExtractHiddenValue(html, "ExpectedVersion"),
+            ["ExpectedSettingsVersion"] = ExtractHiddenValue(html, "ExpectedSettingsVersion"),
+            ["ExpectedCurrentPolicy"] = ExtractHiddenValue(html, "ExpectedCurrentPolicy"),
+            ["ExpectedPolicyConsequence"] = "",
+            ["Title"] = "Community pantry",
+            ["Location"] = "Hall",
+            ["VolunteerInstructions"] = "Use the north entrance.",
+            ["StartsAtLocal"] = ExtractHiddenValue(html, "StartsAtLocal"),
+            ["EndsAtLocal"] = ExtractHiddenValue(html, "EndsAtLocal"),
+            ["BackupSlotCount"] = "0",
+            ["SignupPolicy"] = "DirectClaim"
+        };
+        var preview = await client.PostAsync(
+            $"/Coordinator/Schedule/Edit/{shiftId}?handler=PreviewPolicy",
+            new FormUrlEncodedContent(fields));
+        var previewHtml = await preview.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, preview.StatusCode);
+        fields["ExpectedCurrentPolicy"] = ExtractHiddenValue(previewHtml, "ExpectedCurrentPolicy");
+        fields["ExpectedPolicyConsequence"] = ExtractHiddenValue(previewHtml, "ExpectedPolicyConsequence");
+        fields["ConfirmPolicyChange"] = "true";
+
+        var saved = await client.PostAsync($"/Coordinator/Schedule/Edit/{shiftId}", new FormUrlEncodedContent(fields));
+        Assert.Equal(HttpStatusCode.Redirect, saved.StatusCode);
+        await using var verified = _fixture.CreateContext();
+        Assert.Equal(SignupPolicy.DirectClaim, (await verified.Shifts.SingleAsync()).SignupPolicy);
     }
 
     [Fact]

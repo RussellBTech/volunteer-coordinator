@@ -51,6 +51,8 @@ public sealed class PublishModel : PageModel
             Preview = await _service.PreviewPublicationAsync(id, FromLocalDate, ThroughLocalDate, cancellationToken);
             ExpectedSeriesVersion = Preview.ExpectedSeriesVersion;
             ExpectedVersions = Preview.ExpectedVersions;
+            ModelState.Remove(nameof(ExpectedSeriesVersion));
+            ModelState.Remove(nameof(ExpectedVersions));
             return Page();
         }
         catch (DomainException exception)

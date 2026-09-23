@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-09-23
+
+### Changed
+
+- Simplified mobile volunteer and coordinator navigation, shift cards, request and recurring journeys, private status hubs, and prioritized coverage actions for issue #48.
+- Restored recurring and schedule review/confirmation buttons, preserved reviewed state across submissions, and prefilled local schedule corrections.
+
 ## [0.13.0] - 2026-09-21
 
 ### Added

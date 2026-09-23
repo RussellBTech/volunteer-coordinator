@@ -42,21 +42,28 @@ else
                 <li>@(slot.Kind == "Primary" ? "Primary" : $"Backup {slot.Position}"): <strong>@(slot.Status switch { "Assigned" => "Waiting for confirmation", "Confirmed" => "Confirmed", "Open" => "Open", "Inactive" => "Resolved", _ => "Resolved" })</strong></li>
             }
             </ul>
-            <div class="actions">
-                @if (shift.IsActive)
-                {
-                    <a class="button button-secondary" asp-page="/Coordinator/Schedule/Edit" asp-route-id="@shift.Id">Edit entry</a>
-                }
-                @if (shift.IsActive && !shift.IsPublished)
-                {
-                    <a class="button" asp-page="/Coordinator/Schedule/Publish" asp-route-id="@shift.Id">Review and publish</a>
-                }
-                @if (shift.IsActive)
-                {
+            @if (shift.IsActive)
+            {
+                <div class="actions">
+                    @if (!shift.IsPublished)
+                    {
+                        <a class="button" asp-page="/Coordinator/Schedule/Publish" asp-route-id="@shift.Id">Review and publish</a>
+                    }
+                    else
+                    {
+                        <a class="button" asp-page="/Coordinator/Schedule/Edit" asp-route-id="@shift.Id">Edit entry</a>
+                    }
+                </div>
+                <details class="supporting-details">
+                    <summary>Other schedule actions</summary>
+                    @if (!shift.IsPublished)
+                    {
+                        <a class="text-link" asp-page="/Coordinator/Schedule/Edit" asp-route-id="@shift.Id">Edit entry</a>
+                    }
                     <p class="field-help">Deactivation supersedes pending requests, cancels active assignments, and invalidates their action links.</p>
-                    <a class="button button-danger" asp-page="/Coordinator/Schedule/Deactivate" asp-route-id="@shift.Id">Review deactivation</a>
-                }
-            </div>
+                    <a class="text-link danger-link" asp-page="/Coordinator/Schedule/Deactivate" asp-route-id="@shift.Id">Review deactivation</a>
+                </details>
+            }
         </article>
     }
     </div>

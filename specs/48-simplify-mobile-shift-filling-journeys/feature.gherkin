@@ -1,0 +1,68 @@
+# Issue: #48
+**Issue**: #48
+Feature: Fill shifts with clear mobile-first journeys
+  Existing authoritative workflow, local time, security, privacy, and previews remain unchanged.
+
+  Scenario: Volunteer scans an open primary or backup slot on a narrow phone
+    Given a published opening has a group-local date, slot, location and signup policy
+    When the volunteer visits Open shifts at 320 CSS pixels
+    Then the title, local start, slot, text availability and claim or request outcome precede one primary action
+    And full commitment details and recurring service remain accessible without JavaScript
+    And the document does not scroll horizontally
+
+  Scenario: Volunteer requests an approval-required slot
+    Given the opening requires coordinator approval
+    When the volunteer opens its request form and submits valid contact details
+    Then the form explains that a coordinator reviews the request and shows the privacy notice
+    And the private hub presents pending status and only actions valid for current authoritative state
+
+  Scenario: Volunteer directly claims a slot
+    Given the opening uses Direct claim
+    When the volunteer opens its form
+    Then the primary action says Claim commitment and the policy explains immediate confirmation for an eligible volunteer
+    And the same backend first-eligible-wins and current status rules apply
+
+  Scenario: Volunteer recovers a lost private commitment link
+    Given a volunteer no longer has their private status link
+    When they return to Open shifts
+    Then a visible secondary link leads to the existing recovery form
+    And its response does not disclose whether a commitment matched
+
+  Scenario: Recurring service is reviewed before submission
+    Given a volunteer chooses a recurring role, first date and horizon
+    When they preview the exact included and unavailable dates
+    Then review is the only pre-preview submit action
+    And after preview the claim or request submit becomes primary beneath the exact dates
+    And on the private recurring hub a valid confirm or withdrawal action precedes the long occurrence list
+
+  Scenario: Coordinator navigates a compact header without script
+    Given an allowlisted coordinator views the application at 320 CSS pixels with JavaScript disabled
+    When they tab through Home, Work, Schedule and activate More coordinator pages with Enter or Space
+    Then every existing secondary route and the sign-out POST remains focusable and operable
+    And the header does not push the page title behind eleven stacked primary links
+
+  Scenario: Coordinator resolves the most urgent coverage work
+    Given the authoritative prioritized queue includes an uncovered slot or a pending approval
+    When the coordinator follows Home to Work and opens the first intervention
+    Then queue work appears before optional filters and the action names its intervention
+    And Coverage foregrounds Assign volunteer for an open slot or Requests foregrounds Approve and assign for an eligible pending request
+    And replacement, cancellation, decline, access, and filter paths remain accessible
+    And server-rendered confirmation previews and audited transitions remain intact
+
+  Scenario: Coordinator follows existing preview and confirm controls
+    Given a coordinator has set the group time zone and entered a valid recurring pattern
+    When they choose Preview dates or Save recurring schedule
+    Then the corresponding existing server handler shows concrete dates or saves the schedule
+    And a reviewed publication, revision or handoff confirmation reaches its existing handler rather than silently redisplaying the form
+
+  Scenario: An eligible policy correction keeps its reviewed consequence
+    Given a coordinator edits a shift and changes its signup policy
+    When they preview the consequence and confirm the change
+    Then the existing save action accepts the same reviewed consequence checked by the authoritative command
+    And stale or ineligible changes remain blocked
+
+  Scenario: Hub presents valid actions without a new capability
+    Given a volunteer has a valid private status capability
+    When the assignment state changes
+    Then textual request and assignment states precede currently offered actions
+    And no added interface bypasses token expiration, single-use semantics, eligibility deadlines or privacy controls

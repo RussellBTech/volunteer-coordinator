@@ -1,9 +1,16 @@
 @page "/Shifts"
+@using VolunteerCoordinator.Web.Presentation
 @model VolunteerCoordinator.Web.Pages.Shifts.IndexModel
+@inject GroupTimeFormatter Formatter
 @{
     ViewData["Title"] = "Open shifts";
 }
 <h1 tabindex="-1">Open shifts</h1>
+<p class="field-help">Already volunteered? <a asp-page="/Commitments/Recover">Recover your private commitment link</a>.</p>
+@if (Model.RecurringSeries.Any(x => x.IsActive))
+{
+    <p class="field-help"><a href="#recurring-openings-heading">Looking for regular service? See recurring schedules</a>.</p>
+}
 @if (!Model.IsTimeZoneConfigured)
 {
     <div class="alert alert-warning" role="status">Commitment times are temporarily unavailable. Please contact the coordinator.</div>
@@ -17,19 +24,29 @@ else if (Model.Openings.Count == 0)
 }
 else
 {
-    <p class="lead">Published primary and backup opportunities that still need a volunteer. Times are shown in the group's local time.</p>
-    <div class="grid">
+    <p class="lead">Choose an open primary or backup role. Times are shown in the group's local time.</p>
+    <div class="grid opening-grid">
     @foreach (var opening in Model.Openings)
     {
-        <article class="card">
-            <partial name="_CommitmentDetails" model="opening.Commitment" />
-            <p><span class="badge badge-open">@opening.Status</span></p>
-            <a class="button" asp-page="/Shifts/Request" asp-route-slotId="@opening.SlotId">@(opening.Commitment.SignupPolicy == VolunteerCoordinator.Domain.Schedules.SignupPolicy.DirectClaim ? "Claim this commitment" : "Request this " + opening.SlotLabel.ToLowerInvariant() + " slot")</a>
+        <article class="card opening-card">
+            <h2>@opening.Commitment.ShiftTitle</h2>
+            <p class="opening-time"><time datetime="@Formatter.UtcDateTime(opening.Commitment.StartsAtUtc)">@Formatter.FormatLocal(opening.Commitment.StartsAtUtc, opening.Commitment.GroupTimeZoneId)</time></p>
+            <p><strong>@opening.Commitment.SlotLabel</strong> · <span class="badge badge-open">@opening.Status</span></p>
+            @if (opening.Commitment.Location is not null)
+            {
+                <p><strong>Location:</strong> @opening.Commitment.Location</p>
+            }
+            <p class="field-help">@(opening.Commitment.SignupPolicy == VolunteerCoordinator.Domain.Schedules.SignupPolicy.DirectClaim ? "The first eligible volunteer is confirmed immediately." : "A coordinator reviews each request before assignment.")</p>
+            <a class="button opening-action" asp-page="/Shifts/Request" asp-route-slotId="@opening.SlotId">@(opening.Commitment.SignupPolicy == VolunteerCoordinator.Domain.Schedules.SignupPolicy.DirectClaim ? "Claim this commitment" : "Request this " + opening.SlotLabel.ToLowerInvariant() + " slot")</a>
+            <details class="supporting-details">
+                <summary>Full shift details and instructions</summary>
+                <partial name="_CommitmentDetails" model="opening.Commitment" />
+            </details>
         </article>
     }
     </div>
 }
-@if (Model.RecurringSeries.Count > 0)
+@if (Model.RecurringSeries.Any(x => x.IsActive))
 {
     <section class="card" aria-labelledby="recurring-openings-heading">
         <h2 id="recurring-openings-heading">Serve regularly</h2>
@@ -39,8 +56,8 @@ else
         {
             <article class="card">
                 <h3>@series.Title</h3>
-                <p>@series.RecurrenceDescription in @series.TimeZoneId</p>
-                <p><strong>@series.SignupPolicy</strong> — @(series.SignupPolicy == VolunteerCoordinator.Domain.Schedules.SignupPolicy.DirectClaim ? "First eligible volunteer is confirmed immediately." : "A coordinator reviews each request.")</p>
+                <p>@series.RecurrenceDescription in @Formatter.FriendlyTimeZone(series.TimeZoneId)</p>
+                <p><strong>@(series.SignupPolicy == VolunteerCoordinator.Domain.Schedules.SignupPolicy.DirectClaim ? "Direct claim" : "Coordinator review")</strong> — @(series.SignupPolicy == VolunteerCoordinator.Domain.Schedules.SignupPolicy.DirectClaim ? "First eligible volunteer is confirmed immediately." : "A coordinator reviews each request.")</p>
                 <a class="button" asp-page="/Recurring/Index" asp-route-seriesId="@series.Id">Serve regularly</a>
             </article>
         }

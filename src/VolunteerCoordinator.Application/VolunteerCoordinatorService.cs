@@ -512,9 +512,7 @@ public sealed partial class VolunteerCoordinatorService
             shift.Version,
             canApply,
             canApply
-                ? proposedPolicy == SignupPolicy.DirectClaim
-                    ? "The first eligible volunteer will be confirmed immediately for future submissions."
-                    : "A coordinator will review each future request before assignment."
+                ? PolicyConsequence(proposedPolicy)
                 : "Resolve existing volunteer requests before enabling Direct claim.");
     }
 
