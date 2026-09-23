@@ -16,7 +16,7 @@
     @if (!Model.Home.IsSetupMode)
     {
         <div class="actions">
-            <a class="button" asp-page="/Coordinator/Work">Open prioritized work</a>
+            <a class="button" asp-page="/Coordinator/Work/Index">Open prioritized work</a>
             <a class="button button-secondary" asp-page="/Coordinator/Schedule/Index">Open schedule</a>
         </div>
     }
@@ -32,6 +32,12 @@
             </div>
             <span class="status-chip">Guided setup</span>
         </div>
+        @if (Model.Home.RecommendedActionUrl is not null)
+        {
+            <div class="primary-action">
+                <a class="button" href="@Model.Home.RecommendedActionUrl">@Model.Home.RecommendedActionLabel</a>
+            </div>
+        }
         <ol class="setup-list">
         @foreach (var step in Model.Home.SetupSteps)
         {
@@ -55,12 +61,6 @@
             </li>
         }
         </ol>
-        @if (Model.Home.RecommendedActionUrl is not null)
-        {
-            <div class="primary-action">
-                <a class="button" href="@Model.Home.RecommendedActionUrl">@Model.Home.RecommendedActionLabel</a>
-            </div>
-        }
     </section>
 }
 else if (Model.Home.IsCaughtUp)

@@ -62,7 +62,7 @@
             </label>
         </div>
     </fieldset>
-    <div class="actions"><button type="submit" name="handler" value="Preview">Preview dates</button><button type="submit" name="handler" value="Create">Save recurring schedule</button><a class="button button-secondary" asp-page="/Coordinator/Recurring/Index">Cancel</a></div>
+    <div class="actions"><button type="submit" asp-page-handler="Preview">Preview dates</button><button type="submit" asp-page-handler="Create">Save recurring schedule</button><a class="button button-secondary" asp-page="/Coordinator/Recurring/Index">Cancel</a></div>
 </form>
 @if (Model.Preview is not null)
 {

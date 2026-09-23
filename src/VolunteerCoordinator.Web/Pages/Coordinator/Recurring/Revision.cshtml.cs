@@ -109,6 +109,10 @@ public sealed class RevisionModel : PageModel
             ConfirmPolicyChange = false;
 
             ExpectedClassification = Preview.ExpectedClassification;
+            ModelState.Remove(nameof(ExpectedSeriesVersion));
+            ModelState.Remove(nameof(ExpectedCurrentPolicy));
+            ModelState.Remove(nameof(ExpectedClassification));
+            ModelState.Remove(nameof(ConfirmPolicyChange));
             return Page();
         }
         catch (DomainException exception)

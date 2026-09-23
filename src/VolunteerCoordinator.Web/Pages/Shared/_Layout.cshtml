@@ -17,41 +17,47 @@
     <nav aria-label="Main navigation" class="container nav-row">
         @if (canAccessCoordinator)
         {
-            <a class="brand" asp-page="/Coordinator">Volunteer Coordinator</a>
+            <a class="brand" asp-page="/Coordinator/Index">Volunteer Coordinator</a>
+            <div class="nav-primary" aria-label="Coordinator shortcuts">
+                <a asp-page="/Coordinator/Index">Home</a>
+                <a asp-page="/Coordinator/Work/Index">Work</a>
+                <a asp-page="/Coordinator/Schedule/Index">Schedule</a>
+            </div>
+            <details class="nav-more">
+                <summary aria-label="More coordinator pages">More</summary>
+                <div class="nav-more-links">
+                    <a asp-page="/Coordinator/Recurring/Index">Recurring</a>
+                    <a asp-page="/Coordinator/Requests/Index">Requests</a>
+                    <a asp-page="/Coordinator/Coverage/Index">Coverage</a>
+                    <a asp-page="/Coordinator/Messages">Messages</a>
+                    <a asp-page="/Coordinator/Audit/Index">History</a>
+                    <a asp-page="/Coordinator/Access">Access</a>
+                    <a asp-page="/Coordinator/Settings">Settings</a>
+                    <a asp-page="/Coordinator/Privacy/Index">Privacy removal</a>
+                    <a asp-page="/Shifts/Index">Open shifts</a>
+                    <form method="post" asp-page="/Account/Logout"><button type="submit" class="nav-button">Sign out</button></form>
+                </div>
+            </details>
         }
         else
         {
             <a class="brand" asp-page="/Shifts/Index">Volunteer Coordinator</a>
+            <div class="nav-primary"><a asp-page="/Shifts/Index">Open shifts</a></div>
+            <details class="nav-more">
+                <summary aria-label="More pages">More</summary>
+                <div class="nav-more-links">
+                    <a asp-page="/Privacy">Privacy</a>
+                    @if (User.Identity?.IsAuthenticated == true)
+                    {
+                        <form method="post" asp-page="/Account/Logout"><button type="submit" class="nav-button">Sign out</button></form>
+                    }
+                    else
+                    {
+                        <a asp-page="/Account/Login">Coordinator sign in</a>
+                    }
+                </div>
+            </details>
         }
-        <div class="nav-links">
-            @if (canAccessCoordinator)
-            {
-                <a asp-page="/Coordinator">Home</a>
-                <a asp-page="/Coordinator/Work">Work</a>
-                <a asp-page="/Coordinator/Schedule/Index">Schedule</a>
-                <a asp-page="/Coordinator/Recurring/Index">Recurring</a>
-                <a asp-page="/Coordinator/Requests/Index">Requests</a>
-                <a asp-page="/Coordinator/Coverage/Index">Coverage</a>
-                <a asp-page="/Coordinator/Messages">Messages</a>
-                <a asp-page="/Coordinator/Audit/Index">History</a>
-                <a asp-page="/Coordinator/Access">Access</a>
-                <a asp-page="/Coordinator/Settings">Settings</a>
-                <a asp-page="/Coordinator/Privacy/Index">Privacy removal</a>
-            }
-            else
-            {
-                <a asp-page="/Shifts/Index">Open shifts</a>
-                <a asp-page="/Privacy">Privacy</a>
-            }
-            @if (User.Identity?.IsAuthenticated == true)
-            {
-                <form method="post" asp-page="/Account/Logout" class="inline"><button type="submit" class="nav-button">Sign out</button></form>
-            }
-            else
-            {
-                <a asp-page="/Account/Login">Coordinator sign in</a>
-            }
-        </div>
     </nav>
 </header>
 <main id="main-content" class="container">

@@ -10,21 +10,21 @@
 }
 @if (Model.Hub is not null)
 {
+    var statusLabel = Model.Hub.Status switch
+    {
+        "Pending coordinator review" => "Waiting for coordinator review",
+        "AwaitingConfirmation" => "Waiting for your confirmation",
+        "Active" => "Confirmed and active",
+        "Withdrawn" => "Withdrawn",
+        "Completed" => "Completed",
+        _ => "Status unavailable"
+    };
     <article class="card">
         <h2>@Model.Hub.Title</h2>
-        <p><strong>Status:</strong> @Model.Hub.Status</p>
+        <p><strong>Status:</strong> @statusLabel</p>
         <p>@Model.Hub.StatusMessage</p>
         <p><strong>Role:</strong> @(Model.Hub.Dates.FirstOrDefault()?.RoleLabel ?? "Selected role")</p>
         <p><strong>Range:</strong> @Model.Hub.EffectiveLocalDate.ToString("MMMM d, yyyy") through @Model.Hub.EndLocalDate.ToString("MMMM d, yyyy")</p>
-        <section aria-labelledby="recurring-dates-heading">
-            <h3 id="recurring-dates-heading">Included and unavailable occurrences</h3>
-            <ol class="preview-slots">
-            @foreach (var date in Model.Hub.Dates)
-            {
-                <li><strong>@date.LocalDate.ToString("dddd, MMMM d, yyyy")</strong><span>@date.State</span>@if (date.Reason is not null) { <span>@date.Reason</span> }</li>
-            }
-            </ol>
-        </section>
         @if (Model.Hub.CanConfirm)
         {
             <form method="post" asp-page-handler="Confirm" class="actions">
@@ -38,7 +38,7 @@
                     <legend>Withdraw from a future occurrence</legend>
                     <label asp-for="EffectiveLocalDate">Withdraw starting on</label>
                     <select asp-for="EffectiveLocalDate">
-                    @foreach (var date in Model.Hub.WithdrawalDates)
+                    @foreach (var date in Model.Hub.WithdrawalDates.OrderBy(x => x))
                     {
                         <option value="@date.ToString("yyyy-MM-dd")">@date.ToString("dddd, MMMM d, yyyy")</option>
                     }
@@ -48,5 +48,14 @@
                 </fieldset>
             </form>
         }
+        <section aria-labelledby="recurring-dates-heading">
+            <h3 id="recurring-dates-heading">Included and unavailable occurrences</h3>
+            <ol class="preview-slots">
+            @foreach (var date in Model.Hub.Dates.OrderBy(x => x.LocalDate))
+            {
+                <li><strong>@date.LocalDate.ToString("dddd, MMMM d, yyyy")</strong><span>@date.State</span>@if (date.Reason is not null) { <span>@date.Reason</span> }</li>
+            }
+            </ol>
+        </section>
     </article>
 }

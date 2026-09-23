@@ -72,7 +72,7 @@ public sealed class IndexModel : PageModel
         Items = page.Items
             .Select(item => new CoordinatorWorkItemViewModel(
                 item,
-                _routeProtector.Protect(item.RouteKind, item.RouteId)))
+                _routeProtector.Protect(item.Category == "zone-review" ? "recurring-zone" : item.RouteKind, item.RouteId)))
             .ToArray();
         HasNextPage = page.HasNextPage;
         HasPreviousPage = page.HasPreviousPage;

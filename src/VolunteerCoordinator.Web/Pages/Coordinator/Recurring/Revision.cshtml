@@ -44,7 +44,7 @@
         <label class="choice-card"><input asp-for="SignupPolicy" type="radio" value="ApprovalRequired"> <strong>Approval required (safer default)</strong> — A coordinator reviews each request.</label>
         <label class="choice-card"><input asp-for="SignupPolicy" type="radio" value="DirectClaim"> <strong>Direct claim (lower maintenance)</strong> — The first eligible volunteer is confirmed immediately.</label>
     </fieldset>
-    <div class="actions"><button type="submit" name="handler" value="Preview">Preview affected occurrences</button><button type="submit" name="handler" value="Apply">Save effective revision</button><a class="button button-secondary" asp-page="/Coordinator/Recurring/Detail" asp-route-id="@Model.SeriesId">Back without changes</a></div>
+    <div class="actions"><button type="submit" asp-page-handler="Preview">Preview affected occurrences</button><button type="submit" asp-page-handler="Apply">Save effective revision</button><a class="button button-secondary" asp-page="/Coordinator/Recurring/Detail" asp-route-id="@Model.SeriesId">Back without changes</a></div>
 @if (Model.Preview is not null)
 {
     <section class="card" aria-labelledby="revision-preview-heading">

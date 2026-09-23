@@ -17,18 +17,19 @@ public sealed class GoModel : PageModel
     {
         if (!_routeProtector.TryUnprotect(token, out var kind, out var id))
         {
-            return RedirectToPage("/Coordinator/Work");
+            return RedirectToPage("/Coordinator/Work/Index");
         }
 
         return kind switch
         {
-            "request" => RedirectToPage("/Coordinator/Requests/Index", new { attention = "pending" }),
-            "coverage" => RedirectToPage("/Coordinator/Coverage/Index", new { attention = "uncovered" }),
+            "request" => Redirect($"{Url.Page("/Coordinator/Requests/Index", new { attention = "pending" })}#request-{id:N}"),
+            "coverage" => RedirectToPage("/Coordinator/Assignments/Assign", new { slotId = id }),
             "coverage-unconfirmed" => RedirectToPage("/Coordinator/Coverage/Index", new { attention = "unconfirmed" }),
             "messages" => RedirectToPage("/Coordinator/Messages", new { attention = "message" }),
             "recurring" => RedirectToPage("/Coordinator/Recurring/Occurrence", new { id }),
+            "recurring-zone" => RedirectToPage("/Coordinator/Recurring/Zone", new { id }),
             "handoff" => RedirectToPage("/Coordinator/Recurring/Handoff", new { id }),
-            _ => RedirectToPage("/Coordinator/Work")
+            _ => RedirectToPage("/Coordinator/Work/Index")
         };
     }
 }

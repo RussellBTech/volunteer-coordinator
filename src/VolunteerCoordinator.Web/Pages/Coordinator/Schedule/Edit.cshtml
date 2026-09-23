@@ -68,7 +68,7 @@
         </fieldset>
     }
     <div class="form-group"><label asp-for="BackupSlotCount">Backup slots</label><select asp-for="BackupSlotCount"><option value="0">0</option><option value="1">1</option><option value="2">2</option></select><span asp-validation-for="BackupSlotCount"></span></div>
-    <div class="actions"><button type="submit" name="handler" value="PreviewPolicy">Preview policy consequence</button><button type="submit">Save corrections</button><a class="button button-secondary" asp-page="/Coordinator/Schedule/Index">Cancel</a></div>
+    <div class="actions"><button type="submit" asp-page-handler="PreviewPolicy">Preview policy consequence</button><button type="submit" asp-page-handler="">Save corrections</button><a class="button button-secondary" asp-page="/Coordinator/Schedule/Index">Cancel</a></div>
 @if (Model.PolicyPreview is not null)
 {
     <section class="card preview-details" aria-labelledby="policy-preview-heading">

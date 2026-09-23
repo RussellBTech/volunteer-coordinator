@@ -1,5 +1,6 @@
 @page "/Coordinator/Requests"
 @using VolunteerCoordinator.Web.Presentation
+@using VolunteerCoordinator.Domain.Schedules
 @model VolunteerCoordinator.Web.Pages.Coordinator.Requests.IndexModel
 @inject GroupTimeFormatter Formatter
 @{
@@ -23,7 +24,7 @@
         <p class="eyebrow">No matching work</p>
         <h2>@(Model.IsFiltered ? "No requests need review" : "No volunteer requests")</h2>
         <p>@(Model.IsFiltered ? "Every current and future request is resolved or already assigned." : "Requests will appear here after published openings are requested.")</p>
-        <a class="button button-secondary" asp-page="/Coordinator">Back to coordinator home</a>
+        <a class="button button-secondary" asp-page="/Coordinator/Index">Back to coordinator home</a>
     </div>
 }
 else
@@ -34,11 +35,22 @@ else
 <tbody>
 @foreach (var request in Model.Requests)
 {
-<tr>
+<tr id="request-@request.RequestId.ToString("N")">
 <td data-label="Volunteer">@request.VolunteerName<br><small>@request.VolunteerEmail</small></td>
-<td data-label="Commitment"><partial name="_CommitmentDetails" model="request.Commitment" /></td>
+<td data-label="Commitment">
+    <div class="commitment-summary">
+        <strong>@request.Commitment.ShiftTitle</strong>
+        <time datetime="@Formatter.UtcDateTime(request.Commitment.StartsAtUtc)">@Formatter.FormatLocal(request.Commitment.StartsAtUtc, request.Commitment.GroupTimeZoneId)</time>
+        <span>@request.Commitment.SlotLabel</span>
+        <details class="supporting-details">
+            <summary>Full commitment details</summary>
+            <partial name="_CommitmentDetails" model="request.Commitment" />
+        </details>
+    </div>
+</td>
 <td data-label="Requested"><time datetime="@Formatter.UtcDateTime(request.RequestedAtUtc)">@Formatter.FormatLocal(request.RequestedAtUtc, request.Commitment.GroupTimeZoneId)</time></td>
 <td data-label="Request status"><span class="status-chip status-chip-@request.Status.ToLowerInvariant()">@(request.Status switch { "Pending" => "Request to review", "Approved" => "Approved", "Rejected" => "Declined", "Superseded" => "Resolved", _ => "Resolved" })</span></td>
+<td data-label="Commitment state">@(request.SlotState switch { "Unconfirmed" => "Waiting for confirmation", "Available" => "Open", "Confirmed" => "Confirmed", "Inactive" or "Ended" => "Resolved", _ => "Status unavailable" })</td>
 <td data-label="Next action">
 @if (request.Status == "Pending")
 {
@@ -47,7 +59,7 @@ else
 {
 <form method="post" asp-page-handler="Approve" class="inline"><input type="hidden" name="id" value="@request.RequestId"><button type="submit">Approve and assign</button></form>
 }
-<form method="post" asp-page-handler="Reject" class="inline"><input type="hidden" name="id" value="@request.RequestId"><button type="submit" class="button-danger">Decline request</button></form>
+<form method="post" asp-page-handler="Reject" class="inline"><input type="hidden" name="id" value="@request.RequestId"><button type="submit" class="text-button danger-link">Decline request</button></form>
 </div>
 }
 else { <span>No action needed</span> }
@@ -68,17 +80,17 @@ else { <span>No action needed</span> }
                 <tbody>
                 @foreach (var request in Model.RecurringRequests)
                 {
-                    <tr>
+                    <tr id="request-@request.RequestId.ToString("N")">
                         <td data-label="Volunteer">@request.VolunteerName<br><small>@request.VolunteerEmail</small></td>
                         <td data-label="Recurring commitment">@request.Title<br><small>@request.RoleLabel</small></td>
                         <td data-label="Range">@request.EffectiveLocalDate.ToString("MMMM d, yyyy") through @request.EndLocalDate.ToString("MMMM d, yyyy")</td>
-                        <td data-label="Policy">@request.SourcePolicy</td>
+                        <td data-label="Policy">@(request.SourcePolicy == SignupPolicy.DirectClaim ? "Direct claim" : "Coordinator review")</td>
                         <td data-label="Dates">@request.IncludedCount included, @request.SkippedCount unavailable</td>
                         <td data-label="Next action">
                             @if (request.CanApprove)
                             {
                                 <form method="post" asp-page-handler="ApproveRecurring" class="inline"><input type="hidden" name="id" value="@request.RequestId"><button type="submit">Approve recurring request</button></form>
-                                <form method="post" asp-page-handler="RejectRecurring" class="inline"><input type="hidden" name="id" value="@request.RequestId"><button type="submit" class="button-danger">Decline recurring request</button></form>
+                                <form method="post" asp-page-handler="RejectRecurring" class="inline"><input type="hidden" name="id" value="@request.RequestId"><button type="submit" class="text-button danger-link">Decline recurring request</button></form>
                             }
                             else if (request.RecurringCommitmentId is Guid commitmentId)
                             {

@@ -1,5 +1,7 @@
 @page "/Coordinator/Coverage"
+@using VolunteerCoordinator.Web.Presentation
 @model VolunteerCoordinator.Web.Pages.Coordinator.Coverage.IndexModel
+@inject GroupTimeFormatter Formatter
 @{
     ViewData["Title"] = "Coverage";
     var heading = Model.AppliedAttention switch
@@ -27,7 +29,7 @@
         <p class="eyebrow">No matching work</p>
         <h2>@(Model.AppliedAttention is null ? "No published upcoming commitments" : "Nothing needs attention here")</h2>
         <p>@(Model.AppliedAttention is null ? "Create and publish schedule entries to monitor coverage." : "This attention category is clear.")</p>
-        <a class="button button-secondary" asp-page="/Coordinator">Back to coordinator home</a>
+        <a class="button button-secondary" asp-page="/Coordinator/Index">Back to coordinator home</a>
     </div>
 }
 else
@@ -39,16 +41,26 @@ else
 @foreach (var item in Model.Coverage)
 {
 <tr>
-<td data-label="Commitment"><partial name="_CommitmentDetails" model="item.Commitment" /></td>
+<td data-label="Commitment">
+    <div class="commitment-summary">
+        <strong>@item.Commitment.ShiftTitle</strong>
+        <time datetime="@Formatter.UtcDateTime(item.Commitment.StartsAtUtc)">@Formatter.FormatLocal(item.Commitment.StartsAtUtc, item.Commitment.GroupTimeZoneId)</time>
+        <span>@item.Commitment.SlotLabel</span>
+        <details class="supporting-details">
+            <summary>Full commitment details</summary>
+            <partial name="_CommitmentDetails" model="item.Commitment" />
+        </details>
+    </div>
+</td>
 <td data-label="Coverage state"><span class="status-chip status-chip-@item.State.ToLowerInvariant()">@(item.State switch { "Unconfirmed" => "Waiting for confirmation", "Uncovered" => "Open", _ => "Confirmed" })</span></td>
 <td data-label="Volunteer">@(item.VolunteerName ?? "No volunteer assigned") @if (item.VolunteerEmail is not null) { <small>@item.VolunteerEmail</small> }</td>
 <td data-label="Next action">
     <div class="actions">
-        <a class="button button-secondary" asp-page="/Coordinator/Assignments/Assign" asp-route-slotId="@item.SlotId">@(item.AssignmentId.HasValue ? "Replace volunteer" : "Assign volunteer")</a>
+        <a class="button" asp-page="/Coordinator/Assignments/Assign" asp-route-slotId="@item.SlotId">@(item.AssignmentId.HasValue ? "Replace volunteer" : "Assign volunteer")</a>
         @if (item.AssignmentId is Guid assignmentId)
         {
-            <a class="button button-secondary" asp-page="/Coordinator/Assignments/Access" asp-route-assignmentId="@assignmentId">Manage volunteer access</a>
-            <a class="button button-danger" asp-page="/Coordinator/Assignments/Cancel" asp-route-assignmentId="@assignmentId">Review cancellation</a>
+            <a class="text-link" asp-page="/Coordinator/Assignments/Access" asp-route-assignmentId="@assignmentId">Manage volunteer access</a>
+            <a class="text-link danger-link" asp-page="/Coordinator/Assignments/Cancel" asp-route-assignmentId="@assignmentId">Review cancellation</a>
         }
     </div>
     @if (item.Access is not null)

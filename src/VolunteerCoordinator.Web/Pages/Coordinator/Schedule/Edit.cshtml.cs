@@ -94,6 +94,9 @@ public sealed class EditModel : PageModel
         Location = shift.Location;
         Notes = shift.InternalCoordinatorNotes;
         Commitment = shift.Commitment;
+        VolunteerInstructions = shift.Commitment.VolunteerInstructions;
+        StartsAtLocal = TimeZoneInfo.ConvertTime(shift.Commitment.StartsAtUtc, zone).DateTime;
+        EndsAtLocal = TimeZoneInfo.ConvertTime(shift.Commitment.EndsAtUtc, zone).DateTime;
         BackupSlotCount = shift.Slots.Count(x => x.Kind == "Backup" && x.Status != "Inactive");
         SignupPolicy = shift.Commitment.SignupPolicy;
         ExpectedCurrentPolicy = shift.Commitment.SignupPolicy;
@@ -125,6 +128,8 @@ public sealed class EditModel : PageModel
                 SignupPolicy,
                 cancellationToken);
             ExpectedPolicyConsequence = PolicyPreview.Consequence;
+            ModelState.Remove(nameof(ExpectedCurrentPolicy));
+            ModelState.Remove(nameof(ExpectedPolicyConsequence));
         }
         catch (DomainException exception)
         {

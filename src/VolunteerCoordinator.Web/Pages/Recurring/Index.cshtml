@@ -1,6 +1,8 @@
 @page "/Recurring/{seriesId:guid}"
 @using VolunteerCoordinator.Domain.Schedules
+@using VolunteerCoordinator.Web.Presentation
 @model VolunteerCoordinator.Web.Pages.Recurring.IndexModel
+@inject GroupTimeFormatter Formatter
 @{
     ViewData["Title"] = "Serve regularly";
 }
@@ -18,8 +20,8 @@ else
         </div>
     </header>
     <div class="card">
-        <p><strong>@Model.Series.Series.SignupPolicy</strong> — @(Model.Series.Series.SignupPolicy == SignupPolicy.DirectClaim ? "The first eligible volunteer is confirmed immediately." : "A coordinator reviews each recurring request before assignment.")</p>
-        <p class="field-help">Series time zone: @Model.Series.Series.TimeZoneId. Future schedule corrections require a coordinator handoff; they do not silently move your commitment.</p>
+        <p><strong>@(Model.Series.Series.SignupPolicy == SignupPolicy.DirectClaim ? "Direct claim" : "Coordinator review")</strong> — @(Model.Series.Series.SignupPolicy == SignupPolicy.DirectClaim ? "The first eligible volunteer is confirmed immediately." : "A coordinator reviews each recurring request before assignment.")</p>
+        <p class="field-help">Series time zone: @Formatter.FriendlyTimeZone(Model.Series.Series.TimeZoneId). Future schedule corrections require a coordinator handoff; they do not silently move your commitment.</p>
     </div>
     <form method="post" class="form-panel">
         <input asp-for="ExpectedSeriesVersion" type="hidden">
@@ -28,7 +30,7 @@ else
             <legend>1. Choose your role</legend>
             <label><input asp-for="RoleKind" type="radio" value="Primary"> Primary</label>
             <label><input asp-for="RoleKind" type="radio" value="Backup"> Backup</label>
-            <div class="form-group"><label asp-for="RolePosition">Backup position</label><select asp-for="RolePosition"><option value="1">Backup 1</option><option value="2">Backup 2</option></select><span asp-validation-for="RolePosition"></span></div>
+            <div class="form-group backup-position"><label asp-for="RolePosition">Backup position (only for Backup)</label><select asp-for="RolePosition"><option value="1">Backup 1</option><option value="2">Backup 2</option></select><span asp-validation-for="RolePosition"></span></div>
         </fieldset>
         <fieldset class="form-group">
             <legend>2. Choose the cadence range</legend>
@@ -42,25 +44,29 @@ else
             <div class="form-group"><label asp-for="Phone">Phone (optional)</label><input asp-for="Phone" autocomplete="tel"><span asp-validation-for="Phone"></span></div>
             <partial name="_VolunteerPrivacyNotice" />
         </fieldset>
+        @if (Model.Preview is not null)
+        {
+            <section class="card preview-details" aria-labelledby="recurring-commitment-preview">
+                <h2 id="recurring-commitment-preview">4. Exact dates before submission</h2>
+                <p>@Model.Preview.IncludedCount included date(s), @Model.Preview.SkippedCount unavailable date(s). Unavailable dates are never overwritten.</p>
+                <ol class="preview-slots">
+                @foreach (var date in Model.Preview.Dates)
+                {
+                    <li><strong>@date.LocalDate.ToString("dddd, MMMM d, yyyy")</strong><span>@date.RoleLabel</span><span>@date.State</span>@if (date.Reason is not null) { <span>@date.Reason</span> }</li>
+                }
+                </ol>
+            </section>
+        }
         <div class="actions">
-            <button type="submit" asp-page-handler="Preview">Review exact dates</button>
             @if (Model.Preview is not null)
             {
                 <button type="submit" asp-page-handler="Submit">@(Model.Preview.SignupPolicy == SignupPolicy.DirectClaim ? "Claim recurring commitment" : "Send recurring request")</button>
+                <button type="submit" class="button-secondary" asp-page-handler="Preview">Review updated dates</button>
+            }
+            else
+            {
+                <button type="submit" asp-page-handler="Preview">Review exact dates</button>
             }
         </div>
     </form>
-    @if (Model.Preview is not null)
-    {
-        <section class="card preview-details" aria-labelledby="recurring-commitment-preview">
-            <h2 id="recurring-commitment-preview">4. Exact dates before submission</h2>
-            <p>@Model.Preview.IncludedCount included date(s), @Model.Preview.SkippedCount unavailable date(s). Unavailable dates are never overwritten.</p>
-            <ol class="preview-slots">
-            @foreach (var date in Model.Preview.Dates)
-            {
-                <li><strong>@date.LocalDate.ToString("dddd, MMMM d, yyyy")</strong><span>@date.RoleLabel</span><span>@date.State</span>@if (date.Reason is not null) { <span>@date.Reason</span> }</li>
-            }
-            </ol>
-        </section>
-    }
 }

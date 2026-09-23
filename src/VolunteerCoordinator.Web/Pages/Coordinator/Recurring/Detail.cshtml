@@ -1,5 +1,7 @@
 @page "/Coordinator/Recurring/Detail/{id:guid}"
+@using VolunteerCoordinator.Web.Presentation
 @model VolunteerCoordinator.Web.Pages.Coordinator.Recurring.DetailModel
+@inject GroupTimeFormatter Formatter
 @{
     ViewData["Title"] = "Recurring schedule review";
 }
@@ -9,8 +11,8 @@
         <div>
             <p class="eyebrow">Recurring schedule review</p>
             <h1 tabindex="-1">@Model.Detail.Series.Title</h1>
-            <p class="lead">@Model.Detail.Series.RecurrenceDescription in @Model.Detail.Series.TimeZoneId. Concrete occurrences remain independent shifts.</p>
-            <p><strong>Signup policy:</strong> @Model.Detail.Series.SignupPolicy — @(Model.Detail.Series.SignupPolicy == VolunteerCoordinator.Domain.Schedules.SignupPolicy.DirectClaim ? "First eligible volunteer is confirmed immediately." : "A coordinator reviews each request.")</p>
+            <p class="lead">@Model.Detail.Series.RecurrenceDescription in @Formatter.FriendlyTimeZone(Model.Detail.Series.TimeZoneId). Concrete occurrences remain independent shifts.</p>
+            <p><strong>Signup policy:</strong> @(Model.Detail.Series.SignupPolicy == VolunteerCoordinator.Domain.Schedules.SignupPolicy.DirectClaim ? "Direct claim" : "Coordinator review") — @(Model.Detail.Series.SignupPolicy == VolunteerCoordinator.Domain.Schedules.SignupPolicy.DirectClaim ? "First eligible volunteer is confirmed immediately." : "A coordinator reviews each request.")</p>
         </div>
         <div class="actions">
             <a class="button button-secondary" asp-page="/Coordinator/Recurring/Revision" asp-route-id="@Model.Detail.Series.Id">Change this and following</a>
